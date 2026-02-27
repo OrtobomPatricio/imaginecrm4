@@ -4,7 +4,7 @@ import { whatsappConnections, whatsappNumbers } from "../../drizzle/schema";
 import { eq, and } from "drizzle-orm";
 import { BaileysService } from "./baileys";
 
-import { logger } from "../_core/logger";
+import { logger, safeError } from "../_core/logger";
 
 export async function startWhatsAppSessions() {
     logger.info("[WhatsAppSession] Checking for active sessions to restore...");
@@ -71,7 +71,7 @@ export async function startWhatsAppSessions() {
                     }
                 );
             } catch (err) {
-                logger.error(`[WhatsAppSession] Failed to restore session ${conn.whatsappNumberId}:`, err);
+                logger.error({ err: safeError(err), whatsappNumberId: conn.whatsappNumberId }, `[WhatsAppSession] Failed to restore session ${conn.whatsappNumberId}`);
                 const db = await getDb();
                 if (db) {
                     await db.update(whatsappConnections).set({ isConnected: false }).where(eq(whatsappConnections.id, conn.id));
@@ -79,6 +79,6 @@ export async function startWhatsAppSessions() {
             }
         }
     } catch (error) {
-        logger.error("[WhatsAppSession] Error finding sessions:", error);
+        logger.error({ err: safeError(error) }, "[WhatsAppSession] Error finding sessions");
     }
 }

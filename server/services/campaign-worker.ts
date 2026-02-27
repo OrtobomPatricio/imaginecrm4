@@ -8,7 +8,7 @@ import { sendEmail } from "../_core/email";
 import { decryptSecret } from "../_core/crypto";
 import { dispatchIntegrationEvent } from "../_core/integrationDispatch";
 
-import { logger } from "../_core/logger";
+import { logger, safeError } from "../_core/logger";
 
 // Concurrency limit per tick
 const BATCH_SIZE = 50;
@@ -22,7 +22,7 @@ export function startCampaignWorker() {
             await processScheduledCampaigns();
             await processRunningCampaigns();
         } catch (err) {
-            logger.error("[CampaignWorker] Error in cron job:", err);
+            logger.error({ err: safeError(err) }, "[CampaignWorker] Error in cron job");
         }
     });
 }
@@ -226,7 +226,7 @@ async function processEmailCampaignBatch(campaign: typeof campaigns.$inferSelect
                 .where(eq(campaigns.id, campaign.id));
 
         } catch (error: any) {
-            logger.error(`[CampaignWorker] Failed to email recipient ${recipient.id}:`, error.message);
+            logger.error({ err: safeError(error), recipientId: recipient.id }, `[CampaignWorker] Failed to email recipient ${recipient.id}`);
             await updateRecipientStatus(db, recipient.id, "failed", error.message);
             await db.update(campaigns)
                 .set({ messagesFailed: sql`${campaigns.messagesFailed} + 1` })
@@ -358,7 +358,7 @@ async function processWhatsAppCampaignBatch(campaign: typeof campaigns.$inferSel
                 .where(eq(campaigns.id, campaign.id));
 
         } catch (error: any) {
-            logger.error(`[CampaignWorker] Failed to send to recipient ${recipient.id}:`, error.message);
+            logger.error({ err: safeError(error), recipientId: recipient.id }, `[CampaignWorker] Failed to send to recipient ${recipient.id}`);
             await updateRecipientStatus(db, recipient.id, "failed", error.message);
             await db.update(campaigns)
                 .set({ messagesFailed: sql`${campaigns.messagesFailed} + 1` })

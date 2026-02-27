@@ -12,7 +12,7 @@ import { workflowJobs, workflows } from "../../drizzle/schema";
 import { and, eq, lte } from "drizzle-orm";
 import { _executeWorkflowInstance } from "./workflow-engine";
 
-import { logger } from "../_core/logger";
+import { logger, safeError } from "../_core/logger";
 
 const POLL_INTERVAL_MS = 10000; // Revisar cada 10 segundos
 
@@ -31,7 +31,7 @@ export function startWorkflowPoller() {
         try {
             await pollPendingJobs();
         } catch (err) {
-            logger.error("[WorkflowPoller] Error crítico en el ciclo:", err);
+            logger.error({ err: safeError(err) }, "[WorkflowPoller] Error crítico en el ciclo");
         } finally {
             isPolling = false;
         }
@@ -113,7 +113,7 @@ async function pollPendingJobs() {
             );
 
         } catch (err: any) {
-            logger.error(`[WorkflowPoller] Error al reanudar Job #${job.id}:`, err);
+            logger.error({ err: safeError(err), jobId: job.id }, `[WorkflowPoller] Error al reanudar Job #${job.id}`);
             // Actualizar a failed
             await db.update(workflowJobs)
                 .set({ status: "failed", errorMessage: err?.message ?? "unknown error" })
