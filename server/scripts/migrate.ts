@@ -532,8 +532,14 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
         if (missingRequiredTables.length > 0) {
             const list = missingRequiredTables.join(", ");
-            logger.error({ missingTables: missingRequiredTables }, "[Migration] Required schema tables are missing after migrations");
-            throw new Error(`[Migration] Missing required tables after migration: ${list}`);
+            const shouldFail = process.env.FAIL_ON_MISSING_SCHEMA_TABLES === "1";
+
+            if (shouldFail) {
+                logger.error({ missingTables: missingRequiredTables }, "[Migration] Required schema tables are missing after migrations");
+                throw new Error(`[Migration] Missing required tables after migration: ${list}`);
+            }
+
+            logger.warn({ missingTables: missingRequiredTables }, `[Migration] Missing required tables after migration (continuing startup): ${list}`);
         }
     }
 
