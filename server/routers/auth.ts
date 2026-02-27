@@ -118,7 +118,13 @@ export const authRouter = router({
 
             // SECURITY FIX (MT-01): Resolve tenantId from request context
             // to prevent cross-tenant user enumeration and login attacks.
-            const tenantId = await resolveTenantFromRequest(ctx.req);
+            let tenantId: number | null = null;
+            try {
+                tenantId = await resolveTenantFromRequest(ctx.req);
+            } catch (e) {
+                logger.error({ err: e, email: input.email, ip }, "[Auth] Tenant resolution failed, falling back to platform tenant");
+                tenantId = null;
+            }
 
             let user;
             if (tenantId) {
