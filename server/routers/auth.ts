@@ -35,13 +35,28 @@ async function resolveTenantFromRequest(req: any): Promise<number | null> {
 
     // 2. Try subdomain extraction from Host header
     if (!slug) {
-        const host = req.headers?.host || "";
-        const parts = host.split(".");
-        // e.g. acme.imaginecrm.com -> parts = ["acme", "imaginecrm", "com"]
-        if (parts.length >= 3) {
-            const candidate = parts[0].toLowerCase();
-            if (candidate !== "www" && candidate !== "app" && candidate !== "api") {
-                slug = candidate;
+        const hostHeader = String(req.headers?.host || "").toLowerCase();
+        const host = hostHeader.split(":")[0];
+        const configuredBaseDomain = String(process.env.TENANT_BASE_DOMAIN || "").trim().toLowerCase();
+
+        if (configuredBaseDomain && host.endsWith(configuredBaseDomain)) {
+            if (host !== configuredBaseDomain) {
+                const suffix = `.${configuredBaseDomain}`;
+                const candidate = host.endsWith(suffix)
+                    ? host.slice(0, -suffix.length)
+                    : "";
+                if (candidate && !candidate.includes(".") && candidate !== "www" && candidate !== "app" && candidate !== "api") {
+                    slug = candidate;
+                }
+            }
+        } else {
+            const parts = host.split(".").filter(Boolean);
+            // Legacy heuristic only for simple domains (e.g. acme.imaginecrm.com)
+            if (parts.length === 3) {
+                const candidate = parts[0].toLowerCase();
+                if (candidate !== "www" && candidate !== "app" && candidate !== "api") {
+                    slug = candidate;
+                }
             }
         }
     }
@@ -106,9 +121,11 @@ export const authRouter = router({
             const db = await getDb();
             if (!db) return { success: false, error: "Database not available" };
 
+            const normalizedEmail = input.email.trim().toLowerCase();
+
             // Rate limiting por email e IP
             const ip = getClientIp(ctx.req);
-            const rateLimitKey = `${input.email}:${ip}`;
+            const rateLimitKey = `${normalizedEmail}:${ip}`;
 
             try {
                 await authRateLimit(rateLimitKey);
@@ -122,7 +139,7 @@ export const authRouter = router({
             try {
                 tenantId = await resolveTenantFromRequest(ctx.req);
             } catch (e) {
-                logger.error({ err: e, email: input.email, ip }, "[Auth] Tenant resolution failed, falling back to platform tenant");
+                logger.error({ err: e, email: normalizedEmail, ip }, "[Auth] Tenant resolution failed, falling back to platform tenant");
                 tenantId = null;
             }
 
@@ -130,15 +147,15 @@ export const authRouter = router({
             if (tenantId) {
                 // Tenant-scoped login: only find users within this tenant
                 user = await db.select().from(users)
-                    .where(and(eq(users.email, input.email), eq(users.tenantId, tenantId)))
+                    .where(and(eq(users.email, normalizedEmail), eq(users.tenantId, tenantId)))
                     .limit(1);
             } else {
                 // Platform-level login (superadmin or single-tenant dev mode)
                 // Only allow for tenantId=1 (platform tenant) as fallback
                 user = await db.select().from(users)
-                    .where(and(eq(users.email, input.email), eq(users.tenantId, 1)))
+                    .where(and(eq(users.email, normalizedEmail), eq(users.tenantId, 1)))
                     .limit(1);
-                logger.warn({ email: input.email, ip }, "[Auth] Login without tenant context — restricted to platform tenant");
+                logger.warn({ email: normalizedEmail, ip }, "[Auth] Login without tenant context — restricted to platform tenant");
             }
 
             if (!user[0] || !user[0].password) {

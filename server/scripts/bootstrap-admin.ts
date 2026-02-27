@@ -11,7 +11,7 @@ async function main() {
     const db = await getDb();
     if (!db) throw new Error("DB not available");
 
-    const email = process.env.BOOTSTRAP_ADMIN_EMAIL;
+    const email = String(process.env.BOOTSTRAP_ADMIN_EMAIL || "").trim().toLowerCase();
     const pass = process.env.BOOTSTRAP_ADMIN_PASSWORD;
     const tenantId = Number(process.env.BOOTSTRAP_ADMIN_TENANT_ID ?? "1");
     if (!email || !pass) throw new Error("Set BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD");
