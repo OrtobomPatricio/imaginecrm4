@@ -1,0 +1,8 @@
+
+> chin-crm@1.0.0 check C:\Users\Hp\Desktop\imaginecrm-codex-conduct-complete-project-audit
+> tsc --noEmit
+
+"tsc" no se reconoce como un comando interno o externo,
+programa o archivo por lotes ejecutable.
+ ELIFECYCLE  Command failed with exit code 1.
+ WARN   Local package.json exists, but node_modules missing, did you mean to install?

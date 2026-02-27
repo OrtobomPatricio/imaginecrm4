@@ -1,0 +1,21 @@
+{
+    # Email para certificados SSL de Let's Encrypt
+    acme_ca https://acme-v02.api.letsencrypt.org/directory
+    email youremail@example.com
+}
+
+# Dominio principal (landing page, login, signup)
+{$APP_DOMAIN} {
+    reverse_proxy app:3000
+    tls {
+        dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+    }
+}
+
+# Subdominios wildcard para los tenants
+*.{$APP_DOMAIN} {
+    reverse_proxy app:3000
+    tls {
+        dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+    }
+}

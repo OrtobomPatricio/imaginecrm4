@@ -1,0 +1,9 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allow local example placeholders"
+paths = [
+  '''\.env\.example$''',
+  '''\.env\.production\.example$'''
+]

@@ -1,0 +1,203 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ===== JOB 1: Test & Build =====
+  test:
+    name: Test & Build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10.4.1
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+      
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      
+      - name: TypeScript type check
+        run: pnpm check
+      
+      - name: Run tests
+        run: pnpm test
+      
+      - name: Validate production config contract
+        run: pnpm validate:prod-config
+        env:
+          JWT_SECRET: ${{ secrets.CI_JWT_SECRET }}
+          DATA_ENCRYPTION_KEY: ${{ secrets.CI_DATA_ENCRYPTION_KEY }}
+          COOKIE_SECRET: ${{ secrets.CI_COOKIE_SECRET }}
+          DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
+          ALLOW_DEV_LOGIN: "0"
+          ENABLE_DEV_BYPASS: "0"
+          VITE_DEV_BYPASS_AUTH: "0"
+          REQUIRE_REDIS_IN_PROD: "0"
+
+      - name: Build application
+        run: pnpm build
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: dist/
+          retention-days: 7
+
+  # ===== JOB 2: Security Audit =====
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10.4.1
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+      
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      
+      - name: Run security audit
+        run: pnpm audit --audit-level moderate
+      
+      - name: Check for hardcoded secrets
+        run: |
+          echo "Scanning for hardcoded credentials..."
+          ERRORS=0
+          if grep -r "password.*=.*['\"].*['\"]" --include="*.ts" --include="*.tsx" server/ client/ | grep -v "password: \"\"" | grep -v "password: ''"; then
+            echo "❌ CRITICAL: Found potential hardcoded passwords!"
+            ERRORS=1
+          fi
+          if grep -r "secret.*=.*['\"].*['\"]" --include="*.ts" --include="*.tsx" server/ client/ | grep -v "secret: \"\"" | grep -v "secret: ''"; then
+            echo "❌ CRITICAL: Found potential hardcoded secrets!"
+            ERRORS=1
+          fi
+          [ $ERRORS -eq 0 ] || exit 1
+
+  # ===== JOB 3: Real DB parity (MySQL service) =====
+  real-db-parity:
+    name: Real DB Parity
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: chin_crm
+          MYSQL_USER: crm
+          MYSQL_PASSWORD: change_me
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10.4.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install MySQL client
+        run: sudo apt-get update && sudo apt-get install -y mysql-client
+
+      - name: Wait for MySQL
+        run: |
+          for i in {1..30}; do
+            mysqladmin ping -h 127.0.0.1 -uroot -proot && exit 0
+            sleep 2
+          done
+          echo "MySQL did not become ready in time" && exit 1
+
+      - name: Apply schema to real MySQL
+        run: pnpm db:push
+        env:
+          DATABASE_URL: mysql://crm:change_me@127.0.0.1:3306/chin_crm
+
+      - name: Run real DB parity test
+        run: pnpm test:real-db
+        env:
+          RUN_REAL_DB_PARITY: "1"
+          DATABASE_URL: mysql://crm:change_me@127.0.0.1:3306/chin_crm
+
+  # ===== JOB 4: Deploy to VPS (only on main branch) =====
+
+  deploy:
+    name: Deploy to VPS
+    needs: [test, security, real-db-parity]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            cd ${{ secrets.VPS_PROJECT_PATH }}
+            echo "🔄 Pulling latest changes..."
+            git pull origin main
+            
+            echo "🐳 Rebuilding Docker containers..."
+            docker compose -f docker-compose.prod.yml down
+            docker compose -f docker-compose.prod.yml up -d --build
+            
+            echo "⏳ Waiting for services to start..."
+            sleep 30
+            
+            echo "✅ Checking health..."
+            docker compose -f docker-compose.prod.yml ps
+            curl -f http://localhost:3000/api/health || exit 1
+            
+            echo "🎉 Deployment successful!"
+      
+      - name: Notify deployment status
+        if: always()
+        run: |
+          if [ ${{ job.status }} == 'success' ]; then
+            echo "✅ Deployment to VPS succeeded"
+          else
+            echo "❌ Deployment to VPS failed"
+          fi

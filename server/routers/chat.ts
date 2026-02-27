@@ -1,0 +1,797 @@
+import { z } from "zod";
+import { eq, desc, and, sql, or, like, asc, gt, lt, inArray } from "drizzle-orm";
+import { conversations, chatMessages, whatsappConnections, whatsappNumbers, facebookPages } from "../../drizzle/schema";
+import { getDb } from "../db";
+import { permissionProcedure, router } from "../_core/trpc";
+import { decryptSecret } from "../_core/crypto";
+import { normalizeContactPhone, toWhatsAppCloudTo } from "../_core/phone";
+import { distributeConversation } from "../services/distribution";
+import { dispatchIntegrationEvent } from "../_core/integrationDispatch";
+import { sendFacebookMessage } from "../_core/facebook";
+import { sendCloudTemplate, sendCloudMessage } from "../whatsapp/cloud";
+import { emitToConversation } from "../services/websocket";
+import { BaileysService } from "../services/baileys";
+import { TRPCError } from "@trpc/server";
+import { withTransaction } from "../_core/transactionManager";
+import path from "path";
+import fs from "fs";
+
+import { logger } from "../_core/logger";
+
+/**
+ * IDOR Protection: Validates tenant isolation and agent-level access.
+ * - Always validates tenantId (prevents cross-tenant access)
+ * - If role=agent, requires conversations.assignedToId === ctx.user.id
+ * - admin/owner/supervisor can access any conversation within their tenant
+ */
+async function assertConversationAccess(ctx: any, conversationId: number): Promise<void> {
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+
+    const conv = await db.select({
+        id: conversations.id,
+        tenantId: conversations.tenantId,
+        assignedToId: conversations.assignedToId,
+    }).from(conversations)
+        .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, ctx.tenantId)))
+        .limit(1);
+
+    if (!conv[0]) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Conversation not found" });
+    }
+
+    const userRole = (ctx.user?.role || "viewer") as string;
+    const isPrivileged = ["owner", "admin", "supervisor"].includes(userRole);
+
+    if (!isPrivileged && userRole === "agent") {
+        if (conv[0].assignedToId !== ctx.user?.id) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "No tiene acceso a esta conversación" });
+        }
+    }
+}
+
+export const chatRouter = router({
+    getOrCreateByLeadId: permissionProcedure("chat.view")
+        .input(z.object({ leadId: z.number() }))
+        .mutation(async ({ input, ctx }) => {
+            return await withTransaction(async (tx) => {
+                // 1. Try to find existing conversation by leadId
+                const existing = await tx.select()
+                    .from(conversations)
+                    .where(and(eq(conversations.tenantId, ctx.tenantId), eq(conversations.leadId, input.leadId)))
+                    .limit(1);
+
+                if (existing[0]) {
+                    return existing[0];
+                }
+
+                // 2. Fetch lead to get phone number
+                const { leads } = await import("../../drizzle/schema"); // Lazy load schema circular dependency? No, leads is in schema
+                // But we need to import leads table.
+                const lead = await tx.select().from(leads).where(and(eq(leads.tenantId, ctx.tenantId), eq(leads.id, input.leadId))).limit(1);
+                if (!lead[0]) throw new Error("Lead not found");
+
+                // 3. Try to find conversation by phone (in case it wasn't linked yet)
+                const byPhone = await tx.select()
+                    .from(conversations)
+                    .where(and(eq(conversations.tenantId, ctx.tenantId), eq(conversations.contactPhone, lead[0].phone)))
+                    .limit(1);
+
+                if (byPhone[0]) {
+                    // Link it to the lead
+                    await tx.update(conversations)
+                        .set({ leadId: input.leadId, contactName: lead[0].name })
+                        .where(and(eq(conversations.tenantId, ctx.tenantId), eq(conversations.id, byPhone[0].id)));
+                    return { ...byPhone[0], leadId: input.leadId };
+                }
+
+                // 4. Create new conversation
+                // We need a default whatsapp channel. For now picking the first connected one or null if none.
+                const channels = await tx.select().from(whatsappConnections).where(and(eq(whatsappConnections.tenantId, ctx.tenantId), eq(whatsappConnections.isConnected, true))).limit(1);
+                const defaultChannelId = channels[0]?.whatsappNumberId;
+                const defaultConnType = (channels[0]?.connectionType as any) ?? "api";
+
+                if (!defaultChannelId) throw new Error("No active WhatsApp channel found to start conversation");
+
+                const result = await tx.insert(conversations).values({
+                    tenantId: ctx.tenantId,
+                    channel: 'whatsapp',
+                    whatsappNumberId: defaultChannelId,
+                    whatsappConnectionType: defaultConnType,
+                    externalChatId: null,
+                    contactPhone: lead[0].phone,
+                    contactName: lead[0].name,
+                    leadId: input.leadId,
+                    status: 'active',
+                    unreadCount: 0,
+                    assignedToId: ctx.user?.id, // Assign to current user initially
+                });
+
+                return {
+                    id: result[0].insertId,
+                    channel: 'whatsapp',
+                    whatsappNumberId: defaultChannelId,
+                    whatsappConnectionType: defaultConnType,
+                    externalChatId: null,
+                    contactPhone: lead[0].phone,
+                    contactName: lead[0].name,
+                    leadId: input.leadId,
+                    status: 'active',
+                    unreadCount: 0,
+                    assignedToId: ctx.user?.id,
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                };
+            });
+        }),
+
+    getById: permissionProcedure("chat.view")
+        .input(z.object({ id: z.number() }))
+        .query(async ({ input, ctx }) => {
+            await assertConversationAccess(ctx, input.id);
+            const db = await getDb();
+            if (!db) return null;
+            const res = await db.select().from(conversations).where(and(eq(conversations.tenantId, ctx.tenantId), eq(conversations.id, input.id))).limit(1);
+            return res[0] || null;
+        }),
+
+    listConversations: permissionProcedure("chat.view")
+        .input(
+            z
+                .object({
+                    whatsappNumberId: z.number().optional(),
+                    search: z.string().optional(),
+                    unreadOnly: z.boolean().optional(),
+                    assignedToMe: z.boolean().optional(),
+                    sort: z.enum(["recent", "oldest", "unread"]).optional(),
+                })
+                .optional()
+        )
+        .query(async ({ input, ctx }) => {
+            try {
+                const db = await getDb();
+                if (!db) return [];
+
+                let whereClause: any = eq(conversations.tenantId, ctx.tenantId);
+                if (input?.whatsappNumberId) {
+                    whereClause = and(whereClause, eq(conversations.whatsappNumberId, input.whatsappNumberId));
+                }
+
+                // Privacy Filter: Agents only see their assigned chats
+                const userRole = (ctx.user?.role || "viewer") as string;
+                const isPrivileged = ["owner", "admin", "supervisor"].includes(userRole);
+
+                if (!isPrivileged && ctx.user && userRole === "agent") {
+                    const assignedFilter = eq(conversations.assignedToId, ctx.user.id);
+                    whereClause = whereClause ? and(whereClause, assignedFilter) : assignedFilter;
+                }
+
+                // Optional filters
+                if (input?.assignedToMe && ctx.user?.id) {
+                    const f = eq(conversations.assignedToId, ctx.user.id);
+                    whereClause = whereClause ? and(whereClause, f) : f;
+                }
+
+                if (input?.unreadOnly) {
+                    const f = gt(conversations.unreadCount, 0);
+                    whereClause = whereClause ? and(whereClause, f) : f;
+                }
+
+                const q = input?.search?.trim();
+                if (q) {
+                    const needle = `%${q}%`;
+                    const f = or(like(conversations.contactName, needle), like(conversations.contactPhone, needle));
+                    whereClause = whereClause ? and(whereClause, f) : f;
+                }
+
+                // Build base query without subqueries for better compatibility
+                let query = db
+                    .select({
+                        id: conversations.id,
+                        channel: conversations.channel,
+                        whatsappNumberId: conversations.whatsappNumberId,
+                        whatsappConnectionType: conversations.whatsappConnectionType,
+                        externalChatId: conversations.externalChatId,
+                        facebookPageId: conversations.facebookPageId,
+                        contactPhone: conversations.contactPhone,
+                        contactName: conversations.contactName,
+                        leadId: conversations.leadId,
+                        assignedToId: conversations.assignedToId,
+                        ticketStatus: conversations.ticketStatus,
+                        queueId: conversations.queueId,
+                        lastMessageAt: conversations.lastMessageAt,
+                        unreadCount: conversations.unreadCount,
+                        status: conversations.status,
+                        createdAt: conversations.createdAt,
+                        updatedAt: conversations.updatedAt,
+                    })
+                    .from(conversations);
+
+                if (whereClause) {
+                    query = query.where(whereClause) as typeof query;
+                }
+
+                const sort = input?.sort || "recent";
+                if (sort === "oldest") {
+                    query = query.orderBy(asc(conversations.lastMessageAt)) as typeof query;
+                } else if (sort === "unread") {
+                    query = query.orderBy(desc(conversations.unreadCount), desc(conversations.lastMessageAt)) as typeof query;
+                } else {
+                    query = query.orderBy(desc(conversations.lastMessageAt)) as typeof query;
+                }
+
+                const convs = await query;
+
+                // Get last message info for each conversation in a single query
+                if (convs.length === 0) return [];
+
+                const convIds = convs.map(c => c.id);
+                const lastMessages = await db
+                    .select({
+                        conversationId: chatMessages.conversationId,
+                        content: chatMessages.content,
+                        direction: chatMessages.direction,
+                        messageType: chatMessages.messageType,
+                        mediaName: chatMessages.mediaName,
+                    })
+                    .from(chatMessages)
+                    .where(and(eq(chatMessages.tenantId, ctx.tenantId), inArray(chatMessages.conversationId, convIds)))
+                    .orderBy(desc(chatMessages.id));
+
+                // Map last messages to conversations
+                const lastMsgMap = new Map();
+                for (const msg of lastMessages) {
+                    if (!lastMsgMap.has(msg.conversationId)) {
+                        lastMsgMap.set(msg.conversationId, msg);
+                    }
+                }
+
+                // Combine results
+                return convs.map(conv => ({
+                    ...conv,
+                    lastMessagePreview: lastMsgMap.get(conv.id)?.content ?? null,
+                    lastMessageDirection: lastMsgMap.get(conv.id)?.direction ?? null,
+                    lastMessageType: lastMsgMap.get(conv.id)?.messageType ?? null,
+                    lastMessageMediaName: lastMsgMap.get(conv.id)?.mediaName ?? null,
+                }));
+            } catch (error: any) {
+                logger.error("[listConversations] Error:", error.message);
+                throw error;
+            }
+        }),
+
+    getMessages: permissionProcedure("chat.view")
+        .input(
+            z.object({
+                conversationId: z.number(),
+                cursor: z.number().nullish(),
+                limit: z.number().min(10).max(200).default(50),
+            })
+        )
+        .query(async ({ input, ctx }) => {
+            await assertConversationAccess(ctx, input.conversationId);
+            const db = await getDb();
+            if (!db) return [];
+
+            let whereClause: any = and(eq(chatMessages.tenantId, ctx.tenantId), eq(chatMessages.conversationId, input.conversationId));
+            if (input.cursor) {
+                whereClause = and(whereClause, lt(chatMessages.id, input.cursor));
+            }
+
+            const rows = await db
+                .select()
+                .from(chatMessages)
+                .where(whereClause)
+                .orderBy(desc(chatMessages.id))
+                .limit(input.limit + 1);
+
+            const hasMore = rows.length > input.limit;
+            const slice = hasMore ? rows.slice(0, input.limit) : rows;
+            const nextCursor = hasMore ? slice[slice.length - 1]?.id ?? null : null;
+
+            // Return oldest -> newest within the page
+            return {
+                items: slice.reverse(),
+                nextCursor,
+            };
+        }),
+
+    getRecentMessages: permissionProcedure("monitoring.view")
+        .input(
+            z.object({
+                limit: z.number().min(10).max(200).default(50),
+                whatsappNumberId: z.number().optional(),
+            })
+        )
+        .query(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) return [];
+
+            const baseQuery = db
+                .select({
+                    id: chatMessages.id,
+                    conversationId: chatMessages.conversationId,
+                    whatsappNumberId: chatMessages.whatsappNumberId,
+                    direction: chatMessages.direction,
+                    messageType: chatMessages.messageType,
+                    content: chatMessages.content,
+                    mediaUrl: chatMessages.mediaUrl,
+                    status: chatMessages.status,
+                    createdAt: chatMessages.createdAt,
+                    contactPhone: conversations.contactPhone,
+                    contactName: conversations.contactName,
+                    conversationStatus: conversations.status,
+                    unreadCount: conversations.unreadCount,
+                    lastMessageAt: conversations.lastMessageAt,
+                })
+                .from(chatMessages)
+                .innerJoin(conversations, eq(chatMessages.conversationId, conversations.id));
+
+            const userRole = (ctx.user?.role || "viewer") as string;
+            const isPrivileged = ["owner", "admin", "supervisor"].includes(userRole);
+
+            let whereClause: any = eq(chatMessages.tenantId, ctx.tenantId);
+            if (input.whatsappNumberId) {
+                whereClause = and(whereClause, eq(chatMessages.whatsappNumberId, input.whatsappNumberId));
+            }
+
+            if (!isPrivileged && ctx.user && userRole === "agent") {
+                const assignedFilter = eq(conversations.assignedToId, ctx.user.id);
+                whereClause = whereClause ? and(whereClause, assignedFilter) : assignedFilter;
+            }
+
+            const filteredQuery = whereClause
+                ? baseQuery.where(whereClause)
+                : baseQuery;
+
+            const rows = await filteredQuery
+                .orderBy(desc(chatMessages.createdAt))
+                .limit(input.limit);
+
+            return rows;
+        }),
+
+    markAsRead: permissionProcedure("chat.view")
+        .input(z.object({
+            conversationId: z.number(),
+            whatsappNumberId: z.number().optional(),
+        }))
+        .mutation(async ({ input, ctx }) => {
+            await assertConversationAccess(ctx, input.conversationId);
+            const db = await getDb();
+            if (!db) throw new Error("Database not available");
+
+            // Update local messages status
+            await db.update(chatMessages)
+                .set({ status: 'read', readAt: new Date() })
+                .where(and(
+                    eq(chatMessages.tenantId, ctx.tenantId),
+                    eq(chatMessages.conversationId, input.conversationId),
+                    eq(chatMessages.direction, 'inbound'),
+                    eq(chatMessages.status, 'delivered') // or pending
+                ));
+
+            // Reset unread count
+            await db.update(conversations)
+                .set({ unreadCount: 0 })
+                .where(and(eq(conversations.tenantId, ctx.tenantId), eq(conversations.id, input.conversationId)));
+
+            // Attempt to send Read Receipt to WhatsApp (Baileys)
+            try {
+                // Determine channel
+                const conv = await db.select().from(conversations).where(and(eq(conversations.tenantId, ctx.tenantId), eq(conversations.id, input.conversationId))).limit(1);
+                if (conv[0] && conv[0].channel === 'whatsapp' && conv[0].whatsappNumberId) {
+                    const { whatsappConnections } = await import("../../drizzle/schema"); // Lazy load
+                    const conn = await db.select().from(whatsappConnections).where(and(eq(whatsappConnections.tenantId, ctx.tenantId), eq(whatsappConnections.whatsappNumberId, conv[0].whatsappNumberId))).limit(1);
+
+                    if (conn[0] && conn[0].connectionType === 'qr' && conn[0].isConnected) {
+                        // Fetch unread delivered messages to mark as read remotely
+                        // Actually, Baileys "readMessages" typically marks the conversation or specific IDs.
+                        // For simplicity, we can fetch the last few inbound messages.
+                        const unreadMsgs = await db.select({ whatsappMessageId: chatMessages.whatsappMessageId })
+                            .from(chatMessages)
+                            .where(and(
+                                eq(chatMessages.tenantId, ctx.tenantId),
+                                eq(chatMessages.conversationId, input.conversationId),
+                                eq(chatMessages.direction, 'inbound'),
+                                sql`${chatMessages.whatsappMessageId} IS NOT NULL`
+                            ))
+                            .orderBy(desc(chatMessages.createdAt))
+                            .limit(5); // Mark last 5 to be sure.
+
+                        const { BaileysService } = await import("../services/baileys");
+                        for (const msg of unreadMsgs) {
+                            if (msg.whatsappMessageId) {
+                                await BaileysService.sendReadReceipt(conv[0].whatsappNumberId, (conv[0].externalChatId || conv[0].contactPhone) as string, msg.whatsappMessageId);
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                logger.error("Failed to send read receipt", e);
+            }
+
+            return { success: true };
+        }),
+
+    updateStatus: permissionProcedure("chat.assign")
+        .input(z.object({
+            conversationId: z.number(),
+            status: z.enum(["active", "archived", "blocked"])
+        }))
+        .mutation(async ({ input, ctx }) => {
+            await assertConversationAccess(ctx, input.conversationId);
+            const db = await getDb();
+            if (!db) throw new Error("Database not available");
+            await db.update(conversations).set({ status: input.status }).where(and(eq(conversations.tenantId, ctx.tenantId), eq(conversations.id, input.conversationId)));
+            return { success: true };
+        }),
+
+    delete: permissionProcedure("chat.manage")
+        .input(z.object({ conversationId: z.number() }))
+        .mutation(async ({ input, ctx }) => {
+            await assertConversationAccess(ctx, input.conversationId);
+            const db = await getDb();
+            if (!db) throw new Error("Database not available");
+
+            // FIX (FUNC-02): Delete messages first, then conversation (cascade)
+            await db.transaction(async (tx) => {
+                await tx.delete(chatMessages)
+                    .where(and(eq(chatMessages.tenantId, ctx.tenantId), eq(chatMessages.conversationId, input.conversationId)));
+                await tx.delete(conversations)
+                    .where(and(eq(conversations.tenantId, ctx.tenantId), eq(conversations.id, input.conversationId)));
+            });
+            return { success: true };
+        }),
+
+    /**
+     * FIX (FUNC-02b): Bulk delete conversations.
+     */
+    bulkDelete: permissionProcedure("chat.manage")
+        .input(z.object({ conversationIds: z.array(z.number()).min(1).max(200) }))
+        .mutation(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) throw new Error("Database not available");
+
+            await db.transaction(async (tx) => {
+                // Verify ownership
+                const valid = await tx.select({ id: conversations.id })
+                    .from(conversations)
+                    .where(and(eq(conversations.tenantId, ctx.tenantId), inArray(conversations.id, input.conversationIds)));
+
+                if (valid.length !== input.conversationIds.length) {
+                    throw new Error("Algunas conversaciones no pertenecen a tu empresa.");
+                }
+
+                await tx.delete(chatMessages)
+                    .where(and(eq(chatMessages.tenantId, ctx.tenantId), inArray(chatMessages.conversationId, input.conversationIds)));
+                await tx.delete(conversations)
+                    .where(and(eq(conversations.tenantId, ctx.tenantId), inArray(conversations.id, input.conversationIds)));
+            });
+
+            return { success: true, deleted: input.conversationIds.length };
+        }),
+
+    assign: permissionProcedure("chat.assign")
+        .input(z.object({ conversationId: z.number(), assignedToId: z.number().nullable() }))
+        .mutation(async ({ input, ctx }) => {
+            await assertConversationAccess(ctx, input.conversationId);
+            const db = await getDb();
+            if (!db) throw new Error("Database not available");
+            await db.update(conversations).set({ assignedToId: input.assignedToId }).where(and(eq(conversations.tenantId, ctx.tenantId), eq(conversations.id, input.conversationId)));
+            return { success: true };
+        }),
+
+    sendMessage: permissionProcedure("chat.send")
+        .input(z.object({
+            conversationId: z.number(),
+            whatsappNumberId: z.number().optional(),
+            facebookPageId: z.number().optional(),
+            messageType: z.enum(['text', 'image', 'video', 'audio', 'document', 'location', 'sticker', 'contact', 'template']),
+            content: z.string().optional(),
+            mediaUrl: z.string().optional(),
+            mediaName: z.string().optional(),
+            mediaMimeType: z.string().optional(),
+            latitude: z.number().optional(),
+            longitude: z.number().optional(),
+            locationName: z.string().optional(),
+            // Template specific
+            templateName: z.string().optional(),
+            templateLanguage: z.string().optional(),
+            templateComponents: z.array(z.any()).optional(),
+            // Facebook specific
+            isFacebook: z.boolean().optional(),
+        }))
+        .mutation(async ({ input, ctx }) => {
+            await assertConversationAccess(ctx, input.conversationId);
+            const db = await getDb();
+            if (!db) throw new Error("Database not available");
+
+            const now = new Date();
+
+            const { id, convObj, isFacebook } = await withTransaction(async (tx) => {
+                const convRows = await tx.select()
+                    .from(conversations)
+                    .where(and(eq(conversations.tenantId, ctx.tenantId), eq(conversations.id, input.conversationId)))
+                    .limit(1);
+                const conv = convRows[0];
+                if (!conv) throw new Error("Conversation not found");
+
+                const isFacebook = conv.channel === 'facebook';
+
+                const insertRes = await tx.insert(chatMessages).values({
+                    tenantId: ctx.tenantId,
+                    conversationId: input.conversationId,
+                    whatsappNumberId: isFacebook ? null : (input.whatsappNumberId || conv.whatsappNumberId),
+                    whatsappConnectionType: isFacebook ? null : (conv.whatsappConnectionType ?? null),
+                    facebookPageId: isFacebook ? (input.facebookPageId || conv.facebookPageId) : null,
+                    direction: 'outbound',
+                    messageType: input.messageType,
+                    content: input.content ?? (input.templateName ? `Template: ${input.templateName}` : null),
+                    mediaUrl: input.mediaUrl ?? null,
+                    mediaName: input.mediaName ?? null,
+                    mediaMimeType: input.mediaMimeType ?? null,
+                    latitude: input.latitude ?? null,
+                    longitude: input.longitude ?? null,
+                    locationName: input.locationName ?? null,
+                    status: 'pending',
+                } as any);
+
+                const id = insertRes[0].insertId as number;
+
+                await tx.update(conversations)
+                    .set({
+                        lastMessageAt: now,
+                        ticketStatus: sql`CASE WHEN ${conversations.ticketStatus} = 'pending' THEN 'open' ELSE ${conversations.ticketStatus} END`
+                    })
+                    .where(and(eq(conversations.tenantId, ctx.tenantId), eq(conversations.id, input.conversationId)));
+
+                return { id, convObj: conv, isFacebook };
+            });
+
+            const conv = convObj;
+
+            // Emit WebSocket event for real-time updates
+            logger.info(`[WebSocket] Emitting message:new for conversation ${input.conversationId}, message ${id}`);
+            emitToConversation(input.conversationId, "message:new", {
+                id,
+                conversationId: input.conversationId,
+                content: input.content ?? (input.templateName ? `Template: ${input.templateName}` : ""),
+                fromMe: true,
+                createdAt: now,
+            });
+
+            if (isFacebook) {
+                // --- FACEBOOK SEND LOGIC ---
+                const pageId = input.facebookPageId || conv.facebookPageId;
+                if (!pageId) throw new Error("Falta facebookPageId");
+
+                // Get Page Access Token
+                const pageRows = await db.select().from(facebookPages).where(and(eq(facebookPages.tenantId, ctx.tenantId), eq(facebookPages.id, pageId))).limit(1);
+                const page = pageRows[0];
+
+                if (!page || !page.accessToken) throw new Error("Página de Facebook no conectada o sin token");
+
+                const accessToken = decryptSecret(page.accessToken) || page.accessToken;
+                if (!accessToken) throw new Error("Error desencriptando token de Facebook");
+
+                // Construct message payload
+                let messagePayload: any = {};
+
+                if (input.messageType === 'text') {
+                    if (!input.content) throw new Error("Mensaje vacío");
+                    messagePayload = { text: input.content };
+                } else if (['image', 'video', 'audio', 'document'].includes(input.messageType)) {
+                    if (!input.mediaUrl) throw new Error("Falta URL de multimedia");
+                    messagePayload = {
+                        attachment: {
+                            // Facebook Messenger uses `file` for generic documents
+                            type: input.messageType === 'document' ? 'file' : input.messageType,
+                            payload: { url: input.mediaUrl, is_reusable: true }
+                        }
+                    };
+                } else {
+                    throw new Error(`Tipo de mensaje no soportado para Facebook: ${input.messageType}`);
+                }
+
+                try {
+                    const res = await sendFacebookMessage({
+                        accessToken,
+                        recipientId: conv.contactPhone, // In FB, contactPhone holds the PSID
+                        message: messagePayload
+                    });
+
+                    await db.update(chatMessages)
+                        .set({
+                            status: 'sent',
+                            facebookMessageId: res.messageId,
+                            sentAt: now,
+                        })
+                        .where(and(eq(chatMessages.tenantId, ctx.tenantId), eq(chatMessages.id, id)));
+
+                    return { id, success: true, sent: true };
+                } catch (err: any) {
+                    await db.update(chatMessages)
+                        .set({ status: 'failed', errorMessage: err.message, failedAt: now })
+                        .where(and(eq(chatMessages.tenantId, ctx.tenantId), eq(chatMessages.id, id)));
+                    throw err;
+                }
+            } else {
+                // --- WHATSAPP SEND LOGIC (SYNCHRONOUS) ---
+                const whatsappNumberId = input.whatsappNumberId || conv.whatsappNumberId;
+                if (!whatsappNumberId) {
+                    await db.update(chatMessages)
+                        .set({ status: 'failed', errorMessage: "Falta whatsappNumberId", failedAt: now })
+                        .where(and(eq(chatMessages.tenantId, ctx.tenantId), eq(chatMessages.id, id)));
+                    throw new Error("Falta whatsappNumberId");
+                }
+
+                // Lookup WhatsApp connection
+                const connRows = await db.select()
+                    .from(whatsappConnections)
+                    .where(and(eq(whatsappConnections.tenantId, ctx.tenantId), eq(whatsappConnections.whatsappNumberId, whatsappNumberId)))
+                    .limit(1);
+                const conn = connRows[0];
+
+                if (!conn) {
+                    await db.update(chatMessages)
+                        .set({ status: 'failed', errorMessage: "WhatsApp no configurado", failedAt: now })
+                        .where(and(eq(chatMessages.tenantId, ctx.tenantId), eq(chatMessages.id, id)));
+                    throw new Error("WhatsApp no configurado para este número");
+                }
+
+                // Update connection type in conversation if needed
+                if (!conv.whatsappConnectionType && conn.connectionType) {
+                    await db.update(conversations)
+                        .set({ whatsappConnectionType: conn.connectionType as any })
+                        .where(and(eq(conversations.tenantId, ctx.tenantId), eq(conversations.id, conv.id)));
+                }
+
+                // Send based on connection type
+                try {
+                    if (conn.connectionType === 'qr') {
+                        // --- BAILEYS (QR) SEND ---
+                        const baileysSocket = BaileysService.getSocket(whatsappNumberId);
+                        if (!baileysSocket) {
+                            throw new Error("Baileys no está conectado. Escanea el QR primero.");
+                        }
+
+                        // Format phone number for Baileys
+                        const phoneNumber = conv.contactPhone.replace(/[^0-9]/g, '');
+                        const jid = `${phoneNumber}@s.whatsapp.net`;
+
+                        // Resolve file path from mediaUrl
+                        let filePath: string | null = null;
+                        if (input.mediaUrl) {
+                            // Extract filename from URL (e.g., /api/uploads/filename -> filename)
+                            const filename = path.basename(input.mediaUrl);
+                            filePath = path.join(process.cwd(), "storage/uploads", filename);
+
+                            // Verify file exists
+                            if (!fs.existsSync(filePath)) {
+                                throw new Error(`Archivo no encontrado: ${filePath}`);
+                            }
+                        }
+
+                        let baileysContent: any;
+                        if (input.messageType === 'text') {
+                            baileysContent = { text: input.content || '' };
+                        } else if (input.messageType === 'image' && filePath) {
+                            baileysContent = { image: { url: filePath }, caption: input.content || '' };
+                        } else if (input.messageType === 'document' && filePath) {
+                            baileysContent = { document: { url: filePath }, fileName: input.mediaName || 'document' };
+                        } else if (input.messageType === 'audio' && filePath) {
+                            baileysContent = { audio: { url: filePath }, ptt: true };
+                        } else {
+                            throw new Error(`Tipo de mensaje no soportado para Baileys: ${input.messageType}`);
+                        }
+
+                        const result = await BaileysService.sendMessage(whatsappNumberId, jid, baileysContent);
+
+                        await db.update(chatMessages)
+                            .set({
+                                status: 'sent',
+                                whatsappMessageId: result?.key?.id || null,
+                                sentAt: now,
+                            })
+                            .where(and(eq(chatMessages.tenantId, ctx.tenantId), eq(chatMessages.id, id)));
+
+                        return { id, success: true, sent: true, via: 'baileys' };
+
+                    } else if (conn.connectionType === 'api') {
+                        // --- CLOUD API SEND ---
+                        if (!conn.accessToken || !conn.phoneNumberId) {
+                            throw new Error("WhatsApp Cloud API no configurado correctamente");
+                        }
+
+                        const accessToken = decryptSecret(conn.accessToken) || conn.accessToken;
+                        const result = await sendCloudMessage({
+                            accessToken,
+                            phoneNumberId: conn.phoneNumberId,
+                            to: conv.contactPhone,
+                            payload: (input.messageType === 'text'
+                                ? { type: 'text', body: input.content || '' }
+                                : { type: input.messageType, link: input.mediaUrl }) as any
+                        });
+
+                        await db.update(chatMessages)
+                            .set({
+                                status: 'sent',
+                                whatsappMessageId: result.messageId,
+                                sentAt: now,
+                            })
+                            .where(and(eq(chatMessages.tenantId, ctx.tenantId), eq(chatMessages.id, id)));
+
+                        return { id, success: true, sent: true, via: 'cloud-api' };
+                    } else {
+                        throw new Error(`Tipo de conexión no soportado: ${conn.connectionType}`);
+                    }
+                } catch (err: any) {
+                    await db.update(chatMessages)
+                        .set({ status: 'failed', errorMessage: err.message, failedAt: now })
+                        .where(and(eq(chatMessages.tenantId, ctx.tenantId), eq(chatMessages.id, id)));
+                    throw err;
+                }
+            }
+        }),
+
+    createConversation: permissionProcedure("chat.send")
+        .input(z.object({
+            whatsappNumberId: z.number().optional(),
+            facebookPageId: z.number().optional(),
+            contactPhone: z.string(),
+            contactName: z.string().nullish(),
+            leadId: z.number().nullish(),
+        }))
+        .mutation(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) throw new Error("Database not available");
+
+            logger.info("[CreateConversation] Input:", JSON.stringify(input));
+
+            const channel = input.facebookPageId ? 'facebook' : 'whatsapp';
+
+            // Validate required ID based on channel
+            if (channel === 'whatsapp' && !input.whatsappNumberId) {
+                logger.error("[CreateConversation] Missing whatsappNumberId");
+                throw new Error("Falta whatsappNumberId");
+            }
+            if (channel === 'facebook' && !input.facebookPageId) {
+                logger.error("[CreateConversation] Missing facebookPageId");
+                throw new Error("Falta facebookPageId");
+            }
+
+            try {
+                const normalizedContactPhone = channel === 'whatsapp' ? normalizeContactPhone(input.contactPhone) : input.contactPhone;
+
+                logger.info("[CreateConversation] Creating with phone:", normalizedContactPhone);
+
+                const result = await db.insert(conversations).values({
+                    tenantId: ctx.tenantId,
+                    channel,
+                    whatsappNumberId: input.whatsappNumberId ?? null,
+                    facebookPageId: input.facebookPageId ?? null,
+                    contactPhone: normalizedContactPhone,
+                    contactName: input.contactName,
+                    leadId: input.leadId,
+                    lastMessageAt: new Date(),
+                    status: 'active',
+                } as any);
+
+                const newConvId = result[0].insertId;
+                logger.info("[CreateConversation] Created:", newConvId);
+
+                // Attempt distribution
+                try {
+                    await distributeConversation(newConvId);
+                } catch (e) {
+                    logger.error("[CreateConversation] Distribution failed", e);
+                }
+
+                return { id: newConvId, success: true };
+            } catch (error: any) {
+                logger.error("[CreateConversation] Error:", error);
+                throw new Error(`Error al crear conversación: ${error.message}`);
+            }
+        }),
+});

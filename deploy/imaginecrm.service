@@ -1,0 +1,23 @@
+[Unit]
+Description=ImagineCRM Docker Compose Service
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+# Ruta al directorio del proyecto
+WorkingDirectory=/opt/imaginecrm
+
+# Levantar servicios
+ExecStart=/usr/bin/docker compose -f docker-compose.prod.yml up -d
+
+# Bajar servicios
+ExecStop=/usr/bin/docker compose -f docker-compose.prod.yml down
+
+# Reiniciar
+ExecReload=/usr/bin/docker compose -f docker-compose.prod.yml restart
+
+[Install]
+WantedBy=multi-user.target

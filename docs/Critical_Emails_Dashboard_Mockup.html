@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ImagineCRM — Dashboard de Emails Críticos</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0f1117;
+      --surface:   #1a1d27;
+      --border:    #2a2d3a;
+      --text:      #e2e8f0;
+      --muted:     #8892a4;
+      --accent:    #6366f1;
+      --green:     #22c55e;
+      --red:       #ef4444;
+      --amber:     #f59e0b;
+      --violet:    #a855f7;
+      --blue:      #3b82f6;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 18px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .logo { display: flex; align-items: center; gap: 10px; }
+    .logo-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+    .logo h1 { font-size: 16px; font-weight: 700; letter-spacing: -0.3px; }
+    .logo span { color: var(--muted); font-size: 13px; margin-left: 4px; }
+    .header-right { display: flex; align-items: center; gap: 16px; }
+    .badge-live {
+      background: rgba(34,197,94,0.15);
+      color: var(--green);
+      border: 1px solid rgba(34,197,94,0.3);
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .badge-live::before {
+      content: '';
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .period-selector {
+      display: flex;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .period-btn {
+      padding: 6px 14px;
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      transition: all 0.15s;
+    }
+    .period-btn.active {
+      background: var(--accent);
+      color: #fff;
+    }
+    .period-btn:hover:not(.active) { color: var(--text); }
+
+    /* ── Layout ── */
+    main { padding: 28px 32px; max-width: 1400px; margin: 0 auto; }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 16px;
+    }
+
+    /* ── KPI Cards ── */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .kpi-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+    .kpi-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+    }
+    .kpi-card.total::before  { background: var(--accent); }
+    .kpi-card.success::before { background: var(--green); }
+    .kpi-card.failed::before  { background: var(--red); }
+    .kpi-card.payment::before { background: var(--red); }
+    .kpi-card.trial::before   { background: var(--violet); }
+
+    .kpi-label { font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 10px; }
+    .kpi-value { font-size: 32px; font-weight: 800; letter-spacing: -1px; line-height: 1; }
+    .kpi-value.green  { color: var(--green); }
+    .kpi-value.red    { color: var(--red); }
+    .kpi-value.accent { color: var(--accent); }
+    .kpi-value.violet { color: var(--violet); }
+    .kpi-sub { font-size: 12px; color: var(--muted); margin-top: 6px; }
+    .kpi-delta {
+      display: inline-flex; align-items: center; gap: 3px;
+      font-size: 11px; font-weight: 600;
+      padding: 2px 7px; border-radius: 20px;
+      margin-top: 8px;
+    }
+    .kpi-delta.up   { background: rgba(34,197,94,0.12); color: var(--green); }
+    .kpi-delta.down { background: rgba(239,68,68,0.12); color: var(--red); }
+    .kpi-delta.neutral { background: rgba(99,102,241,0.12); color: var(--accent); }
+
+    /* ── Charts Row ── */
+    .charts-row {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .chart-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+    }
+    .chart-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 20px;
+    }
+    .chart-title { font-size: 14px; font-weight: 700; }
+    .chart-subtitle { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .chart-wrap { position: relative; }
+
+    /* ── Charts Row 2 ── */
+    .charts-row-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    /* ── Table ── */
+    .table-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      margin-bottom: 28px;
+    }
+    .table-header {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .table-title { font-size: 14px; font-weight: 700; }
+    .search-input {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 14px;
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+      width: 220px;
+    }
+    .search-input::placeholder { color: var(--muted); }
+    .search-input:focus { border-color: var(--accent); }
+    table { width: 100%; border-collapse: collapse; }
+    thead th {
+      padding: 12px 24px;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      background: rgba(0,0,0,0.2);
+    }
+    tbody tr { border-bottom: 1px solid rgba(42,45,58,0.5); transition: background 0.1s; }
+    tbody tr:hover { background: rgba(99,102,241,0.04); }
+    tbody tr:last-child { border-bottom: none; }
+    tbody td { padding: 14px 24px; font-size: 13px; }
+    .td-tenant { font-weight: 600; }
+    .td-email { color: var(--muted); font-size: 12px; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 10px; border-radius: 20px;
+      font-size: 11px; font-weight: 700; letter-spacing: 0.3px;
+    }
+    .badge-payment { background: rgba(239,68,68,0.12); color: var(--red); }
+    .badge-trial   { background: rgba(168,85,247,0.12); color: var(--violet); }
+    .badge-sub     { background: rgba(245,158,11,0.12); color: var(--amber); }
+    .badge-ok      { background: rgba(34,197,94,0.12); color: var(--green); }
+    .badge-fail    { background: rgba(239,68,68,0.12); color: var(--red); }
+    .td-date { color: var(--muted); font-size: 12px; }
+
+    /* ── Footer ── */
+    footer {
+      text-align: center;
+      padding: 24px;
+      color: var(--muted);
+      font-size: 12px;
+      border-top: 1px solid var(--border);
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 1100px) {
+      .kpi-grid { grid-template-columns: repeat(3, 1fr); }
+      .charts-row { grid-template-columns: 1fr; }
+      .charts-row-2 { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 700px) {
+      main { padding: 16px; }
+      .kpi-grid { grid-template-columns: 1fr 1fr; }
+      .charts-row-2 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-dot"></div>
+    <h1>ImagineCRM <span>/ Emails Críticos</span></h1>
+  </div>
+  <div class="header-right">
+    <div class="badge-live">En vivo</div>
+    <div class="period-selector">
+      <button class="period-btn" onclick="setPeriod(1)">24h</button>
+      <button class="period-btn active" onclick="setPeriod(7)">7d</button>
+      <button class="period-btn" onclick="setPeriod(30)">30d</button>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- KPIs -->
+  <div class="section-title">Resumen del período</div>
+  <div class="kpi-grid">
+    <div class="kpi-card total">
+      <div class="kpi-label">Total Enviados</div>
+      <div class="kpi-value accent" id="kpi-total">—</div>
+      <div class="kpi-sub">emails críticos</div>
+      <div class="kpi-delta up" id="kpi-total-delta">↑ 12% vs semana anterior</div>
+    </div>
+    <div class="kpi-card success">
+      <div class="kpi-label">Tasa de Éxito</div>
+      <div class="kpi-value green" id="kpi-rate">—</div>
+      <div class="kpi-sub">de los envíos</div>
+      <div class="kpi-delta neutral" id="kpi-rate-delta">= sin cambio</div>
+    </div>
+    <div class="kpi-card failed">
+      <div class="kpi-label">Envíos Fallidos</div>
+      <div class="kpi-value red" id="kpi-failed">—</div>
+      <div class="kpi-sub">requieren atención</div>
+      <div class="kpi-delta down" id="kpi-failed-delta">↑ 2 vs semana anterior</div>
+    </div>
+    <div class="kpi-card payment">
+      <div class="kpi-label">Pago Fallido</div>
+      <div class="kpi-value red" id="kpi-payment">—</div>
+      <div class="kpi-sub">tenants afectados</div>
+    </div>
+    <div class="kpi-card trial">
+      <div class="kpi-label">Trial Expirado</div>
+      <div class="kpi-value violet" id="kpi-trial">—</div>
+      <div class="kpi-sub">sin conversión</div>
+    </div>
+  </div>
+
+  <!-- Charts Row 1 -->
+  <div class="charts-row">
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Emails enviados por día</div>
+          <div class="chart-subtitle">Desglose por tipo de email crítico</div>
+        </div>
+      </div>
+      <div class="chart-wrap" style="height:240px">
+        <canvas id="chartTimeline"></canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Distribución por tipo</div>
+          <div class="chart-subtitle">Proporción de emails críticos</div>
+        </div>
+      </div>
+      <div class="chart-wrap" style="height:240px">
+        <canvas id="chartDonut"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Charts Row 2 -->
+  <div class="charts-row-2">
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Éxito vs Fallos</div>
+          <div class="chart-subtitle">Por tipo de email</div>
+        </div>
+      </div>
+      <div class="chart-wrap" style="height:200px">
+        <canvas id="chartSuccessFail"></canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Emails por hora del día</div>
+          <div class="chart-subtitle">Distribución horaria (UTC)</div>
+        </div>
+      </div>
+      <div class="chart-wrap" style="height:200px">
+        <canvas id="chartHourly"></canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Top Tenants en Riesgo</div>
+          <div class="chart-subtitle">Por cantidad de emails recibidos</div>
+        </div>
+      </div>
+      <div class="chart-wrap" style="height:200px">
+        <canvas id="chartTopTenants"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Log Table -->
+  <div class="table-card">
+    <div class="table-header">
+      <div class="table-title">Log de envíos — últimos 7 días</div>
+      <input class="search-input" type="text" placeholder="Buscar tenant o email..." oninput="filterTable(this.value)" />
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Fecha y Hora</th>
+          <th>Tenant</th>
+          <th>Destinatario</th>
+          <th>Tipo</th>
+          <th>Estado</th>
+        </tr>
+      </thead>
+      <tbody id="logTableBody"></tbody>
+    </table>
+  </div>
+
+</main>
+
+<footer>
+  ImagineCRM · Dashboard de Emails Críticos · Datos simulados para entorno de desarrollo · Actualizado automáticamente cada 60s en producción
+</footer>
+
+<script>
+// ── Datos simulados ────────────────────────────────────────────────────────
+const TENANTS = [
+  "Distribuidora Pérez S.A.", "Inmobiliaria Norte", "TechSolutions PY",
+  "Clínica San Rafael", "Agencia Digital XYZ", "Constructora Vidal",
+  "Logística Express", "Consultora Meridian", "Farmacia Central",
+  "Studio Creativo 360"
+];
+const EMAILS_OWNERS = [
+  "carlos.perez@distribuidora.com", "admin@inmonorte.py", "ceo@techsolutions.com.py",
+  "gerencia@clinicasanrafael.com", "hola@agenciadigitalxyz.com", "contacto@constructoravidal.py",
+  "ops@logisticaexpress.com", "info@meridian.com.py", "admin@farmaciacentral.py",
+  "director@studiocreativo360.com"
+];
+const TYPES = ["PAYMENT_FAILED", "TRIAL_EXPIRED", "SUBSCRIPTION_EXP"];
+const TYPE_LABELS = { PAYMENT_FAILED: "Pago Fallido", TRIAL_EXPIRED: "Trial Expirado", SUBSCRIPTION_EXP: "Suscripción Exp." };
+const TYPE_BADGE  = { PAYMENT_FAILED: "badge-payment", TRIAL_EXPIRED: "badge-trial", SUBSCRIPTION_EXP: "badge-sub" };
+
+function genLogs(days) {
+  const logs = [];
+  const now = new Date();
+  for (let d = 0; d < days; d++) {
+    const count = Math.floor(Math.random() * 6) + 2;
+    for (let i = 0; i < count; i++) {
+      const idx = Math.floor(Math.random() * TENANTS.length);
+      const type = TYPES[Math.floor(Math.random() * TYPES.length)];
+      const success = Math.random() > 0.08;
+      const date = new Date(now);
+      date.setDate(date.getDate() - d);
+      date.setHours(Math.floor(Math.random() * 24), Math.floor(Math.random() * 60));
+      logs.push({ id: logs.length + 1, date, tenant: TENANTS[idx], email: EMAILS_OWNERS[idx], type, success });
+    }
+  }
+  return logs.sort((a, b) => b.date - a.date);
+}
+
+let currentLogs = [];
+let currentPeriod = 7;
+let charts = {};
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function fmtDate(d) {
+  return d.toLocaleDateString("es-ES", { day: "2-digit", month: "short" }) + " " +
+         d.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+}
+function fmtDay(d) {
+  return d.toLocaleDateString("es-ES", { weekday: "short", day: "2-digit", month: "short" });
+}
+function destroyChart(key) { if (charts[key]) { charts[key].destroy(); delete charts[key]; } }
+
+// ── KPIs ──────────────────────────────────────────────────────────────────
+function updateKPIs(logs) {
+  const total   = logs.length;
+  const success = logs.filter(l => l.success).length;
+  const failed  = total - success;
+  const rate    = total > 0 ? ((success / total) * 100).toFixed(1) + "%" : "—";
+  const payment = logs.filter(l => l.type === "PAYMENT_FAILED").length;
+  const trial   = logs.filter(l => l.type === "TRIAL_EXPIRED").length;
+
+  document.getElementById("kpi-total").textContent   = total;
+  document.getElementById("kpi-rate").textContent    = rate;
+  document.getElementById("kpi-failed").textContent  = failed;
+  document.getElementById("kpi-payment").textContent = payment;
+  document.getElementById("kpi-trial").textContent   = trial;
+}
+
+// ── Timeline Chart ─────────────────────────────────────────────────────────
+function buildTimeline(logs, days) {
+  destroyChart("timeline");
+  const labels = [];
+  const dataPayment = [], dataTrial = [], dataSub = [];
+  const now = new Date();
+
+  for (let d = days - 1; d >= 0; d--) {
+    const day = new Date(now); day.setDate(day.getDate() - d);
+    const dayStr = day.toDateString();
+    labels.push(fmtDay(day));
+    const dayLogs = logs.filter(l => l.date.toDateString() === dayStr);
+    dataPayment.push(dayLogs.filter(l => l.type === "PAYMENT_FAILED").length);
+    dataTrial.push(dayLogs.filter(l => l.type === "TRIAL_EXPIRED").length);
+    dataSub.push(dayLogs.filter(l => l.type === "SUBSCRIPTION_EXP").length);
+  }
+
+  const ctx = document.getElementById("chartTimeline").getContext("2d");
+  charts.timeline = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        { label: "Pago Fallido",      data: dataPayment, backgroundColor: "rgba(239,68,68,0.75)",   borderRadius: 4 },
+        { label: "Trial Expirado",    data: dataTrial,   backgroundColor: "rgba(168,85,247,0.75)",  borderRadius: 4 },
+        { label: "Suscripción Exp.",  data: dataSub,     backgroundColor: "rgba(245,158,11,0.75)",  borderRadius: 4 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: "#8892a4", font: { size: 11 } } } },
+      scales: {
+        x: { stacked: true, grid: { color: "rgba(255,255,255,0.04)" }, ticks: { color: "#8892a4", font: { size: 11 } } },
+        y: { stacked: true, grid: { color: "rgba(255,255,255,0.04)" }, ticks: { color: "#8892a4", font: { size: 11 }, stepSize: 1 } }
+      }
+    }
+  });
+}
+
+// ── Donut Chart ────────────────────────────────────────────────────────────
+function buildDonut(logs) {
+  destroyChart("donut");
+  const payment = logs.filter(l => l.type === "PAYMENT_FAILED").length;
+  const trial   = logs.filter(l => l.type === "TRIAL_EXPIRED").length;
+  const sub     = logs.filter(l => l.type === "SUBSCRIPTION_EXP").length;
+
+  const ctx = document.getElementById("chartDonut").getContext("2d");
+  charts.donut = new Chart(ctx, {
+    type: "doughnut",
+    data: {
+      labels: ["Pago Fallido", "Trial Expirado", "Suscripción Exp."],
+      datasets: [{
+        data: [payment, trial, sub],
+        backgroundColor: ["rgba(239,68,68,0.8)", "rgba(168,85,247,0.8)", "rgba(245,158,11,0.8)"],
+        borderColor: "#1a1d27", borderWidth: 3
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: "68%",
+      plugins: {
+        legend: { position: "bottom", labels: { color: "#8892a4", font: { size: 11 }, padding: 16 } }
+      }
+    }
+  });
+}
+
+// ── Success/Fail Chart ─────────────────────────────────────────────────────
+function buildSuccessFail(logs) {
+  destroyChart("sf");
+  const types = ["PAYMENT_FAILED", "TRIAL_EXPIRED", "SUBSCRIPTION_EXP"];
+  const labels = ["Pago Fallido", "Trial Expirado", "Suscripción Exp."];
+  const successes = types.map(t => logs.filter(l => l.type === t && l.success).length);
+  const failures  = types.map(t => logs.filter(l => l.type === t && !l.success).length);
+
+  const ctx = document.getElementById("chartSuccessFail").getContext("2d");
+  charts.sf = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        { label: "Exitoso", data: successes, backgroundColor: "rgba(34,197,94,0.7)", borderRadius: 4 },
+        { label: "Fallido", data: failures,  backgroundColor: "rgba(239,68,68,0.7)", borderRadius: 4 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: "#8892a4", font: { size: 11 } } } },
+      scales: {
+        x: { grid: { color: "rgba(255,255,255,0.04)" }, ticks: { color: "#8892a4", font: { size: 11 } } },
+        y: { grid: { color: "rgba(255,255,255,0.04)" }, ticks: { color: "#8892a4", font: { size: 11 }, stepSize: 1 } }
+      }
+    }
+  });
+}
+
+// ── Hourly Chart ───────────────────────────────────────────────────────────
+function buildHourly(logs) {
+  destroyChart("hourly");
+  const hours = Array.from({ length: 24 }, (_, i) => i);
+  const counts = hours.map(h => logs.filter(l => l.date.getHours() === h).length);
+
+  const ctx = document.getElementById("chartHourly").getContext("2d");
+  charts.hourly = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: hours.map(h => `${String(h).padStart(2,"0")}:00`),
+      datasets: [{
+        label: "Emails",
+        data: counts,
+        borderColor: "rgba(99,102,241,0.9)",
+        backgroundColor: "rgba(99,102,241,0.1)",
+        fill: true, tension: 0.4, pointRadius: 3,
+        pointBackgroundColor: "rgba(99,102,241,1)"
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: "rgba(255,255,255,0.04)" }, ticks: { color: "#8892a4", font: { size: 10 }, maxTicksLimit: 8 } },
+        y: { grid: { color: "rgba(255,255,255,0.04)" }, ticks: { color: "#8892a4", font: { size: 11 }, stepSize: 1 } }
+      }
+    }
+  });
+}
+
+// ── Top Tenants Chart ──────────────────────────────────────────────────────
+function buildTopTenants(logs) {
+  destroyChart("top");
+  const counts = {};
+  logs.forEach(l => { counts[l.tenant] = (counts[l.tenant] || 0) + 1; });
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 6);
+
+  const ctx = document.getElementById("chartTopTenants").getContext("2d");
+  charts.top = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: sorted.map(([t]) => t.length > 18 ? t.slice(0, 16) + "…" : t),
+      datasets: [{
+        label: "Emails",
+        data: sorted.map(([, c]) => c),
+        backgroundColor: "rgba(99,102,241,0.7)",
+        borderRadius: 4
+      }]
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: "rgba(255,255,255,0.04)" }, ticks: { color: "#8892a4", font: { size: 11 }, stepSize: 1 } },
+        y: { grid: { display: false }, ticks: { color: "#8892a4", font: { size: 11 } } }
+      }
+    }
+  });
+}
+
+// ── Table ──────────────────────────────────────────────────────────────────
+let allRows = [];
+function buildTable(logs) {
+  allRows = logs;
+  renderTable(logs);
+}
+function renderTable(logs) {
+  const tbody = document.getElementById("logTableBody");
+  tbody.innerHTML = logs.slice(0, 50).map(l => `
+    <tr>
+      <td style="color:var(--muted)">#${l.id}</td>
+      <td class="td-date">${fmtDate(l.date)}</td>
+      <td><div class="td-tenant">${l.tenant}</div><div class="td-email">${l.email}</div></td>
+      <td class="td-email">${l.email}</td>
+      <td><span class="badge ${TYPE_BADGE[l.type]}">${TYPE_LABELS[l.type]}</span></td>
+      <td><span class="badge ${l.success ? "badge-ok" : "badge-fail"}">${l.success ? "✓ Exitoso" : "✗ Fallido"}</span></td>
+    </tr>
+  `).join("");
+}
+function filterTable(q) {
+  const filtered = allRows.filter(l =>
+    l.tenant.toLowerCase().includes(q.toLowerCase()) ||
+    l.email.toLowerCase().includes(q.toLowerCase())
+  );
+  renderTable(filtered);
+}
+
+// ── Main Render ────────────────────────────────────────────────────────────
+function render(days) {
+  currentLogs = genLogs(days);
+  updateKPIs(currentLogs);
+  buildTimeline(currentLogs, days);
+  buildDonut(currentLogs);
+  buildSuccessFail(currentLogs);
+  buildHourly(currentLogs);
+  buildTopTenants(currentLogs);
+  buildTable(currentLogs);
+}
+
+function setPeriod(days) {
+  currentPeriod = days;
+  document.querySelectorAll(".period-btn").forEach(b => b.classList.remove("active"));
+  event.target.classList.add("active");
+  render(days);
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+render(7);
+</script>
+</body>
+</html>

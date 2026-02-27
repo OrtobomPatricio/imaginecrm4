@@ -1,0 +1,16 @@
+{
+    email {$ACME_EMAIL}
+}
+
+# Production host (uses Let's Encrypt automatically)
+{$APP_DOMAIN} {
+    encode gzip zstd
+    reverse_proxy app:3000
+    header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+}
+
+# Keep local/dev and health probes reachable even without a public domain
+:80 {
+    bind 0.0.0.0
+    reverse_proxy app:3000
+}
