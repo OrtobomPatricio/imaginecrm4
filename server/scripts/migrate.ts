@@ -83,12 +83,35 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
         return Number((rows as Array<{ cnt: number }>)[0]?.cnt ?? 0) > 0;
     };
 
+    const ensureColumn = async (
+        table: string,
+        column: string,
+        columnDefinition: string,
+        logLabel: string,
+    ) => {
+        if (!(await hasTable(table))) {
+            return;
+        }
+
+        if (!(await hasColumn(table, column))) {
+            await connection.query(`ALTER TABLE \`${table}\` ADD COLUMN ${columnDefinition}`);
+            logger.warn(`[Migration] Patched ${logLabel}`);
+        }
+    };
+
     logger.info("[Migration] Running schema compatibility checks...");
 
-    if (!(await hasColumn("users", "tenantId"))) {
-        await connection.query(`ALTER TABLE users ADD COLUMN tenantId INT NOT NULL DEFAULT 1`);
-        logger.warn("[Migration] Patched users.tenantId column");
-    }
+    await ensureColumn("users", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "users.tenantId column");
+    await ensureColumn("users", "gdprConsentAt", "`gdprConsentAt` TIMESTAMP NULL", "users.gdprConsentAt column");
+    await ensureColumn("users", "gdprConsentVersion", "`gdprConsentVersion` VARCHAR(20) NULL", "users.gdprConsentVersion column");
+    await ensureColumn("users", "marketingConsent", "`marketingConsent` BOOLEAN NOT NULL DEFAULT FALSE", "users.marketingConsent column");
+    await ensureColumn("users", "marketingConsentAt", "`marketingConsentAt` TIMESTAMP NULL", "users.marketingConsentAt column");
+    await ensureColumn("users", "dataRetentionUntil", "`dataRetentionUntil` TIMESTAMP NULL", "users.dataRetentionUntil column");
+
+    await ensureColumn("leads", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "leads.tenantId column");
+    await ensureColumn("chat_messages", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "chat_messages.tenantId column");
+    await ensureColumn("conversations", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "conversations.tenantId column");
+    await ensureColumn("pipeline_stages", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "pipeline_stages.tenantId column");
 
     if (!(await hasTable("lead_reminders"))) {
         await connection.query(`
@@ -122,20 +145,11 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
         logger.warn("[Migration] Created missing lead_reminders table");
     }
 
-    if (!(await hasColumn("app_settings", "tenantId"))) {
-        await connection.query(`ALTER TABLE app_settings ADD COLUMN tenantId INT NOT NULL DEFAULT 1`);
-        logger.warn("[Migration] Patched app_settings.tenantId column");
-    }
+    await ensureColumn("app_settings", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "app_settings.tenantId column");
 
-    if (!(await hasColumn("app_settings", "singleton"))) {
-        await connection.query(`ALTER TABLE app_settings ADD COLUMN singleton INT NOT NULL DEFAULT 1`);
-    }
-    if (!(await hasColumn("app_settings", "securityConfig"))) {
-        await connection.query(`ALTER TABLE app_settings ADD COLUMN securityConfig JSON NULL`);
-    }
-    if (!(await hasColumn("app_settings", "metaConfig"))) {
-        await connection.query(`ALTER TABLE app_settings ADD COLUMN metaConfig JSON NULL`);
-    }
+    await ensureColumn("app_settings", "singleton", "`singleton` INT NOT NULL DEFAULT 1", "app_settings.singleton column");
+    await ensureColumn("app_settings", "securityConfig", "`securityConfig` JSON NULL", "app_settings.securityConfig column");
+    await ensureColumn("app_settings", "metaConfig", "`metaConfig` JSON NULL", "app_settings.metaConfig column");
 
     logger.info("[Migration] Schema compatibility checks completed");
 }

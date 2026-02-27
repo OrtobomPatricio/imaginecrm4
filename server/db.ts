@@ -17,10 +17,15 @@ export async function getDb() {
   if (_db) return _db;
 
   const isProd = process.env.NODE_ENV === "production";
-  const allowMockDb = !isProd && (process.env.ALLOW_MOCK_DB === "1" || process.env.NODE_ENV === "test");
+  const explicitMockRequested = process.env.USE_MOCK_DB === "true";
+  const allowMockDb = !isProd && (process.env.ALLOW_MOCK_DB === "1" || process.env.NODE_ENV === "test" || explicitMockRequested);
+
+  if (isProd && explicitMockRequested) {
+    logger.error("[Database] USE_MOCK_DB=true is not allowed in production. Ignoring mock mode.");
+  }
 
   if (!process.env.DATABASE_URL) {
-    if (allowMockDb || process.env.USE_MOCK_DB === "true") {
+    if (allowMockDb) {
       logger.info("[Database] Using MOCK database (no DATABASE_URL and mock explicitly enabled)");
       _db = await mockDb.getDb();
       return _db;
@@ -60,7 +65,7 @@ export async function getDb() {
       logger.error("[Database] Production mode forbids mock DB fallback. Exiting.");
       process.exit(1);
     }
-    if (allowMockDb || process.env.USE_MOCK_DB === "true") {
+    if (allowMockDb) {
       logger.info("[Database] Falling back to MOCK database (explicitly enabled for non-production)...");
       _db = await mockDb.getDb();
     } else {
