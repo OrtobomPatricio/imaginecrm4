@@ -101,6 +101,36 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     logger.info("[Migration] Running schema compatibility checks...");
 
+    if (!(await hasTable("tenants"))) {
+        await connection.query(`
+            CREATE TABLE tenants (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              name VARCHAR(200) NOT NULL,
+              slug VARCHAR(100) NOT NULL,
+              plan ENUM('free','starter','pro','enterprise') NOT NULL DEFAULT 'free',
+              stripeCustomerId VARCHAR(255) NULL,
+              status ENUM('active','suspended','canceled') NOT NULL DEFAULT 'active',
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              UNIQUE KEY idx_tenant_slug (slug)
+            )
+        `);
+        logger.warn("[Migration] Created missing tenants table");
+    }
+
+    {
+        const [rows] = await connection.query(
+            `SELECT COUNT(*) AS cnt FROM tenants WHERE id = 1`
+        );
+        const hasPlatformTenant = Number((rows as Array<{ cnt: number }>)[0]?.cnt ?? 0) > 0;
+        if (!hasPlatformTenant) {
+            await connection.query(
+                `INSERT INTO tenants (id, name, slug, plan, status) VALUES (1, 'Platform', 'platform', 'enterprise', 'active')`
+            );
+            logger.warn("[Migration] Seeded platform tenant (id=1)");
+        }
+    }
+
     await ensureColumn("users", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "users.tenantId column");
     await ensureColumn("users", "gdprConsentAt", "`gdprConsentAt` TIMESTAMP NULL", "users.gdprConsentAt column");
     await ensureColumn("users", "gdprConsentVersion", "`gdprConsentVersion` VARCHAR(20) NULL", "users.gdprConsentVersion column");
