@@ -3,7 +3,6 @@ import { drizzle } from "drizzle-orm/mysql2";
 import mysql from "mysql2/promise";
 import { InsertUser, users } from "../drizzle/schema";
 import { ENV } from './_core/env';
-import * as mockDb from './db-mock';
 
 import { logger } from "./_core/logger";
 
@@ -12,6 +11,14 @@ let _db: ReturnType<typeof drizzle> | null = null;
 // Lazily create the drizzle instance so local tooling can run without a DB.
 // Lazily create the drizzle instance so local tooling can run without a DB.
 let _pool: mysql.Pool | null = null;
+let _mockDbLoader: Promise<{ getDb: () => Promise<any> }> | null = null;
+
+async function loadMockDb() {
+  if (!_mockDbLoader) {
+    _mockDbLoader = import("./db-mock");
+  }
+  return _mockDbLoader;
+}
 
 export async function getDb() {
   if (_db) return _db;
@@ -27,6 +34,7 @@ export async function getDb() {
   if (!process.env.DATABASE_URL) {
     if (allowMockDb) {
       logger.info("[Database] Using MOCK database (no DATABASE_URL and mock explicitly enabled)");
+      const mockDb = await loadMockDb();
       _db = await mockDb.getDb();
       return _db;
     }
@@ -67,6 +75,7 @@ export async function getDb() {
     }
     if (allowMockDb) {
       logger.info("[Database] Falling back to MOCK database (explicitly enabled for non-production)...");
+      const mockDb = await loadMockDb();
       _db = await mockDb.getDb();
     } else {
       throw error;

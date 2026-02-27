@@ -12,10 +12,13 @@ async function main() {
 
     const email = process.env.BOOTSTRAP_ADMIN_EMAIL;
     const pass = process.env.BOOTSTRAP_ADMIN_PASSWORD;
+    const tenantId = Number(process.env.BOOTSTRAP_ADMIN_TENANT_ID ?? "1");
     if (!email || !pass) throw new Error("Set BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD");
+    if (!Number.isFinite(tenantId) || tenantId <= 0) throw new Error("BOOTSTRAP_ADMIN_TENANT_ID must be a positive number");
 
     const hashed = await bcrypt.hash(pass, 12);
     await db.insert(users).values({
+        tenantId,
         openId: `local_${nanoid(16)}`,
         name: "Admin",
         email,
