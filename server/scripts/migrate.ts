@@ -175,6 +175,22 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
         logger.warn("[Migration] Created missing lead_reminders table");
     }
 
+    if (!(await hasTable("terms_acceptance"))) {
+        await connection.query(`
+            CREATE TABLE terms_acceptance (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              userId INT NOT NULL,
+              termsVersion VARCHAR(20) NOT NULL,
+              acceptedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              ipAddress VARCHAR(45) NULL,
+              userAgent TEXT NULL,
+              UNIQUE KEY idx_terms_user_version (tenantId, userId, termsVersion)
+            )
+        `);
+        logger.warn("[Migration] Created missing terms_acceptance table");
+    }
+
     await ensureColumn("app_settings", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "app_settings.tenantId column");
 
     await ensureColumn("app_settings", "singleton", "`singleton` INT NOT NULL DEFAULT 1", "app_settings.singleton column");
