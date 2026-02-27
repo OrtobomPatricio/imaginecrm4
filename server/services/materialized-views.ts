@@ -95,17 +95,38 @@ export async function refreshMaterializedViews(): Promise<void> {
 
     const start = Date.now();
 
+    const runRefreshStep = async (name: string, query: ReturnType<typeof sql>) => {
+        try {
+            await db.execute(query);
+        } catch (err: any) {
+            logger.error(
+                {
+                    step: name,
+                    err: err?.message,
+                    cause: err?.cause?.message,
+                    code: err?.code ?? err?.cause?.code,
+                },
+                "[MV] Step failed"
+            );
+        }
+    };
+
     try {
         // 1. Refresh lead counts
-        await db.execute(sql`
+        await runRefreshStep("mv_lead_counts_by_status", sql`
             REPLACE INTO mv_lead_counts_by_status (tenantId, status, cnt, updatedAt)
-            SELECT tenantId, status, COUNT(*) as cnt, NOW()
+            SELECT
+                COALESCE(tenantId, 1) as tenantId,
+                COALESCE(NULLIF(status, ''), 'new') as status,
+                COUNT(*) as cnt,
+                NOW()
             FROM leads
-            GROUP BY tenantId, status
+            WHERE COALESCE(tenantId, 0) > 0
+            GROUP BY COALESCE(tenantId, 1), COALESCE(NULLIF(status, ''), 'new')
         `);
 
         // 2. Refresh daily message volume (last 90 days)
-        await db.execute(sql`
+        await runRefreshStep("mv_daily_message_volume", sql`
             REPLACE INTO mv_daily_message_volume (tenantId, msgDate, totalMessages, inbound, outbound, updatedAt)
             SELECT
                 tenantId,
@@ -120,7 +141,7 @@ export async function refreshMaterializedViews(): Promise<void> {
         `);
 
         // 3. Refresh pipeline summary
-        await db.execute(sql`
+        await runRefreshStep("mv_pipeline_summary", sql`
             REPLACE INTO mv_pipeline_summary (tenantId, pipelineId, stageId, stageName, leadCount, totalValue, updatedAt)
             SELECT
                 ps.tenantId,
@@ -136,7 +157,7 @@ export async function refreshMaterializedViews(): Promise<void> {
         `);
 
         // 4. Refresh agent performance (last 30 days)
-        await db.execute(sql`
+        await runRefreshStep("mv_agent_performance", sql`
             REPLACE INTO mv_agent_performance (tenantId, userId, periodDate, messagesHandled, leadsAssigned, updatedAt)
             SELECT
                 cm.tenantId,
