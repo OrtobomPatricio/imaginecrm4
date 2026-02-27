@@ -231,6 +231,161 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
         }
     }
 
+    if (!(await hasTable("whatsapp_numbers"))) {
+        await connection.query(`
+            CREATE TABLE whatsapp_numbers (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              phoneNumber VARCHAR(20) NOT NULL,
+              displayName VARCHAR(100) NULL,
+              country VARCHAR(50) NOT NULL,
+              countryCode VARCHAR(5) NOT NULL,
+              status ENUM('active','warming_up','blocked','disconnected') NOT NULL DEFAULT 'warming_up',
+              warmupDay INT NOT NULL DEFAULT 0,
+              warmupStartDate TIMESTAMP NULL,
+              dailyMessageLimit INT NOT NULL DEFAULT 20,
+              messagesSentToday INT NOT NULL DEFAULT 0,
+              totalMessagesSent INT NOT NULL DEFAULT 0,
+              lastConnected TIMESTAMP NULL,
+              isConnected BOOLEAN NOT NULL DEFAULT FALSE,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              UNIQUE KEY uniq_whatsapp_phone (tenantId, phoneNumber)
+            )
+        `);
+        logger.warn("[Migration] Created missing whatsapp_numbers table");
+    }
+
+    if (!(await hasTable("whatsapp_connections"))) {
+        await connection.query(`
+            CREATE TABLE whatsapp_connections (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              whatsappNumberId INT NOT NULL,
+              connectionType ENUM('api','qr') NOT NULL,
+              accessToken TEXT NULL,
+              phoneNumberId VARCHAR(50) NULL,
+              businessAccountId VARCHAR(50) NULL,
+              qrCode TEXT NULL,
+              qrExpiresAt TIMESTAMP NULL,
+              sessionData TEXT NULL,
+              isConnected BOOLEAN NOT NULL DEFAULT FALSE,
+              lastPingAt TIMESTAMP NULL,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              UNIQUE KEY uniq_whatsapp_connections_number (whatsappNumberId)
+            )
+        `);
+        logger.warn("[Migration] Created missing whatsapp_connections table");
+    }
+
+    if (!(await hasTable("templates"))) {
+        await connection.query(`
+            CREATE TABLE templates (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              name VARCHAR(150) NOT NULL,
+              content TEXT NOT NULL,
+              type ENUM('whatsapp','email') NOT NULL DEFAULT 'whatsapp',
+              attachments JSON NULL,
+              variables JSON NULL,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        logger.warn("[Migration] Created missing templates table");
+    }
+
+    if (!(await hasTable("campaigns"))) {
+        await connection.query(`
+            CREATE TABLE campaigns (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              name VARCHAR(200) NOT NULL,
+              message TEXT NOT NULL,
+              type ENUM('whatsapp','email') NOT NULL DEFAULT 'whatsapp',
+              templateId INT NULL,
+              audienceConfig JSON NULL,
+              status ENUM('draft','scheduled','running','paused','completed','cancelled') NOT NULL DEFAULT 'draft',
+              scheduledAt TIMESTAMP NULL,
+              startedAt TIMESTAMP NULL,
+              completedAt TIMESTAMP NULL,
+              totalRecipients INT NOT NULL DEFAULT 0,
+              messagesSent INT NOT NULL DEFAULT 0,
+              messagesDelivered INT NOT NULL DEFAULT 0,
+              messagesRead INT NOT NULL DEFAULT 0,
+              messagesFailed INT NOT NULL DEFAULT 0,
+              createdById INT NULL,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              INDEX idx_campaigns_tenant_status_schedule (tenantId, status, scheduledAt)
+            )
+        `);
+        logger.warn("[Migration] Created missing campaigns table");
+    }
+
+    if (!(await hasTable("campaign_recipients"))) {
+        await connection.query(`
+            CREATE TABLE campaign_recipients (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              campaignId INT NOT NULL,
+              leadId INT NOT NULL,
+              whatsappNumberId INT NULL,
+              whatsappMessageId VARCHAR(128) NULL,
+              status ENUM('pending','sent','delivered','failed','read') NOT NULL DEFAULT 'pending',
+              sentAt TIMESTAMP NULL,
+              deliveredAt TIMESTAMP NULL,
+              readAt TIMESTAMP NULL,
+              errorMessage TEXT NULL,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              UNIQUE KEY unique_campaign_lead (tenantId, campaignId, leadId),
+              INDEX idx_campaign_recipients_campaign_status (campaignId, status)
+            )
+        `);
+        logger.warn("[Migration] Created missing campaign_recipients table");
+    }
+
+    if (!(await hasTable("workflows"))) {
+        await connection.query(`
+            CREATE TABLE workflows (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              name VARCHAR(200) NOT NULL,
+              description TEXT NULL,
+              isActive BOOLEAN NOT NULL DEFAULT TRUE,
+              triggerType ENUM('lead_created','lead_updated','msg_received','campaign_link_clicked') NOT NULL,
+              triggerConfig JSON NULL,
+              actions JSON NULL,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              INDEX idx_workflows_tenant_active (tenantId, isActive)
+            )
+        `);
+        logger.warn("[Migration] Created missing workflows table");
+    }
+
+    if (!(await hasTable("workflow_jobs"))) {
+        await connection.query(`
+            CREATE TABLE workflow_jobs (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              workflowId INT NOT NULL,
+              entityId INT NOT NULL,
+              actionIndex INT NOT NULL DEFAULT 0,
+              payload JSON NOT NULL,
+              status ENUM('pending','completed','failed') NOT NULL DEFAULT 'pending',
+              resumeAt TIMESTAMP NOT NULL,
+              errorMessage TEXT NULL,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              INDEX idx_workflow_jobs_resume_pending (status, resumeAt),
+              INDEX idx_workflow_jobs_tenant_pending (tenantId, status)
+            )
+        `);
+        logger.warn("[Migration] Created missing workflow_jobs table");
+    }
+
     await ensureColumn("app_settings", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "app_settings.tenantId column");
 
     await ensureColumn("app_settings", "singleton", "`singleton` INT NOT NULL DEFAULT 1", "app_settings.singleton column");
