@@ -20,9 +20,12 @@ export default function Login() {
   });
 
   const login = trpc.auth.loginWithCredentials.useMutation({
-    onSuccess: () => {
-      // Reload to hydrate session
-      window.location.href = "/";
+    onSuccess: (data) => {
+      if (data?.success) {
+        window.location.href = "/";
+        return;
+      }
+      toast.error(data?.error || "Credenciales inválidas");
     },
     onError: (e) => toast.error(e.message || "Credenciales inválidas"),
   });
