@@ -29,7 +29,13 @@
     "verify:tenant-performance": "tsx server/scripts/verify-tenant-performance.ts",
     "test:real-db": "cross-env RUN_REAL_DB_PARITY=1 vitest run tests/integration/real-db-parity.test.ts",
     "hooks:install": "git config core.hooksPath .githooks",
-    "secrets:scan": "gitleaks detect --no-git --source . --redact --config .gitleaks.toml"
+    "secrets:scan": "gitleaks detect --no-git --source . --redact --config .gitleaks.toml",
+    "dev:local": "scripts\\dev\\start-local.bat",
+    "dev:quick": "scripts\\ops\\quick-start.bat",
+    "ops:check": "powershell -ExecutionPolicy Bypass -File scripts/ops/check-server.ps1",
+    "ops:start": "powershell -ExecutionPolicy Bypass -File scripts/ops/start-server.ps1",
+    "ops:start-crm": "powershell -ExecutionPolicy Bypass -File scripts/ops/start-crm.ps1",
+    "secrets:generate": "powershell -ExecutionPolicy Bypass -File scripts/security/generate-secrets.ps1"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",

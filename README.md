@@ -88,6 +88,14 @@ Consultar `.env.example` para una declaración exhaustiva de banderas de configu
 | `npm run test` | Ejecuta los tests unitarios con Vitest. |
 | `npm run e2e` | Lanza los tests funcionales E2E con Playwright. |
 
+## 🗂 Scripts Canónicos
+
+- Carpeta central: `scripts/`
+- Desarrollo: `scripts/dev/`
+- Operaciones: `scripts/ops/`
+- Seguridad: `scripts/security/`
+- Se mantienen scripts de raíz por compatibilidad, pero los nuevos entrypoints recomendados están en `scripts/README.md`.
+
 ---
 
 ## 🔧 Troubleshooting Básico

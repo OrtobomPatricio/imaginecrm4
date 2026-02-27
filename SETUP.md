@@ -26,7 +26,7 @@
 cd crmpro_extract
 
 # 2. Ejecutar script de inicio
-.\start-dev.bat
+.\scripts\dev\start-dev.bat
 ```
 
 ### Opción 2: Linux/Mac (Script Automático)
@@ -36,7 +36,7 @@ cd crmpro_extract
 cd crmpro_extract
 
 # 2. Ejecutar script
-./start-dev.sh
+./scripts/dev/start-dev.sh
 ```
 
 ### Opción 3: Manual
