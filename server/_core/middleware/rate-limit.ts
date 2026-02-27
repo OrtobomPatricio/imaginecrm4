@@ -30,13 +30,21 @@ const globalLimiter = rateLimit({
 
 // Sensitive endpoints Map
 const SENSITIVE_LIMITS = {
-    "auth.login": rateLimit({
-        windowMs: 60000, max: 10,
+    "auth.loginWithCredentials": rateLimit({
+        windowMs: Number(process.env.RATE_LIMIT_LOGIN_WINDOW_MS ?? "60000"),
+        max: Number(process.env.RATE_LIMIT_LOGIN_MAX ?? "30"),
+        standardHeaders: true,
+        legacyHeaders: false,
+        skipSuccessfulRequests: true,
         store: redisClient ? new RedisStore({ sendCommand: (...args: string[]) => redisClient.call(args[0], ...args.slice(1)) as any }) : undefined,
         message: { error: "rate_limit", message: "Excedido el límite de login." }
     }),
     "auth.register": rateLimit({
-        windowMs: 60000, max: 5,
+        windowMs: Number(process.env.RATE_LIMIT_REGISTER_WINDOW_MS ?? "60000"),
+        max: Number(process.env.RATE_LIMIT_REGISTER_MAX ?? "10"),
+        standardHeaders: true,
+        legacyHeaders: false,
+        skipSuccessfulRequests: true,
         store: redisClient ? new RedisStore({ sendCommand: (...args: string[]) => redisClient.call(args[0], ...args.slice(1)) as any }) : undefined,
         message: { error: "rate_limit", message: "Excedido el límite de registro." }
     }),
@@ -49,8 +57,9 @@ export const rateLimitMiddleware = (req: Request, res: Response, next: NextFunct
 
     // Check sensitive TRPC endpoints
     if (req.path.includes("/api/trpc/")) {
+        const procedure = req.path.split("/api/trpc/")[1] || "";
         for (const [key, limiter] of Object.entries(SENSITIVE_LIMITS)) {
-            if (req.path.includes(key)) {
+            if (procedure === key) {
                 return limiter(req, res, next);
             }
         }
