@@ -5,7 +5,7 @@ import { migrate } from "drizzle-orm/mysql2/migrator";
 import path from "path";
 import { fileURLToPath } from "url";
 
-import { logger } from "../_core/logger";
+import { logger, safeError } from "../_core/logger";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,7 +17,22 @@ export async function runMigrations() {
         process.exit(1);
     }
 
-    logger.info("[Migration] Connecting to database...");
+    try {
+        const parsed = new URL(connectionString);
+        logger.info(
+            {
+                protocol: parsed.protocol.replace(":", ""),
+                host: parsed.hostname,
+                port: parsed.port || "3306",
+                database: parsed.pathname.replace(/^\//, ""),
+                user: parsed.username || "(empty)",
+            },
+            "[Migration] Connecting to database..."
+        );
+    } catch {
+        logger.warn("[Migration] DATABASE_URL is not a valid URL format");
+        logger.info("[Migration] Connecting to database...");
+    }
 
     const connection = await mysql.createConnection({
         uri: connectionString,
@@ -34,7 +49,7 @@ export async function runMigrations() {
         });
         logger.info("[Migration] Success! Database is up to date.");
     } catch (error) {
-        logger.error("[Migration] Failed:", error);
+        logger.error({ err: safeError(error) }, "[Migration] Failed");
         // Do not exit process if imported, let caller handle it? 
         // Or throw.
         throw error;
@@ -45,7 +60,7 @@ export async function runMigrations() {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
     runMigrations().catch((err) => {
-        logger.error("[Migration] Unhandled error:", err);
+        logger.error({ err: safeError(err) }, "[Migration] Unhandled error");
         process.exit(1);
     });
 }
