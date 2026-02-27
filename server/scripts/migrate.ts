@@ -181,6 +181,33 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
     await ensureColumn("app_settings", "securityConfig", "`securityConfig` JSON NULL", "app_settings.securityConfig column");
     await ensureColumn("app_settings", "metaConfig", "`metaConfig` JSON NULL", "app_settings.metaConfig column");
 
+    if (await hasTable("app_settings")) {
+        const [idxRows] = await connection.query(
+            `SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') AS cols
+             FROM information_schema.statistics
+             WHERE table_schema = DATABASE()
+               AND table_name = 'app_settings'
+               AND index_name = 'uniq_app_settings_singleton'`,
+        );
+
+        const cols = String((idxRows as Array<{ cols: string | null }>)[0]?.cols ?? "");
+
+        if (!cols) {
+            await connection.query(
+                `ALTER TABLE app_settings
+                 ADD UNIQUE INDEX uniq_app_settings_singleton (tenantId, singleton)`
+            );
+            logger.warn("[Migration] Added missing app_settings uniq_app_settings_singleton (tenantId, singleton)");
+        } else if (cols === "singleton") {
+            await connection.query(`ALTER TABLE app_settings DROP INDEX uniq_app_settings_singleton`);
+            await connection.query(
+                `ALTER TABLE app_settings
+                 ADD UNIQUE INDEX uniq_app_settings_singleton (tenantId, singleton)`
+            );
+            logger.warn("[Migration] Rebuilt legacy app_settings uniq_app_settings_singleton to (tenantId, singleton)");
+        }
+    }
+
     logger.info("[Migration] Schema compatibility checks completed");
 }
 
