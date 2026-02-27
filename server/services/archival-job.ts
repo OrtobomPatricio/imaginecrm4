@@ -2,10 +2,35 @@ import cron from "node-cron";
 import { sql, and, lt, eq } from "drizzle-orm";
 import { getDb } from "../db";
 import { chatMessages } from "../../drizzle/schema";
-import { logger } from "../_core/logger";
+import { logger, safeError } from "../_core/logger";
 
 const ARCHIVE_DAYS = Number(process.env.ARCHIVE_AFTER_DAYS ?? "180"); // 6 months default
 const BATCH_SIZE = 1000;
+let chatMessageTimeColumn: "createdAt" | "timestamp" | null = null;
+
+async function resolveChatMessageTimeColumn(db: any): Promise<"createdAt" | "timestamp" | null> {
+    if (chatMessageTimeColumn) return chatMessageTimeColumn;
+
+    const [rows] = await db.execute(sql`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = 'chat_messages'
+          AND column_name IN ('createdAt', 'timestamp')
+    `) as any;
+
+    const cols = Array.isArray(rows) ? rows.map((r: any) => String(r.column_name)) : [];
+
+    if (cols.includes("createdAt")) {
+        chatMessageTimeColumn = "createdAt";
+    } else if (cols.includes("timestamp")) {
+        chatMessageTimeColumn = "timestamp";
+    } else {
+        chatMessageTimeColumn = null;
+    }
+
+    return chatMessageTimeColumn;
+}
 
 /**
  * Archives (soft-deletes or removes) old chat messages and access logs
@@ -28,16 +53,21 @@ export function startArchivalJob(): void {
             const cutoffDate = new Date();
             cutoffDate.setDate(cutoffDate.getDate() - ARCHIVE_DAYS);
 
+            const timeColumn = await resolveChatMessageTimeColumn(db);
+            if (!timeColumn) {
+                logger.warn("[Archival] Skipped chat_messages archival: neither createdAt nor timestamp column exists");
+            }
+
             // Archive old chat messages in batches
             let totalArchived = 0;
             let batchCount = 0;
 
-            while (batchCount < 50) { // Safety: max 50 batches = 50k rows
-                const result = await db.execute(sql`
-                    DELETE FROM chat_messages
-                    WHERE timestamp < ${cutoffDate}
-                    LIMIT ${BATCH_SIZE}
-                `);
+            while (timeColumn && batchCount < 50) { // Safety: max 50 batches = 50k rows
+                const deleteSql = timeColumn === "createdAt"
+                    ? sql`DELETE FROM chat_messages WHERE createdAt < ${cutoffDate} LIMIT ${BATCH_SIZE}`
+                    : sql`DELETE FROM chat_messages WHERE timestamp < ${cutoffDate} LIMIT ${BATCH_SIZE}`;
+
+                const result = await db.execute(deleteSql);
 
                 const affected = (result as any)?.[0]?.affectedRows ?? 0;
                 totalArchived += affected;
@@ -67,7 +97,7 @@ export function startArchivalJob(): void {
 
             logger.info("[Archival] Job completed successfully");
         } catch (error) {
-            logger.error({ err: error }, "[Archival] Job failed");
+            logger.error({ err: safeError(error) }, "[Archival] Job failed");
         }
     });
 
