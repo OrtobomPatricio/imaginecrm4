@@ -182,8 +182,9 @@ export async function refreshMaterializedViews(): Promise<void> {
     }
 }
 
-// Allow running as standalone script
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Allow running as standalone script only when explicitly requested.
+// This avoids accidental process termination when bundled into dist/index.js.
+if (process.env.RUN_MV_STANDALONE === "1") {
     (async () => {
         await createMaterializedViews();
         await refreshMaterializedViews();
