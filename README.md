@@ -100,3 +100,9 @@ Consultar `.env.example` para una declaración exhaustiva de banderas de configu
   Incrementar memoria de Node: `export NODE_OPTIONS=--max_old_space_size=4096`.
 - **Redis no conecta**  
   La app hará fallback local memory buckets si `REDIS_URL` es nulo, pero advierte pérdida de sincronicidad entre réplicas.
+
+---
+
+## 📘 Registro operativo (EasyPanel)
+
+- Historial de fixes de despliegue, configuración estable y checklist post-deploy: `docs/EASYPANEL_ESTABILIZACION.md`.
