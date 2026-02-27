@@ -7,6 +7,11 @@ import { logger } from "../_core/logger";
  * Safe to run multiple times (uses IF NOT EXISTS via raw SQL).
  */
 export async function createFulltextIndexes(): Promise<void> {
+    if (process.env.ENABLE_LEGACY_FULLTEXT_INDEXES !== "1") {
+        logger.info("[FULLTEXT] Skipped legacy runtime fulltext SQL (set ENABLE_LEGACY_FULLTEXT_INDEXES=1 to enable)");
+        return;
+    }
+
     const db = await getDb();
     if (!db) {
         logger.warn("Cannot create FULLTEXT indexes: database not available");

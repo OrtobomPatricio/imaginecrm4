@@ -11,6 +11,11 @@ import { logger } from "../_core/logger";
  * hitting the table data (a "covering" or "index-only" scan).
  */
 export async function optimizeDatabaseIndexes(): Promise<void> {
+    if (process.env.ENABLE_LEGACY_DB_OPTIMIZATION !== "1") {
+        logger.info("[DBOptimize] Skipped legacy runtime optimization SQL (set ENABLE_LEGACY_DB_OPTIMIZATION=1 to enable)");
+        return;
+    }
+
     const db = await getDb();
     if (!db) {
         logger.warn("Cannot optimize indexes: database not available");
