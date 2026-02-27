@@ -519,13 +519,13 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     {
         const [tableRows] = await connection.query(
-            `SELECT table_name
+            `SELECT table_name AS tableName
              FROM information_schema.tables
              WHERE table_schema = DATABASE()`
         );
 
         const existingTables = new Set(
-            (tableRows as Array<{ table_name: string }>).map((row) => row.table_name)
+            (tableRows as Array<{ tableName?: string; table_name?: string; TABLE_NAME?: string }>).map((row) => row.tableName ?? row.table_name ?? row.TABLE_NAME ?? "")
         );
 
         const missingRequiredTables = REQUIRED_SCHEMA_TABLES.filter((table) => !existingTables.has(table));
