@@ -9,7 +9,7 @@
 
 import { getDb } from "../db";
 import { workflowJobs, workflows } from "../../drizzle/schema";
-import { and, eq, lte } from "drizzle-orm";
+import { and, eq, lte, sql } from "drizzle-orm";
 import { _executeWorkflowInstance } from "./workflow-engine";
 
 import { logger, safeError } from "../_core/logger";
@@ -18,6 +18,43 @@ const POLL_INTERVAL_MS = 10000; // Revisar cada 10 segundos
 
 let pollerInterval: NodeJS.Timeout | null = null;
 let isPolling = false;
+let schemaChecked = false;
+let schemaReady = false;
+
+async function ensureWorkflowSchema(): Promise<boolean> {
+    if (schemaChecked) return schemaReady;
+    schemaChecked = true;
+
+    const db = await getDb();
+    if (!db) return false;
+
+    try {
+        const [workflowJobsExists] = await db.execute(sql`
+            SELECT 1 AS ok
+            FROM information_schema.tables
+            WHERE table_schema = DATABASE() AND table_name = 'workflow_jobs'
+            LIMIT 1
+        `) as any;
+
+        const [workflowsExists] = await db.execute(sql`
+            SELECT 1 AS ok
+            FROM information_schema.tables
+            WHERE table_schema = DATABASE() AND table_name = 'workflows'
+            LIMIT 1
+        `) as any;
+
+        schemaReady = Boolean(workflowJobsExists?.ok || workflowJobsExists?.["ok"]) && Boolean(workflowsExists?.ok || workflowsExists?.["ok"]);
+
+        if (!schemaReady) {
+            logger.warn("[WorkflowPoller] Disabled: required tables (workflow_jobs/workflows) are missing in this database.");
+        }
+    } catch (err) {
+        logger.error({ err: safeError(err) }, "[WorkflowPoller] Failed to validate schema, poller disabled");
+        schemaReady = false;
+    }
+
+    return schemaReady;
+}
 
 export function startWorkflowPoller() {
     if (pollerInterval) return;
@@ -29,6 +66,11 @@ export function startWorkflowPoller() {
         isPolling = true;
 
         try {
+            const isReady = await ensureWorkflowSchema();
+            if (!isReady) {
+                stopWorkflowPoller();
+                return;
+            }
             await pollPendingJobs();
         } catch (err) {
             logger.error({ err: safeError(err) }, "[WorkflowPoller] Error crítico en el ciclo");

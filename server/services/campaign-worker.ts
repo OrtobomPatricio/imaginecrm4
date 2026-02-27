@@ -12,6 +12,43 @@ import { logger, safeError } from "../_core/logger";
 
 // Concurrency limit per tick
 const BATCH_SIZE = 50;
+let schemaChecked = false;
+let schemaReady = false;
+
+async function ensureCampaignSchema(): Promise<boolean> {
+    if (schemaChecked) return schemaReady;
+    schemaChecked = true;
+
+    const db = await getDb();
+    if (!db) return false;
+
+    try {
+        const [campaignsExists] = await db.execute(sql`
+            SELECT 1 AS ok
+            FROM information_schema.tables
+            WHERE table_schema = DATABASE() AND table_name = 'campaigns'
+            LIMIT 1
+        `) as any;
+
+        const [recipientsExists] = await db.execute(sql`
+            SELECT 1 AS ok
+            FROM information_schema.tables
+            WHERE table_schema = DATABASE() AND table_name = 'campaign_recipients'
+            LIMIT 1
+        `) as any;
+
+        schemaReady = Boolean(campaignsExists?.ok || campaignsExists?.["ok"]) && Boolean(recipientsExists?.ok || recipientsExists?.["ok"]);
+
+        if (!schemaReady) {
+            logger.warn("[CampaignWorker] Disabled: required tables (campaigns/campaign_recipients) are missing in this database.");
+        }
+    } catch (err) {
+        logger.error({ err: safeError(err) }, "[CampaignWorker] Failed to validate schema, worker disabled");
+        schemaReady = false;
+    }
+
+    return schemaReady;
+}
 
 export function startCampaignWorker() {
     logger.info("[CampaignWorker] Starting worker...");
@@ -19,6 +56,8 @@ export function startCampaignWorker() {
     // Run every minute
     cron.schedule("* * * * *", async () => {
         try {
+            const isReady = await ensureCampaignSchema();
+            if (!isReady) return;
             await processScheduledCampaigns();
             await processRunningCampaigns();
         } catch (err) {

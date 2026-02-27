@@ -2,6 +2,7 @@
 import { getDb } from "../db";
 import { whatsappConnections, whatsappNumbers } from "../../drizzle/schema";
 import { eq, and } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { BaileysService } from "./baileys";
 
 import { logger, safeError } from "../_core/logger";
@@ -11,6 +12,31 @@ export async function startWhatsAppSessions() {
     const db = await getDb();
     if (!db) {
         logger.error("[WhatsAppSession] DB not available");
+        return;
+    }
+
+    try {
+        const [connectionsExists] = await db.execute(sql`
+            SELECT 1 AS ok
+            FROM information_schema.tables
+            WHERE table_schema = DATABASE() AND table_name = 'whatsapp_connections'
+            LIMIT 1
+        `) as any;
+
+        const [numbersExists] = await db.execute(sql`
+            SELECT 1 AS ok
+            FROM information_schema.tables
+            WHERE table_schema = DATABASE() AND table_name = 'whatsapp_numbers'
+            LIMIT 1
+        `) as any;
+
+        const hasSchema = Boolean(connectionsExists?.ok || connectionsExists?.["ok"]) && Boolean(numbersExists?.ok || numbersExists?.["ok"]);
+        if (!hasSchema) {
+            logger.warn("[WhatsAppSession] Disabled: required tables (whatsapp_connections/whatsapp_numbers) are missing in this database.");
+            return;
+        }
+    } catch (err) {
+        logger.error({ err: safeError(err) }, "[WhatsAppSession] Failed to validate schema, session restore disabled");
         return;
     }
 
