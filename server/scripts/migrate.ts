@@ -191,6 +191,46 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
         logger.warn("[Migration] Created missing terms_acceptance table");
     }
 
+    if (!(await hasTable("sessions"))) {
+        await connection.query(`
+            CREATE TABLE sessions (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              userId INT NOT NULL,
+              sessionToken VARCHAR(255) NOT NULL,
+              ipAddress VARCHAR(45) NULL,
+              userAgent TEXT NULL,
+              lastActivityAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              expiresAt TIMESTAMP NOT NULL,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              UNIQUE KEY uniq_sessions_token (sessionToken)
+            )
+        `);
+        logger.warn("[Migration] Created missing sessions table");
+    }
+
+    await ensureColumn("sessions", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "sessions.tenantId column");
+    await ensureColumn("sessions", "userId", "`userId` INT NOT NULL", "sessions.userId column");
+    await ensureColumn("sessions", "sessionToken", "`sessionToken` VARCHAR(255) NOT NULL", "sessions.sessionToken column");
+    await ensureColumn("sessions", "lastActivityAt", "`lastActivityAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "sessions.lastActivityAt column");
+    await ensureColumn("sessions", "expiresAt", "`expiresAt` TIMESTAMP NOT NULL", "sessions.expiresAt column");
+    await ensureColumn("sessions", "createdAt", "`createdAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "sessions.createdAt column");
+
+    {
+        const [idxRows] = await connection.query(
+            `SELECT COUNT(*) AS cnt
+             FROM information_schema.statistics
+             WHERE table_schema = DATABASE()
+               AND table_name = 'sessions'
+               AND index_name = 'uniq_sessions_token'`,
+        );
+        const hasIdx = Number((idxRows as Array<{ cnt: number }>)[0]?.cnt ?? 0) > 0;
+        if (!hasIdx) {
+            await connection.query(`ALTER TABLE sessions ADD UNIQUE INDEX uniq_sessions_token (sessionToken)`);
+            logger.warn("[Migration] Added missing uniq_sessions_token index");
+        }
+    }
+
     await ensureColumn("app_settings", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "app_settings.tenantId column");
 
     await ensureColumn("app_settings", "singleton", "`singleton` INT NOT NULL DEFAULT 1", "app_settings.singleton column");

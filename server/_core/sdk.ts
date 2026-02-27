@@ -266,9 +266,14 @@ class SDKServer {
             }
           }
         } catch (e) {
-          logger.error({ err: safeError(e) }, "[Auth] DB session check failed");
-          // If DB is down, should we allow? Safe default is NO.
-          return null;
+          const msg = String((e as any)?.message || "");
+          const isLegacySchemaIssue = /sessions|sessiontoken|doesn't exist|unknown column|table .* doesn't exist/i.test(msg);
+          if (isLegacySchemaIssue) {
+            logger.warn({ err: safeError(e) }, "[Auth] DB session check skipped due to legacy/missing sessions schema");
+          } else {
+            logger.error({ err: safeError(e) }, "[Auth] DB session check failed");
+            return null;
+          }
         }
       }
 
