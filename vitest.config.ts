@@ -14,6 +14,12 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    isolate: true,
+    env: {
+      NODE_ENV: "test",
+      ALLOW_MOCK_DB: "1",
+      USE_MOCK_DB: "true",
+    },
     include: [
       "server/**/*.test.ts",
       "server/**/*.spec.ts",

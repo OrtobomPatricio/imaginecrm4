@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "moduleResolution": "Bundler",
+    "types": ["node"]
+  },
+  "include": [
+    "server/**/*",
+    "shared/**/*"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "client",
+    "server/**/*.test.ts",
+    "server/**/*.spec.ts",
+    "tests/**/*",
+    "drizzle/**/*",
+    "**/*.stories.ts",
+    "**/*.stories.tsx"
+  ]
+}
