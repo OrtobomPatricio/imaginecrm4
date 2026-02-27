@@ -1,6 +1,7 @@
 import "dotenv/config";
 import bcrypt from "bcryptjs";
 import { nanoid } from "nanoid";
+import { and, eq } from "drizzle-orm";
 import { getDb } from "../db";
 import { users } from "../../drizzle/schema";
 
@@ -17,19 +18,40 @@ async function main() {
     if (!Number.isFinite(tenantId) || tenantId <= 0) throw new Error("BOOTSTRAP_ADMIN_TENANT_ID must be a positive number");
 
     const hashed = await bcrypt.hash(pass, 12);
-    await db.insert(users).values({
-        tenantId,
-        openId: `local_${nanoid(16)}`,
-        name: "Admin",
-        email,
-        password: hashed,
-        role: "admin",
-        loginMethod: "credentials",
-        isActive: true,
-        hasSeenTour: false,
-    });
 
-    logger.info("admin creado");
+    const existing = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.email, email), eq(users.tenantId, tenantId)))
+        .limit(1);
+
+    if (existing.length > 0) {
+        await db
+            .update(users)
+            .set({
+                password: hashed,
+                role: "admin",
+                loginMethod: "credentials",
+                isActive: true,
+                updatedAt: new Date(),
+            } as any)
+            .where(eq(users.id, existing[0].id));
+        logger.info("admin actualizado");
+    } else {
+        await db.insert(users).values({
+            tenantId,
+            openId: `local_${nanoid(16)}`,
+            name: "Admin",
+            email,
+            password: hashed,
+            role: "admin",
+            loginMethod: "credentials",
+            isActive: true,
+            hasSeenTour: false,
+        });
+        logger.info("admin creado");
+    }
+
     process.exit(0);
 }
 
