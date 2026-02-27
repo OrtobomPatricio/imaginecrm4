@@ -60,6 +60,54 @@ export async function runMigrations() {
 }
 
 async function ensureCompatibilitySchema(connection: mysql.Connection) {
+    const REQUIRED_SCHEMA_TABLES = [
+        "access_logs",
+        "activity_logs",
+        "ai_suggestions",
+        "app_settings",
+        "appointment_reasons",
+        "appointments",
+        "campaign_recipients",
+        "campaigns",
+        "chat_messages",
+        "chatbot_flows",
+        "conversation_tags",
+        "conversations",
+        "custom_field_definitions",
+        "facebook_pages",
+        "file_uploads",
+        "forms",
+        "integrations",
+        "lead_notes",
+        "lead_reminders",
+        "lead_tags",
+        "lead_tasks",
+        "leads",
+        "license",
+        "message_queue",
+        "onboarding_progress",
+        "pipeline_stages",
+        "pipelines",
+        "quick_answers",
+        "quotations",
+        "reminder_templates",
+        "sessions",
+        "smtp_connections",
+        "tags",
+        "templates",
+        "tenants",
+        "terms_acceptance",
+        "usage_tracking",
+        "users",
+        "webhook_deliveries",
+        "webhooks",
+        "whatsapp_connections",
+        "whatsapp_numbers",
+        "workflow_jobs",
+        "workflow_logs",
+        "workflows",
+    ] as const;
+
     const hasColumn = async (table: string, column: string) => {
         const [rows] = await connection.query(
             `SELECT COUNT(*) AS cnt
@@ -209,12 +257,47 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
         logger.warn("[Migration] Created missing sessions table");
     }
 
+    if (!(await hasTable("onboarding_progress"))) {
+        await connection.query(`
+            CREATE TABLE onboarding_progress (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              companyCompleted BOOLEAN NOT NULL DEFAULT FALSE,
+              teamCompleted BOOLEAN NOT NULL DEFAULT FALSE,
+              whatsappCompleted BOOLEAN NOT NULL DEFAULT FALSE,
+              importCompleted BOOLEAN NOT NULL DEFAULT FALSE,
+              firstMessageCompleted BOOLEAN NOT NULL DEFAULT FALSE,
+              startedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              completedAt TIMESTAMP NULL,
+              lastStep VARCHAR(50) NOT NULL DEFAULT 'company',
+              companyData JSON NULL,
+              teamInvites JSON NULL,
+              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              UNIQUE KEY uniq_onboarding_progress_tenantId (tenantId)
+            )
+        `);
+        logger.warn("[Migration] Created missing onboarding_progress table");
+    }
+
     await ensureColumn("sessions", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "sessions.tenantId column");
     await ensureColumn("sessions", "userId", "`userId` INT NOT NULL", "sessions.userId column");
     await ensureColumn("sessions", "sessionToken", "`sessionToken` VARCHAR(255) NOT NULL", "sessions.sessionToken column");
     await ensureColumn("sessions", "lastActivityAt", "`lastActivityAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "sessions.lastActivityAt column");
     await ensureColumn("sessions", "expiresAt", "`expiresAt` TIMESTAMP NOT NULL", "sessions.expiresAt column");
     await ensureColumn("sessions", "createdAt", "`createdAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "sessions.createdAt column");
+
+    await ensureColumn("onboarding_progress", "tenantId", "`tenantId` INT NOT NULL", "onboarding_progress.tenantId column");
+    await ensureColumn("onboarding_progress", "companyCompleted", "`companyCompleted` BOOLEAN NOT NULL DEFAULT FALSE", "onboarding_progress.companyCompleted column");
+    await ensureColumn("onboarding_progress", "teamCompleted", "`teamCompleted` BOOLEAN NOT NULL DEFAULT FALSE", "onboarding_progress.teamCompleted column");
+    await ensureColumn("onboarding_progress", "whatsappCompleted", "`whatsappCompleted` BOOLEAN NOT NULL DEFAULT FALSE", "onboarding_progress.whatsappCompleted column");
+    await ensureColumn("onboarding_progress", "importCompleted", "`importCompleted` BOOLEAN NOT NULL DEFAULT FALSE", "onboarding_progress.importCompleted column");
+    await ensureColumn("onboarding_progress", "firstMessageCompleted", "`firstMessageCompleted` BOOLEAN NOT NULL DEFAULT FALSE", "onboarding_progress.firstMessageCompleted column");
+    await ensureColumn("onboarding_progress", "startedAt", "`startedAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP", "onboarding_progress.startedAt column");
+    await ensureColumn("onboarding_progress", "completedAt", "`completedAt` TIMESTAMP NULL", "onboarding_progress.completedAt column");
+    await ensureColumn("onboarding_progress", "lastStep", "`lastStep` VARCHAR(50) NOT NULL DEFAULT 'company'", "onboarding_progress.lastStep column");
+    await ensureColumn("onboarding_progress", "companyData", "`companyData` JSON NULL", "onboarding_progress.companyData column");
+    await ensureColumn("onboarding_progress", "teamInvites", "`teamInvites` JSON NULL", "onboarding_progress.teamInvites column");
+    await ensureColumn("onboarding_progress", "updatedAt", "`updatedAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "onboarding_progress.updatedAt column");
 
     {
         const [idxRows] = await connection.query(
@@ -228,6 +311,21 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
         if (!hasIdx) {
             await connection.query(`ALTER TABLE sessions ADD UNIQUE INDEX uniq_sessions_token (sessionToken)`);
             logger.warn("[Migration] Added missing uniq_sessions_token index");
+        }
+    }
+
+    {
+        const [idxRows] = await connection.query(
+            `SELECT COUNT(*) AS cnt
+             FROM information_schema.statistics
+             WHERE table_schema = DATABASE()
+               AND table_name = 'onboarding_progress'
+               AND index_name = 'uniq_onboarding_progress_tenantId'`,
+        );
+        const hasIdx = Number((idxRows as Array<{ cnt: number }>)[0]?.cnt ?? 0) > 0;
+        if (!hasIdx) {
+            await connection.query(`ALTER TABLE onboarding_progress ADD UNIQUE INDEX uniq_onboarding_progress_tenantId (tenantId)`);
+            logger.warn("[Migration] Added missing uniq_onboarding_progress_tenantId index");
         }
     }
 
@@ -416,6 +514,26 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
                  ADD UNIQUE INDEX uniq_app_settings_singleton (tenantId, singleton)`
             );
             logger.warn("[Migration] Rebuilt legacy app_settings uniq_app_settings_singleton to (tenantId, singleton)");
+        }
+    }
+
+    {
+        const [tableRows] = await connection.query(
+            `SELECT table_name
+             FROM information_schema.tables
+             WHERE table_schema = DATABASE()`
+        );
+
+        const existingTables = new Set(
+            (tableRows as Array<{ table_name: string }>).map((row) => row.table_name)
+        );
+
+        const missingRequiredTables = REQUIRED_SCHEMA_TABLES.filter((table) => !existingTables.has(table));
+
+        if (missingRequiredTables.length > 0) {
+            const list = missingRequiredTables.join(", ");
+            logger.error({ missingTables: missingRequiredTables }, "[Migration] Required schema tables are missing after migrations");
+            throw new Error(`[Migration] Missing required tables after migration: ${list}`);
         }
     }
 
