@@ -6,6 +6,10 @@ import { eq, desc, sql, count, and, gte, lte } from "drizzle-orm";
 import { logger } from "../_core/logger";
 import { TRPCError } from "@trpc/server";
 import { getAllFlags, setFeatureFlag, getFlagDefinitions } from "../services/feature-flags";
+import { sdk } from "../_core/sdk";
+import { getSessionCookieOptions } from "../_core/cookies";
+import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { getPlanLimits } from "../services/plan-limits";
 
 /**
  * Superadmin Router
@@ -152,7 +156,23 @@ export const superadminRouter = router({
                 "[Superadmin] IMPERSONATION initiated"
             );
 
-            // Return impersonation context (the client should create a special session)
+            // Create a real session token for the target user
+            const openId = (targetUser as any).openId;
+            if (!openId) {
+                throw new TRPCError({ code: "BAD_REQUEST", message: "El usuario no tiene openId. No se puede impersonar." });
+            }
+
+            const sessionToken = await sdk.createSessionToken(openId, {
+                name: (targetUser as any).name || "",
+                expiresInMs: 2 * 60 * 60 * 1000, // 2 hours only for impersonation
+                ipAddress: ctx.req.ip ?? null,
+                userAgent: ctx.req.headers["user-agent"] ?? null,
+            });
+
+            // Set the cookie so the browser is now logged in as the target user
+            const cookieOptions = getSessionCookieOptions(ctx.req);
+            ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: 2 * 60 * 60 * 1000 });
+
             return {
                 success: true,
                 targetUser: {
@@ -162,7 +182,7 @@ export const superadminRouter = router({
                     tenantId: targetUser.tenantId,
                     role: targetUser.role,
                 },
-                note: "Impersonation mode active. All actions will be logged as the target user.",
+                note: "Sesión de impersonación activa (2h). Recarga la página para ver el cambio.",
             };
         }),
 
@@ -378,7 +398,11 @@ export const superadminRouter = router({
             try {
                 let where = "1=1";
                 if (input.tenantId) where += ` AND al.tenantId = ${Number(input.tenantId)}`;
-                if (input.action) where += ` AND al.action LIKE '%${input.action.replace(/'/g, "")}%'`;
+                if (input.action) {
+                    // Sanitize: only allow alphanumeric, underscore, dot, dash
+                    const safeAction = input.action.replace(/[^a-zA-Z0-9_.\-]/g, "");
+                    if (safeAction) where += ` AND al.action LIKE '%${safeAction}%'`;
+                }
 
                 const [countResult] = await db.execute(sql.raw(
                     `SELECT COUNT(*) as cnt FROM activity_logs al WHERE ${where}`
@@ -636,6 +660,107 @@ export const superadminRouter = router({
             );
 
             return { success: true, message: input.isActive ? "Usuario activado." : "Usuario desactivado." };
+        }),
+
+    // ══════════════════════════════════════════════════════════════
+    //  USAGE VS PLAN LIMITS
+    // ══════════════════════════════════════════════════════════════
+
+    /** Get actual usage vs plan limits for a given tenant */
+    usageVsLimits: superadminGuard
+        .input(z.object({ tenantId: z.number() }))
+        .query(async ({ input }) => {
+            const db = await getDb();
+            if (!db) return null;
+
+            const limits = await getPlanLimits(input.tenantId);
+
+            // Get actual counts
+            const [[userResult], [leadResult], [waResult]] = await Promise.all([
+                db.execute(sql.raw(`SELECT COUNT(*) as cnt FROM users WHERE tenantId = ${Number(input.tenantId)} AND isActive = 1`)) as any,
+                db.execute(sql.raw(`SELECT COUNT(*) as cnt FROM leads WHERE tenantId = ${Number(input.tenantId)} AND deletedAt IS NULL`)) as any,
+                db.execute(sql.raw(`SELECT COUNT(*) as cnt FROM whatsapp_numbers WHERE tenantId = ${Number(input.tenantId)}`)) as any,
+            ]);
+
+            // Get messages this month
+            let msgThisMonth = 0;
+            try {
+                const [msgResult] = await db.execute(sql.raw(
+                    `SELECT COUNT(*) as cnt FROM chat_messages WHERE tenantId = ${Number(input.tenantId)} AND createdAt >= DATE_FORMAT(NOW(), '%Y-%m-01')`
+                )) as any;
+                msgThisMonth = Number(msgResult?.[0]?.cnt ?? 0);
+            } catch { /* table might not exist */ }
+
+            return {
+                users:    { current: Number(userResult?.[0]?.cnt ?? 0), limit: limits.maxUsers },
+                leads:    { current: Number(leadResult?.[0]?.cnt ?? 0), limit: limits.maxLeads },
+                whatsapp: { current: Number(waResult?.[0]?.cnt ?? 0),   limit: limits.maxWhatsappNumbers },
+                messages: { current: msgThisMonth,                      limit: limits.maxMessagesPerMonth },
+            };
+        }),
+
+    // ══════════════════════════════════════════════════════════════
+    //  EXPORT LOGS
+    // ══════════════════════════════════════════════════════════════
+
+    /** Export activity logs as JSON (client converts to CSV) */
+    exportActivityLogs: superadminGuard
+        .input(z.object({
+            tenantId: z.number().optional(),
+            action: z.string().optional(),
+            limit: z.number().min(1).max(10000).default(5000),
+        }))
+        .query(async ({ input }) => {
+            const db = await getDb();
+            if (!db) return [];
+            try {
+                let where = "1=1";
+                if (input.tenantId) where += ` AND al.tenantId = ${Number(input.tenantId)}`;
+                if (input.action) {
+                    const safeAction = input.action.replace(/[^a-zA-Z0-9_.\-]/g, "");
+                    if (safeAction) where += ` AND al.action LIKE '%${safeAction}%'`;
+                }
+                const [rows] = await db.execute(sql.raw(`
+                    SELECT al.id, al.tenantId, t.name as tenantName, al.userId, u.name as userName,
+                           al.action, al.entityType, al.entityId, al.createdAt
+                    FROM activity_logs al
+                    LEFT JOIN tenants t ON t.id = al.tenantId
+                    LEFT JOIN users u ON u.id = al.userId
+                    WHERE ${where}
+                    ORDER BY al.createdAt DESC
+                    LIMIT ${input.limit}
+                `)) as any;
+                return rows ?? [];
+            } catch { return []; }
+        }),
+
+    /** Export access logs as JSON (client converts to CSV) */
+    exportAccessLogs: superadminGuard
+        .input(z.object({
+            tenantId: z.number().optional(),
+            success: z.boolean().optional(),
+            limit: z.number().min(1).max(10000).default(5000),
+        }))
+        .query(async ({ input }) => {
+            const db = await getDb();
+            if (!db) return [];
+            try {
+                let where = "1=1";
+                if (input.tenantId) where += ` AND al.tenantId = ${Number(input.tenantId)}`;
+                if (input.success !== undefined) where += ` AND al.success = ${input.success ? 1 : 0}`;
+                const [rows] = await db.execute(sql.raw(`
+                    SELECT al.id, al.tenantId, t.name as tenantName, al.userId, u.name as userName,
+                           al.action, al.entityType, al.ipAddress, al.userAgent,
+                           al.success, al.errorMessage, al.createdAt
+                    FROM access_logs al
+                    LEFT JOIN tenants t ON t.id = al.tenantId
+                    LEFT JOIN users u ON u.id = al.userId
+                    WHERE ${where}
+                    ORDER BY al.createdAt DESC
+                    LIMIT ${input.limit}
+                `)) as any;
+                return rows ?? [];
+            } catch { return []; }
         }),
 
     /** Force password reset — sets a random password */

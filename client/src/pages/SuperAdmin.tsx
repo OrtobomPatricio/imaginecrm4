@@ -118,6 +118,49 @@ function fmtBytes(bytes: number) {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
+function downloadCSV(rows: any[], filename: string) {
+  if (!rows.length) return;
+  const headers = Object.keys(rows[0]);
+  const csv = [
+    headers.join(","),
+    ...rows.map((r) => headers.map((h) => {
+      const val = String(r[h] ?? "").replace(/"/g, '""');
+      return `"${val}"`;
+    }).join(",")),
+  ].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${filename}_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function UsageBar({ label, current, limit, icon: Icon }: { label: string; current: number; limit: number; icon: any }) {
+  const pct = limit > 0 ? Math.min((current / limit) * 100, 100) : 0;
+  const isUnlimited = limit >= 999999;
+  const color = pct >= 90 ? "bg-red-500" : pct >= 70 ? "bg-amber-500" : "bg-green-500";
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-xs">
+        <span className="flex items-center gap-1 text-muted-foreground">
+          <Icon className="w-3 h-3" /> {label}
+        </span>
+        <span className="font-medium">
+          {current.toLocaleString()} / {isUnlimited ? "∞" : limit.toLocaleString()}
+        </span>
+      </div>
+      <div className="w-full bg-muted rounded-full h-2">
+        <div className={`${color} h-2 rounded-full transition-all`} style={{ width: `${isUnlimited ? Math.min(pct, 5) : pct}%` }} />
+      </div>
+      {!isUnlimited && pct >= 90 && (
+        <p className="text-[10px] text-red-500 font-medium">⚠ {Math.round(pct)}% del límite</p>
+      )}
+    </div>
+  );
+}
+
 const PLAN_COLORS: Record<string, string> = {
   free: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
   starter: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
@@ -372,8 +415,13 @@ function ImpersonateDialog({
     onSuccess: (data) => {
       toast({
         title: "Impersonación iniciada",
-        description: `Ahora actúas como ${data.targetUser.name} (${data.targetUser.email})`,
+        description: `Sesión activa como ${data.targetUser.name} (${data.targetUser.email}). Recargando...`,
+        duration: 3000,
       });
+      // The backend already set the cookie. Redirect to dashboard.
+      setTimeout(() => {
+        window.location.href = "/";
+      }, 1500);
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -601,11 +649,23 @@ function TenantRow({
                 <Crown className="w-3 h-3 mr-0.5" /> Plataforma
               </Badge>
             )}
+            {tenant.trialEndsAt && (() => {
+              const daysLeft = Math.ceil((new Date(tenant.trialEndsAt).getTime() - Date.now()) / 86400000);
+              return daysLeft <= 7 ? (
+                <Badge variant="outline" className={`text-[10px] px-1.5 ${daysLeft <= 0 ? "border-red-500 text-red-500" : "border-amber-400 text-amber-500"}`}>
+                  <Timer className="w-3 h-3 mr-0.5" />
+                  {daysLeft <= 0 ? "Trial expirado" : `Trial: ${daysLeft}d`}
+                </Badge>
+              ) : null;
+            })()}
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
             <span className="flex items-center gap-1"><Hash className="w-3 h-3" />{tenant.id}</span>
             <span className="flex items-center gap-1"><Globe className="w-3 h-3" />{tenant.slug}</span>
             <span className="flex items-center gap-1"><CalendarDays className="w-3 h-3" />{fmtDate(tenant.createdAt)}</span>
+            {tenant.stripeCustomerId && (
+              <span className="flex items-center gap-1 text-green-600"><CheckCircle2 className="w-3 h-3" />Stripe</span>
+            )}
           </div>
         </div>
 
@@ -643,6 +703,26 @@ function TenantRow({
             <Badge variant="secondary" className="text-xs gap-1"><Phone className="w-3 h-3" /> {Number(tenant.waNumberCount)} WA</Badge>
           </div>
 
+          {/* Billing info row */}
+          {(tenant.stripeCustomerId || tenant.trialEndsAt) && (
+            <div className="flex items-center gap-3 flex-wrap text-xs mb-3 p-2 rounded bg-muted/50">
+              {tenant.stripeCustomerId && (
+                <span className="flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3 text-green-500" />
+                  <span className="text-muted-foreground">Stripe:</span>
+                  <code className="text-[10px] bg-muted px-1 rounded">{tenant.stripeCustomerId}</code>
+                </span>
+              )}
+              {tenant.trialEndsAt && (
+                <span className="flex items-center gap-1">
+                  <Timer className="w-3 h-3 text-amber-500" />
+                  <span className="text-muted-foreground">Trial hasta:</span>
+                  <span className="font-medium">{fmtDate(tenant.trialEndsAt)}</span>
+                </span>
+              )}
+            </div>
+          )}
+
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="h-8 mb-3">
               <TabsTrigger value="actions" className="text-xs h-7 gap-1">
@@ -650,6 +730,9 @@ function TenantRow({
               </TabsTrigger>
               <TabsTrigger value="users" className="text-xs h-7 gap-1">
                 <Users className="w-3 h-3" /> Usuarios
+              </TabsTrigger>
+              <TabsTrigger value="limits" className="text-xs h-7 gap-1">
+                <BarChart3 className="w-3 h-3" /> Uso vs Límites
               </TabsTrigger>
             </TabsList>
 
@@ -698,6 +781,10 @@ function TenantRow({
 
             <TabsContent value="users" className="mt-0">
               <TenantUsersPanel tenantId={tenant.id} />
+            </TabsContent>
+
+            <TabsContent value="limits" className="mt-0">
+              <UsageVsLimitsPanel tenantId={tenant.id} />
             </TabsContent>
           </Tabs>
         </div>
@@ -848,6 +935,7 @@ function ActivityLogsPanel() {
           className="h-8 w-28 text-xs"
         />
         <Badge variant="secondary" className="text-xs">{data.total} registros</Badge>
+        <ExportActivityLogsButton tenantId={filter.tenantId} action={filter.action} />
       </div>
 
       {logs.isLoading ? (
@@ -930,6 +1018,7 @@ function AccessLogsPanel() {
           </SelectContent>
         </Select>
         <Badge variant="secondary" className="text-xs">{data.total} registros</Badge>
+        <ExportAccessLogsButton tenantId={filter.tenantId} success={filter.success} />
       </div>
 
       {logs.isLoading ? (
@@ -1120,6 +1209,81 @@ function AnalyticsPanel() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   USAGE VS LIMITS PANEL (per tenant)
+   ═══════════════════════════════════════════════════════════════════ */
+function UsageVsLimitsPanel({ tenantId }: { tenantId: number }) {
+  const usage = trpc.superadmin.usageVsLimits.useQuery({ tenantId });
+  const d = usage.data;
+
+  if (usage.isLoading) return <div className="flex justify-center py-4"><Loader2 className="w-4 h-4 animate-spin" /></div>;
+  if (!d) return <p className="text-xs text-muted-foreground">No se pudo obtener uso vs límites.</p>;
+
+  return (
+    <div className="space-y-3 max-w-md">
+      <UsageBar label="Usuarios" current={d.users.current} limit={d.users.limit} icon={Users} />
+      <UsageBar label="Leads" current={d.leads.current} limit={d.leads.limit} icon={Target} />
+      <UsageBar label="WhatsApp" current={d.whatsapp.current} limit={d.whatsapp.limit} icon={Phone} />
+      <UsageBar label="Mensajes/mes" current={d.messages.current} limit={d.messages.limit} icon={MessageCircle} />
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   EXPORT BUTTONS
+   ═══════════════════════════════════════════════════════════════════ */
+function ExportActivityLogsButton({ tenantId, action }: { tenantId?: number; action?: string }) {
+  const { toast } = useToast();
+  const exportQ = trpc.superadmin.exportActivityLogs.useQuery(
+    { tenantId, action: action || undefined, limit: 5000 },
+    { enabled: false }
+  );
+
+  const handleExport = async () => {
+    const res = await exportQ.refetch();
+    const rows = res.data ?? [];
+    if (rows.length === 0) {
+      toast({ title: "Sin datos para exportar" });
+      return;
+    }
+    downloadCSV(rows, "activity_logs");
+    toast({ title: `${rows.length} registros exportados` });
+  };
+
+  return (
+    <Button variant="outline" size="sm" className="h-8 text-xs gap-1" onClick={handleExport} disabled={exportQ.isFetching}>
+      {exportQ.isFetching ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileDown className="w-3 h-3" />}
+      CSV
+    </Button>
+  );
+}
+
+function ExportAccessLogsButton({ tenantId, success }: { tenantId?: number; success?: boolean }) {
+  const { toast } = useToast();
+  const exportQ = trpc.superadmin.exportAccessLogs.useQuery(
+    { tenantId, success, limit: 5000 },
+    { enabled: false }
+  );
+
+  const handleExport = async () => {
+    const res = await exportQ.refetch();
+    const rows = res.data ?? [];
+    if (rows.length === 0) {
+      toast({ title: "Sin datos para exportar" });
+      return;
+    }
+    downloadCSV(rows, "access_logs");
+    toast({ title: `${rows.length} registros exportados` });
+  };
+
+  return (
+    <Button variant="outline" size="sm" className="h-8 text-xs gap-1" onClick={handleExport} disabled={exportQ.isFetching}>
+      {exportQ.isFetching ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileDown className="w-3 h-3" />}
+      CSV
+    </Button>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    QUEUES & STORAGE PANEL
    ═══════════════════════════════════════════════════════════════════ */
 function QueuesStoragePanel() {
@@ -1135,16 +1299,18 @@ function QueuesStoragePanel() {
   if (isLoading) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>;
 
   // Aggregate message queue by status
-  const msgByStatus = msgRows.reduce((acc: Record<string, number>, r: any) => {
-    acc[r.status] = (acc[r.status] || 0) + Number(r.cnt);
-    return acc;
-  }, {});
+  const msgByStatus: Record<string, number> = {};
+  for (const r of msgRows as any[]) {
+    const s = String(r.status);
+    msgByStatus[s] = (msgByStatus[s] || 0) + Number(r.cnt);
+  }
 
   // Aggregate workflow jobs by status
-  const wfByStatus = wfRows.reduce((acc: Record<string, number>, r: any) => {
-    acc[r.status] = (acc[r.status] || 0) + Number(r.cnt);
-    return acc;
-  }, {});
+  const wfByStatus: Record<string, number> = {};
+  for (const r of wfRows as any[]) {
+    const s = String(r.status);
+    wfByStatus[s] = (wfByStatus[s] || 0) + Number(r.cnt);
+  }
 
   const totalStorage = storageRows.reduce((sum: number, r: any) => sum + Number(r.totalBytes), 0);
 
