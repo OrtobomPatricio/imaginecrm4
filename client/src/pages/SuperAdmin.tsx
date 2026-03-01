@@ -294,6 +294,8 @@ function TenantRow({
 export default function SuperAdmin() {
   const [search, setSearch] = useState("");
 
+  const whoami = trpc.superadmin.whoami.useQuery(undefined, { retry: 0 });
+
   const stats = trpc.superadmin.platformStats.useQuery(undefined, {
     refetchOnWindowFocus: false,
     retry: 1,
@@ -328,14 +330,30 @@ export default function SuperAdmin() {
   );
 
   if (isError) {
+    const errorMsg = stats.error?.message || tenantList.error?.message || "";
+    const info = whoami.data;
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
         <ShieldAlert className="w-16 h-16 text-red-400" />
         <h2 className="text-xl font-bold">Acceso Denegado</h2>
         <p className="text-muted-foreground text-sm max-w-md text-center">
           Este panel es exclusivo para el Super Admin de la plataforma (owner del tenant principal).
-          Si crees que es un error, verifica que tu usuario tenga el rol "owner" en el tenant #1.
+          Se requiere rol "owner" o "admin" + tenantId=1.
         </p>
+        {info && (
+          <div className="bg-muted/50 rounded-lg p-4 text-xs font-mono space-y-1 max-w-md">
+            <div><span className="text-muted-foreground">Tu rol:</span> <span className="font-bold">{info.role}</span></div>
+            <div><span className="text-muted-foreground">Tu tenantId:</span> <span className="font-bold">{info.tenantId}</span></div>
+            <div><span className="text-muted-foreground">Tu userId:</span> {info.userId}</div>
+            <div><span className="text-muted-foreground">Tu email:</span> {info.email}</div>
+            {info.tenantId !== 1 && (
+              <div className="mt-2 text-amber-500">⚠ Tu tenantId es {info.tenantId}, no 1. El bootstrap debe asignar tenantId=1.</div>
+            )}
+          </div>
+        )}
+        {errorMsg && (
+          <p className="text-xs text-red-400 font-mono max-w-md text-center">{errorMsg}</p>
+        )}
         <Button variant="outline" onClick={() => window.location.href = "/"}>
           Volver al Dashboard
         </Button>

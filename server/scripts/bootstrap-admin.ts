@@ -51,18 +51,40 @@ async function main() {
             }
         }
     } else {
-        await db.insert(users).values({
-            tenantId,
-            openId: `local_${nanoid(16)}`,
-            name: "Admin",
-            email,
-            password: hashed,
-            role: "owner",
-            loginMethod: "credentials",
-            isActive: true,
-            hasSeenTour: false,
-        });
-        logger.info("admin creado");
+        // Check if user exists in ANY tenant (e.g. created via signup on tenant 2)
+        const existingGlobal = await db
+            .select({ id: users.id, tenantId: users.tenantId })
+            .from(users)
+            .where(eq(users.email, email))
+            .limit(1);
+
+        if (existingGlobal.length > 0 && existingGlobal[0].tenantId !== tenantId) {
+            logger.warn({ oldTenantId: existingGlobal[0].tenantId, newTenantId: tenantId }, "bootstrap: admin found in wrong tenant — reassigning");
+            await db.update(users)
+                .set({
+                    tenantId,
+                    password: hashed,
+                    role: "owner",
+                    loginMethod: "credentials",
+                    isActive: true,
+                    updatedAt: new Date(),
+                } as any)
+                .where(eq(users.id, existingGlobal[0].id));
+            logger.info("admin reasignado a tenant plataforma");
+        } else if (existingGlobal.length === 0) {
+            await db.insert(users).values({
+                tenantId,
+                openId: `local_${nanoid(16)}`,
+                name: "Admin",
+                email,
+                password: hashed,
+                role: "owner",
+                loginMethod: "credentials",
+                isActive: true,
+                hasSeenTour: false,
+            });
+            logger.info("admin creado");
+        }
     }
 
     process.exit(0);

@@ -22,17 +22,29 @@ import { getAllFlags, setFeatureFlag, getFlagDefinitions } from "../services/fea
 
 const superadminGuard = protectedProcedure.use(async ({ ctx, next }) => {
     const role = ctx.user?.role;
-    const isPlatformAdmin = (role === "owner" || role === "admin") && ctx.tenantId === 1;
+    const tid = ctx.tenantId;
+    const isPlatformAdmin = (role === "owner" || role === "admin") && tid === 1;
+    logger.info({ role, tenantId: tid, userId: ctx.user?.id, isPlatformAdmin }, "[SuperAdmin] guard check");
     if (!isPlatformAdmin) {
         throw new TRPCError({
             code: "FORBIDDEN",
-            message: "Acceso restringido a superadmins de la plataforma.",
+            message: `Acceso restringido. Tu rol=${role}, tenantId=${tid}. Se requiere (owner|admin) + tenantId=1.`,
         });
     }
     return next();
 });
 
 export const superadminRouter = router({
+    /** Debug endpoint: returns current user role and tenantId */
+    whoami: protectedProcedure.query(({ ctx }) => {
+        return {
+            userId: ctx.user?.id,
+            role: ctx.user?.role,
+            tenantId: ctx.tenantId,
+            email: ctx.user?.email,
+        };
+    }),
+
     // ── Tenant Management ──
 
     /** List all tenants with user counts */
