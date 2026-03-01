@@ -125,35 +125,30 @@ export async function finalizeOnboarding(tenantId: number) {
     const db = await getDb();
     if (!db) throw new Error("Database not available");
 
+    // 1. Mark as completed in progress table
     try {
-        await db.transaction(async (tx) => {
-            // 1. Mark as completed in progress table
-            await tx.update(onboardingProgress)
-                .set({
-                    completedAt: new Date(),
-                    lastStep: "first-message", // Keep within valid enum; completedAt signals final completion
-                    firstMessageCompleted: true
-                })
-                .where(eq(onboardingProgress.tenantId, tenantId));
-
-            // 2. Update tenant status if necessary
-            await tx.update(tenants)
-                .set({
-                    isActive: true // Ensure tenant is active
-                } as any)
-                .where(eq(tenants.id, tenantId));
-        });
+        await db.update(onboardingProgress)
+            .set({
+                completedAt: new Date(),
+                lastStep: "first-message",
+                firstMessageCompleted: true
+            })
+            .where(eq(onboardingProgress.tenantId, tenantId));
     } catch (error) {
         if (isOnboardingSchemaIssue(error)) {
-            logger.warn({ tenantId, err: error }, "[Onboarding] onboarding_progress table/schema missing during finalize; keeping tenant active update best-effort");
-            await db.update(tenants)
-                .set({
-                    isActive: true
-                } as any)
-                .where(eq(tenants.id, tenantId));
+            logger.warn({ tenantId, err: error }, "[Onboarding] onboarding_progress table/schema missing during finalize; skipping completedAt update");
         } else {
             throw error;
         }
+    }
+
+    // 2. Ensure tenant status is 'active'
+    try {
+        await db.update(tenants)
+            .set({ status: "active" })
+            .where(eq(tenants.id, tenantId));
+    } catch (error) {
+        logger.warn({ tenantId, err: error }, "[Onboarding] Could not update tenant status (non-fatal)");
     }
 
     return { success: true };

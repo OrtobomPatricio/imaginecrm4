@@ -89,10 +89,14 @@ export const onboardingRouter = router({
     // 5. Finalize Onboarding
     complete: protectedProcedure
         .mutation(async ({ ctx }) => {
-            // Seed demo data first
-            await createDemoData(ctx.tenantId, ctx.user!.id);
+            // Seed demo data first (best-effort, never blocks completion)
+            try {
+                await createDemoData(ctx.tenantId, ctx.user!.id);
+            } catch (e) {
+                logger.error({ tenantId: ctx.tenantId, err: e }, "[Onboarding] Demo data seeding failed (non-fatal)");
+            }
 
-            // Mark as finished
+            // Mark as finished — this is the critical step
             return await finalizeOnboarding(ctx.tenantId);
         }),
 });

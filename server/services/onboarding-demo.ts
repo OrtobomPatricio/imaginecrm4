@@ -15,13 +15,23 @@ export async function createDemoData(tenantId: number, userId: number) {
         logger.info({ tenantId }, "[Onboarding] Seeding demo data");
 
         // 1. Create a Default Pipeline if none exists
-        const [pipeline] = await db.insert(pipelines).values({
-            tenantId,
-            name: "Ventas Demo",
-            description: "Pipeline de ejemplo cargado durante el onboarding",
-        } as any);
+        let pipelineId: number | null = null;
+        try {
+            const result = await db.insert(pipelines).values({
+                tenantId,
+                name: "Ventas Demo",
+                description: "Pipeline de ejemplo cargado durante el onboarding",
+            } as any);
 
-        const pipelineId = (pipeline as any).insertId;
+            pipelineId = (result as any)?.[0]?.insertId ?? (result as any)?.insertId ?? null;
+        } catch (err) {
+            logger.warn({ tenantId, err }, "[Onboarding] Could not create demo pipeline");
+        }
+
+        if (!pipelineId) {
+            logger.warn({ tenantId }, "[Onboarding] No pipelineId — skipping stages and leads");
+            return { success: false };
+        }
 
         // 2. Create Stages
         const stages = [
@@ -31,21 +41,31 @@ export async function createDemoData(tenantId: number, userId: number) {
         ];
 
         for (const s of stages) {
-            await db.insert(pipelineStages).values({
-                tenantId,
-                pipelineId,
-                name: s.name,
-                color: s.color,
-                order: s.order
-            });
+            try {
+                await db.insert(pipelineStages).values({
+                    tenantId,
+                    pipelineId,
+                    name: s.name,
+                    color: s.color,
+                    order: s.order
+                });
+            } catch (err) {
+                logger.warn({ tenantId, stage: s.name, err }, "[Onboarding] Could not create pipeline stage");
+            }
         }
 
         // Get the first stage ID for leads
-        const [firstStage] = await db
-            .select()
-            .from(pipelineStages)
-            .where(eq(pipelineStages.pipelineId, pipelineId))
-            .limit(1);
+        let firstStageId: number | null = null;
+        try {
+            const [firstStage] = await db
+                .select()
+                .from(pipelineStages)
+                .where(eq(pipelineStages.pipelineId, pipelineId))
+                .limit(1);
+            firstStageId = firstStage?.id ?? null;
+        } catch (err) {
+            logger.warn({ tenantId, err }, "[Onboarding] Could not fetch first stage");
+        }
 
         // 3. Create Demo Leads
         const demoLeads = [
@@ -55,15 +75,19 @@ export async function createDemoData(tenantId: number, userId: number) {
         ];
 
         for (const l of demoLeads) {
-            await db.insert(leads).values({
-                tenantId,
-                name: l.name,
-                email: l.email,
-                phone: l.phone,
-                status: "new",
-                pipelineStageId: firstStage?.id ?? null,
-                assignedToId: userId
-            } as any);
+            try {
+                await db.insert(leads).values({
+                    tenantId,
+                    name: l.name,
+                    email: l.email,
+                    phone: l.phone,
+                    status: "new",
+                    pipelineStageId: firstStageId,
+                    assignedToId: userId
+                } as any);
+            } catch (err) {
+                logger.warn({ tenantId, lead: l.name, err }, "[Onboarding] Could not create demo lead");
+            }
         }
 
         return { success: true };
