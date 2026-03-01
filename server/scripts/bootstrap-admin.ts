@@ -30,7 +30,7 @@ async function main() {
             .update(users)
             .set({
                 password: hashed,
-                role: "admin",
+                role: "owner",
                 loginMethod: "credentials",
                 isActive: true,
                 updatedAt: new Date(),
@@ -44,7 +44,7 @@ async function main() {
             name: "Admin",
             email,
             password: hashed,
-            role: "admin",
+            role: "owner",
             loginMethod: "credentials",
             isActive: true,
             hasSeenTour: false,

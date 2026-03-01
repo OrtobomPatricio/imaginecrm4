@@ -396,9 +396,9 @@ async function bootstrapAdmin() {
 
     if (existing.length > 0) {
       await db.update(users)
-        .set({ password: hashed, role: "admin", loginMethod: "credentials", isActive: true, updatedAt: new Date() } as any)
+        .set({ password: hashed, role: "owner", loginMethod: "credentials", isActive: true, updatedAt: new Date() } as any)
         .where(eq(users.id, existing[0].id));
-      logger.info({ email, tenantId }, "startup: admin user password/role updated");
+      logger.info({ email, tenantId }, "startup: admin user password/role updated to owner");
     } else {
       await db.insert(users).values({
         tenantId,
@@ -406,7 +406,7 @@ async function bootstrapAdmin() {
         name: "Admin",
         email,
         password: hashed,
-        role: "admin",
+        role: "owner",
         loginMethod: "credentials",
         isActive: true,
         hasSeenTour: false,

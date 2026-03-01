@@ -21,7 +21,9 @@ import { getAllFlags, setFeatureFlag, getFlagDefinitions } from "../services/fea
  */
 
 const superadminGuard = protectedProcedure.use(async ({ ctx, next }) => {
-    if (ctx.user?.role !== "owner" || ctx.tenantId !== 1) {
+    const role = ctx.user?.role;
+    const isPlatformAdmin = (role === "owner" || role === "admin") && ctx.tenantId === 1;
+    if (!isPlatformAdmin) {
         throw new TRPCError({
             code: "FORBIDDEN",
             message: "Acceso restringido a superadmins de la plataforma.",
@@ -45,7 +47,9 @@ export const superadminRouter = router({
                     name: tenants.name,
                     slug: tenants.slug,
                     plan: tenants.plan,
+                    status: tenants.status,
                     createdAt: tenants.createdAt,
+                    updatedAt: tenants.updatedAt,
                     userCount: sql<number>`(SELECT COUNT(*) FROM users WHERE users.tenantId = ${tenants.id})`,
                     leadCount: sql<number>`(SELECT COUNT(*) FROM leads WHERE leads.tenantId = ${tenants.id} AND leads.deletedAt IS NULL)`,
                     waNumberCount: sql<number>`(SELECT COUNT(*) FROM whatsapp_numbers WHERE whatsapp_numbers.tenantId = ${tenants.id})`,

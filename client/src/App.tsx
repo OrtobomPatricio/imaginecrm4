@@ -31,6 +31,7 @@ import TermsPage from "@/pages/TermsPage";
 import PrivacyPage from "@/pages/PrivacyPage";
 import OnboardingPage from "./pages/OnboardingPage";
 import LandingPage from "./pages/LandingPage";
+import SuperAdmin from "./pages/SuperAdmin";
 import { useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
@@ -136,6 +137,7 @@ function Router() {
               <Route path="/terms">{() => <TermsPage />}</Route>
               <Route path="/privacy">{() => <PrivacyPage />}</Route>
               <Route path="/backup" component={Backup} />
+              <Route path="/admin" component={SuperAdmin} />
               <Route path="/gamification">{() => <Redirect to="/analytics?tab=goals" />}</Route>
               <Route path="/404" component={NotFound} />
               <Route component={NotFound} />

@@ -49,6 +49,7 @@ import {
   Slash,
   Layers,
   Search,
+  Shield,
 } from "lucide-react";
 import { CommandPalette, useCommandPalette } from "./CommandPalette";
 import { RealtimeNotifications } from "./RealtimeNotifications";
@@ -94,6 +95,7 @@ const menuItems: MenuItem[] = [
   { icon: LayoutGrid, label: "Pipelines", path: "/settings/pipelines", requiredPerm: "kanban.manage" },
   { icon: Database, label: "Backups", path: "/backup", requiredPerm: "backups.view", roles: ["owner", "admin"] },
   { icon: Settings, label: "Configuración", path: "/settings", requiredPerm: "settings.view" },
+  { icon: Shield, label: "Super Admin", path: "/admin", roles: ["owner", "admin"] },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
