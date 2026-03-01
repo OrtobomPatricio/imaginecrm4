@@ -66,6 +66,15 @@ import {
   ChevronRight,
   UserX,
   UserCheck,
+  Megaphone,
+  StickyNote,
+  DollarSign,
+  Trash2,
+  Plus,
+  Monitor,
+  LogOut,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 import {
   Select,
@@ -90,6 +99,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 
 /* ─── helpers ─── */
 function fmtDate(d: string | Date | null) {
@@ -734,6 +744,9 @@ function TenantRow({
               <TabsTrigger value="limits" className="text-xs h-7 gap-1">
                 <BarChart3 className="w-3 h-3" /> Uso vs Límites
               </TabsTrigger>
+              <TabsTrigger value="notes" className="text-xs h-7 gap-1">
+                <StickyNote className="w-3 h-3" /> Notas
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="actions" className="mt-0">
@@ -785,6 +798,10 @@ function TenantRow({
 
             <TabsContent value="limits" className="mt-0">
               <UsageVsLimitsPanel tenantId={tenant.id} />
+            </TabsContent>
+
+            <TabsContent value="notes" className="mt-0">
+              <TenantNotesPanel tenantId={tenant.id} />
             </TabsContent>
           </Tabs>
         </div>
@@ -1204,6 +1221,9 @@ function AnalyticsPanel() {
           </CardContent>
         </Card>
       )}
+
+      {/* Revenue Timeline */}
+      <RevenueTimelinePanel />
     </div>
   );
 }
@@ -1415,6 +1435,522 @@ function QueuesStoragePanel() {
   );
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   SESSION MANAGEMENT PANEL
+   ═══════════════════════════════════════════════════════════════════ */
+function SessionsPanel() {
+  const { toast } = useToast();
+  const [filterTenantId, setFilterTenantId] = useState<number | undefined>(undefined);
+  const sessionsQ = trpc.superadmin.listSessions.useQuery({ tenantId: filterTenantId, limit: 100 });
+  const rows = sessionsQ.data ?? [];
+
+  const forceLogout = trpc.superadmin.forceLogout.useMutation({
+    onSuccess: (d) => { toast({ title: d.message }); sessionsQ.refetch(); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const forceLogoutTenant = trpc.superadmin.forceLogoutTenant.useMutation({
+    onSuccess: (d) => { toast({ title: d.message }); sessionsQ.refetch(); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  if (sessionsQ.isLoading) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 flex-wrap">
+        <Input
+          placeholder="Tenant ID..."
+          type="number"
+          onChange={(e) => setFilterTenantId(e.target.value ? Number(e.target.value) : undefined)}
+          className="h-8 w-28 text-xs"
+        />
+        <Badge variant="secondary" className="text-xs gap-1">
+          <Monitor className="w-3 h-3" /> {rows.length} sesiones activas
+        </Badge>
+        {filterTenantId && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs gap-1 text-red-600"
+            onClick={() => {
+              if (confirm(`¿Cerrar TODAS las sesiones del tenant ${filterTenantId}?`)) {
+                forceLogoutTenant.mutate({ tenantId: filterTenantId });
+              }
+            }}
+            disabled={forceLogoutTenant.isPending}
+          >
+            {forceLogoutTenant.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <LogOut className="w-3 h-3" />}
+            Cerrar todas del tenant
+          </Button>
+        )}
+      </div>
+
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">Sin sesiones activas.</p>
+      ) : (
+        <div className="space-y-1">
+          {rows.map((s: any) => (
+            <div key={s.id} className="flex items-center gap-3 px-3 py-2 rounded bg-muted/30 text-xs">
+              <Monitor className="w-3 h-3 text-green-500 shrink-0" />
+              <span className="text-muted-foreground w-20 shrink-0">{fmtDateTime(s.lastActivityAt)}</span>
+              <Badge variant="outline" className="text-[10px] px-1.5 shrink-0">{s.tenantName ?? `T${s.tenantId}`}</Badge>
+              <span className="font-medium truncate">{s.userName ?? "—"}</span>
+              <span className="text-muted-foreground truncate">{s.userEmail ?? ""}</span>
+              <Badge className={`text-[9px] uppercase ${ROLE_COLORS[s.userRole] ?? ""}`}>{s.userRole ?? "?"}</Badge>
+              <span className="text-muted-foreground truncate hidden lg:inline">{s.ipAddress ?? ""}</span>
+              <span className="text-muted-foreground text-[10px] truncate hidden xl:inline max-w-[200px]">{s.userAgent ?? ""}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs gap-1 text-red-500 shrink-0 ml-auto"
+                onClick={() => forceLogout.mutate({ sessionId: s.id })}
+                disabled={forceLogout.isPending}
+              >
+                <LogOut className="w-3 h-3" /> Cerrar
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   TENANT NOTES (Internal CRM notes per tenant)
+   ═══════════════════════════════════════════════════════════════════ */
+function TenantNotesPanel({ tenantId }: { tenantId: number }) {
+  const { toast } = useToast();
+  const notesQ = trpc.superadmin.getTenantNotes.useQuery({ tenantId });
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  const updateNotes = trpc.superadmin.updateTenantNotes.useMutation({
+    onSuccess: () => {
+      toast({ title: "Notas actualizadas" });
+      notesQ.refetch();
+      setEditing(false);
+    },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const notes = notesQ.data?.notes ?? "";
+
+  const handleEdit = () => {
+    setDraft(notes);
+    setEditing(true);
+  };
+
+  if (notesQ.isLoading) return <div className="flex justify-center py-2"><Loader2 className="w-3 h-3 animate-spin" /></div>;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
+          <StickyNote className="w-3 h-3" /> Notas Internas
+        </p>
+        {!editing && (
+          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={handleEdit}>
+            Editar
+          </Button>
+        )}
+      </div>
+      {editing ? (
+        <div className="space-y-2">
+          <Textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={4}
+            className="text-xs"
+            placeholder="Notas internas sobre este tenant (solo visibles para Super Admin)..."
+          />
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => updateNotes.mutate({ tenantId, notes: draft })}
+              disabled={updateNotes.isPending}
+            >
+              {updateNotes.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+              Guardar
+            </Button>
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setEditing(false)}>
+              Cancelar
+            </Button>
+          </div>
+        </div>
+      ) : notes ? (
+        <p className="text-xs text-muted-foreground whitespace-pre-wrap bg-muted/30 px-2 py-1.5 rounded">{notes}</p>
+      ) : (
+        <p className="text-xs text-muted-foreground italic">Sin notas. Haz clic en Editar para agregar.</p>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   REVENUE TIMELINE PANEL
+   ═══════════════════════════════════════════════════════════════════ */
+function RevenueTimelinePanel() {
+  const [months, setMonths] = useState(12);
+  const timeline = trpc.superadmin.revenueTimeline.useQuery({ months });
+  const data = timeline.data ?? [];
+
+  if (timeline.isLoading) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+
+  const maxMrr = Math.max(...data.map(d => d.mrr), 1);
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <DollarSign className="w-4 h-4 text-emerald-500" /> MRR Timeline Estimado
+          </CardTitle>
+          <Select value={String(months)} onValueChange={(v) => setMonths(Number(v))}>
+            <SelectTrigger className="h-7 w-28 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="6">6 meses</SelectItem>
+              <SelectItem value="12">12 meses</SelectItem>
+              <SelectItem value="24">24 meses</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {data.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Sin datos de revenue.</p>
+        ) : (
+          <>
+            <div className="flex items-end gap-1 h-32 mb-3">
+              {data.map((d) => {
+                const height = (d.mrr / maxMrr) * 100;
+                return (
+                  <div
+                    key={d.month}
+                    className="flex-1 bg-emerald-500/80 rounded-t hover:bg-emerald-400 transition-colors relative group cursor-default"
+                    style={{ height: `${Math.max(height, 4)}%` }}
+                    title={`${d.month}: $${d.mrr} MRR · ${d.tenantCount} tenants · ${d.paidCount} pagando`}
+                  >
+                    <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[9px] font-bold opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                      ${d.mrr}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex justify-between text-[10px] text-muted-foreground">
+              <span>{data[0]?.month}</span>
+              <span>{data[data.length - 1]?.month}</span>
+            </div>
+            {/* Summary row */}
+            <div className="grid grid-cols-3 gap-3 mt-4 text-center">
+              <div className="p-2 rounded bg-muted/30">
+                <p className="text-lg font-bold text-emerald-600">${data[data.length - 1]?.mrr ?? 0}</p>
+                <p className="text-[10px] text-muted-foreground">MRR Actual</p>
+              </div>
+              <div className="p-2 rounded bg-muted/30">
+                <p className="text-lg font-bold">{data[data.length - 1]?.tenantCount ?? 0}</p>
+                <p className="text-[10px] text-muted-foreground">Total Tenants</p>
+              </div>
+              <div className="p-2 rounded bg-muted/30">
+                <p className="text-lg font-bold text-blue-600">{data[data.length - 1]?.paidCount ?? 0}</p>
+                <p className="text-[10px] text-muted-foreground">Tenants Pago</p>
+              </div>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ANNOUNCEMENTS PANEL
+   ═══════════════════════════════════════════════════════════════════ */
+function AnnouncementsPanel() {
+  const { toast } = useToast();
+  const announcements = trpc.superadmin.listAnnouncements.useQuery();
+  const rows = announcements.data ?? [];
+
+  const [showCreate, setShowCreate] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newMessage, setNewMessage] = useState("");
+  const [newType, setNewType] = useState<"info" | "warning" | "critical" | "maintenance">("info");
+
+  const createAnn = trpc.superadmin.createAnnouncement.useMutation({
+    onSuccess: () => {
+      toast({ title: "Anuncio creado" });
+      announcements.refetch();
+      setShowCreate(false);
+      setNewTitle("");
+      setNewMessage("");
+      setNewType("info");
+    },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const toggleAnn = trpc.superadmin.toggleAnnouncement.useMutation({
+    onSuccess: (d) => { toast({ title: d.message }); announcements.refetch(); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteAnn = trpc.superadmin.deleteAnnouncement.useMutation({
+    onSuccess: () => { toast({ title: "Anuncio eliminado" }); announcements.refetch(); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const TYPE_COLORS: Record<string, string> = {
+    info: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
+    warning: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300",
+    critical: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300",
+    maintenance: "bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-300",
+  };
+
+  if (announcements.isLoading) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold flex items-center gap-2">
+          <Megaphone className="w-4 h-4 text-violet-500" /> Anuncios de Plataforma
+          <Badge variant="secondary" className="text-xs">{rows.length}</Badge>
+        </h3>
+        <Button size="sm" className="h-8 text-xs gap-1" onClick={() => setShowCreate(!showCreate)}>
+          <Plus className="w-3 h-3" /> Nuevo Anuncio
+        </Button>
+      </div>
+
+      {/* Create form */}
+      {showCreate && (
+        <Card className="p-4">
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <Input
+                placeholder="Título del anuncio..."
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                className="h-8 text-xs flex-1"
+              />
+              <Select value={newType} onValueChange={(v: any) => setNewType(v)}>
+                <SelectTrigger className="h-8 w-36 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="info">Info</SelectItem>
+                  <SelectItem value="warning">Warning</SelectItem>
+                  <SelectItem value="critical">Critical</SelectItem>
+                  <SelectItem value="maintenance">Maintenance</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Textarea
+              placeholder="Mensaje del anuncio..."
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              rows={3}
+              className="text-xs"
+            />
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => createAnn.mutate({ title: newTitle, message: newMessage, type: newType })}
+                disabled={!newTitle || !newMessage || createAnn.isPending}
+              >
+                {createAnn.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                Publicar
+              </Button>
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setShowCreate(false)}>
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Announcements list */}
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">Sin anuncios. Crea uno para notificar a todos los tenants.</p>
+      ) : (
+        <div className="space-y-2">
+          {rows.map((a: any) => (
+            <Card key={a.id} className={`p-3 ${a.active ? "" : "opacity-50"}`}>
+              <div className="flex items-start gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Badge className={`text-[10px] uppercase ${TYPE_COLORS[a.type] ?? ""}`}>{a.type}</Badge>
+                    <span className="text-sm font-semibold">{a.title}</span>
+                    {!a.active && <Badge variant="outline" className="text-[10px]">Inactivo</Badge>}
+                  </div>
+                  <p className="text-xs text-muted-foreground whitespace-pre-wrap">{a.message}</p>
+                  <p className="text-[10px] text-muted-foreground mt-1">{fmtDateTime(a.createdAt)}</p>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <Switch
+                    checked={a.active}
+                    onCheckedChange={(checked) => toggleAnn.mutate({ id: a.id, active: checked })}
+                    disabled={toggleAnn.isPending}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 text-red-500"
+                    onClick={() => {
+                      if (confirm(`¿Eliminar anuncio "${a.title}"?`)) deleteAnn.mutate({ id: a.id });
+                    }}
+                    disabled={deleteAnn.isPending}
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   BULK OPERATIONS PANEL
+   ═══════════════════════════════════════════════════════════════════ */
+function BulkOperationsPanel({ tenants: tenantList, refetch }: { tenants: any[]; refetch: () => void }) {
+  const { toast } = useToast();
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bulkPlan, setBulkPlan] = useState<string>("starter");
+
+  const bulkChangePlan = trpc.superadmin.bulkChangePlan.useMutation({
+    onSuccess: (d) => { toast({ title: d.message }); setSelected(new Set()); refetch(); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const bulkSuspend = trpc.superadmin.bulkSuspend.useMutation({
+    onSuccess: (d) => { toast({ title: d.message }); setSelected(new Set()); refetch(); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const bulkReactivate = trpc.superadmin.bulkReactivate.useMutation({
+    onSuccess: (d) => { toast({ title: d.message }); setSelected(new Set()); refetch(); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const toggleTenant = (id: number) => {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelected(next);
+  };
+
+  const selectAll = () => {
+    if (selected.size === tenantList.filter(t => t.id !== 1).length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(tenantList.filter(t => t.id !== 1).map(t => t.id)));
+    }
+  };
+
+  const selectedIds = Array.from(selected);
+  const isPending = bulkChangePlan.isPending || bulkSuspend.isPending || bulkReactivate.isPending;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 flex-wrap">
+        <Button variant="outline" size="sm" className="h-8 text-xs gap-1" onClick={selectAll}>
+          {selected.size === tenantList.filter(t => t.id !== 1).length ? <CheckSquare className="w-3 h-3" /> : <Square className="w-3 h-3" />}
+          {selected.size > 0 ? `${selected.size} seleccionados` : "Seleccionar todos"}
+        </Button>
+        <Separator orientation="vertical" className="h-6" />
+        {selected.size > 0 && (
+          <>
+            <Select value={bulkPlan} onValueChange={setBulkPlan}>
+              <SelectTrigger className="h-8 w-32 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="free">Free</SelectItem>
+                <SelectItem value="starter">Starter</SelectItem>
+                <SelectItem value="pro">Pro</SelectItem>
+                <SelectItem value="enterprise">Enterprise</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              className="h-8 text-xs gap-1"
+              onClick={() => {
+                if (confirm(`¿Cambiar plan a ${bulkPlan} para ${selectedIds.length} tenants?`)) {
+                  bulkChangePlan.mutate({ tenantIds: selectedIds, plan: bulkPlan as any });
+                }
+              }}
+              disabled={isPending}
+            >
+              {bulkChangePlan.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <ArrowUpCircle className="w-3 h-3" />}
+              Cambiar Plan
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1 text-red-600"
+              onClick={() => {
+                if (confirm(`¿Suspender ${selectedIds.length} tenants?`)) {
+                  bulkSuspend.mutate({ tenantIds: selectedIds });
+                }
+              }}
+              disabled={isPending}
+            >
+              {bulkSuspend.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Pause className="w-3 h-3" />}
+              Suspender
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1 text-green-600"
+              onClick={() => {
+                if (confirm(`¿Reactivar ${selectedIds.length} tenants?`)) {
+                  bulkReactivate.mutate({ tenantIds: selectedIds });
+                }
+              }}
+              disabled={isPending}
+            >
+              {bulkReactivate.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+              Reactivar
+            </Button>
+          </>
+        )}
+      </div>
+
+      {/* Tenant selection list */}
+      <div className="space-y-1 max-h-[400px] overflow-y-auto">
+        {tenantList.filter(t => t.id !== 1).map((t) => (
+          <div
+            key={t.id}
+            className={`flex items-center gap-3 px-3 py-2 rounded cursor-pointer transition-colors text-xs ${
+              selected.has(t.id) ? "bg-violet-50 dark:bg-violet-950 border border-violet-300 dark:border-violet-700" : "bg-muted/30 hover:bg-muted/50"
+            }`}
+            onClick={() => toggleTenant(t.id)}
+          >
+            {selected.has(t.id) ? (
+              <CheckSquare className="w-4 h-4 text-violet-500 shrink-0" />
+            ) : (
+              <Square className="w-4 h-4 text-muted-foreground shrink-0" />
+            )}
+            <span className="font-medium flex-1 truncate">{t.name}</span>
+            <Badge className={`text-[10px] uppercase ${PLAN_COLORS[t.plan] ?? ""}`}>{t.plan}</Badge>
+            <Badge className={`text-[10px] uppercase ${STATUS_COLORS[t.status] ?? ""}`}>
+              {t.status === "active" ? "Activo" : t.status === "suspended" ? "Suspendido" : t.status}
+            </Badge>
+            <span className="text-muted-foreground">{Number(t.userCount)} users</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ════════════════════════════════════════════════════════════════════════════
    MAIN PAGE
    ════════════════════════════════════════════════════════════════════════════ */
@@ -1545,6 +2081,15 @@ export default function SuperAdmin() {
             <TabsTrigger value="queues" className="text-xs gap-1">
               <Inbox className="w-3 h-3" /> Colas & Storage
             </TabsTrigger>
+            <TabsTrigger value="sessions" className="text-xs gap-1">
+              <Monitor className="w-3 h-3" /> Sesiones
+            </TabsTrigger>
+            <TabsTrigger value="announcements" className="text-xs gap-1">
+              <Megaphone className="w-3 h-3" /> Anuncios
+            </TabsTrigger>
+            <TabsTrigger value="bulk" className="text-xs gap-1">
+              <Layers className="w-3 h-3" /> Operaciones Masivas
+            </TabsTrigger>
           </TabsList>
 
           {/* ─── OVERVIEW TAB ─── */}
@@ -1602,6 +2147,11 @@ export default function SuperAdmin() {
                     { icon: Inbox, color: "text-pink-500", title: "Colas & Jobs", desc: "Monitoreo de message queue y workflows." },
                     { icon: FolderOpen, color: "text-teal-500", title: "Storage", desc: "Uso de almacenamiento por tenant." },
                     { icon: Timer, color: "text-yellow-500", title: "Trial Tracker", desc: "Trials por vencer y detección de churn." },
+                    { icon: Monitor, color: "text-sky-500", title: "Sesiones", desc: "Viewer cross-tenant con force logout." },
+                    { icon: Layers, color: "text-fuchsia-500", title: "Operaciones Masivas", desc: "Cambio de plan y suspensión en masa." },
+                    { icon: StickyNote, color: "text-lime-500", title: "Notas Internas", desc: "CRM interno por tenant." },
+                    { icon: DollarSign, color: "text-emerald-600", title: "Revenue Timeline", desc: "MRR histórico estimado." },
+                    { icon: Megaphone, color: "text-purple-500", title: "Anuncios", desc: "Broadcasts a toda la plataforma." },
                   ].map((f) => (
                     <div key={f.title} className="flex items-start gap-2 p-2 rounded bg-muted/30">
                       <f.icon className={`w-4 h-4 ${f.color} shrink-0 mt-0.5`} />
@@ -1692,6 +2242,27 @@ export default function SuperAdmin() {
           {/* ─── QUEUES & STORAGE TAB ─── */}
           <TabsContent value="queues" className="mt-4">
             <QueuesStoragePanel />
+          </TabsContent>
+
+          {/* ─── SESSIONS TAB ─── */}
+          <TabsContent value="sessions" className="mt-4">
+            <h2 className="text-lg font-bold flex items-center gap-2 mb-4">
+              <Monitor className="w-5 h-5 text-green-500" /> Sesiones Activas Cross-Tenant
+            </h2>
+            <SessionsPanel />
+          </TabsContent>
+
+          {/* ─── ANNOUNCEMENTS TAB ─── */}
+          <TabsContent value="announcements" className="mt-4">
+            <AnnouncementsPanel />
+          </TabsContent>
+
+          {/* ─── BULK OPERATIONS TAB ─── */}
+          <TabsContent value="bulk" className="mt-4">
+            <h2 className="text-lg font-bold flex items-center gap-2 mb-4">
+              <Layers className="w-5 h-5 text-violet-500" /> Operaciones Masivas
+            </h2>
+            <BulkOperationsPanel tenants={tenantList.data ?? []} refetch={() => tenantList.refetch()} />
           </TabsContent>
         </Tabs>
       )}

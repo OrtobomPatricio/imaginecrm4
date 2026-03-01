@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
-import { tenants, users, whatsappNumbers, conversations, leads, sessions } from "../../drizzle/schema";
-import { eq, desc, sql, count, and, gte, lte } from "drizzle-orm";
+import { tenants, users, whatsappNumbers, conversations, leads, sessions, platformAnnouncements } from "../../drizzle/schema";
+import { eq, desc, sql, count, and, gte, lte, inArray } from "drizzle-orm";
 import { logger } from "../_core/logger";
 import { TRPCError } from "@trpc/server";
 import { getAllFlags, setFeatureFlag, getFlagDefinitions } from "../services/feature-flags";
@@ -789,5 +789,376 @@ export const superadminRouter = router({
                 tempPassword,
                 message: "Contraseña reseteada. Comparte la contraseña temporal de forma segura.",
             };
+        }),
+
+    // ══════════════════════════════════════════════════════════════
+    //  SESSION MANAGEMENT (CROSS-TENANT)
+    // ══════════════════════════════════════════════════════════════
+
+    /** List all active sessions across tenants */
+    listSessions: superadminGuard
+        .input(z.object({
+            tenantId: z.number().optional(),
+            limit: z.number().min(1).max(200).default(50),
+        }))
+        .query(async ({ input }) => {
+            const db = await getDb();
+            if (!db) return [];
+            try {
+                let where = "s.expiresAt > NOW()";
+                if (input.tenantId) where += ` AND s.tenantId = ${Number(input.tenantId)}`;
+
+                const [rows] = await db.execute(sql.raw(`
+                    SELECT s.id, s.tenantId, t.name as tenantName, s.userId,
+                           u.name as userName, u.email as userEmail, u.role as userRole,
+                           s.ipAddress, s.userAgent, s.lastActivityAt, s.expiresAt, s.createdAt
+                    FROM sessions s
+                    LEFT JOIN tenants t ON t.id = s.tenantId
+                    LEFT JOIN users u ON u.id = s.userId
+                    WHERE ${where}
+                    ORDER BY s.lastActivityAt DESC
+                    LIMIT ${input.limit}
+                `)) as any;
+                return rows ?? [];
+            } catch (e) {
+                logger.warn({ err: (e as any)?.message }, "[SuperAdmin] listSessions failed");
+                return [];
+            }
+        }),
+
+    /** Force logout a specific session */
+    forceLogout: superadminGuard
+        .input(z.object({ sessionId: z.number() }))
+        .mutation(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            await db.delete(sessions).where(eq(sessions.id, input.sessionId));
+            logger.warn(
+                { adminId: ctx.user!.id, sessionId: input.sessionId },
+                "[Superadmin] Force logout session"
+            );
+            return { success: true, message: "Sesión terminada." };
+        }),
+
+    /** Force logout all sessions for a tenant */
+    forceLogoutTenant: superadminGuard
+        .input(z.object({ tenantId: z.number() }))
+        .mutation(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            const result = await db.delete(sessions).where(eq(sessions.tenantId, input.tenantId));
+            logger.warn(
+                { adminId: ctx.user!.id, tenantId: input.tenantId },
+                "[Superadmin] Force logout ALL sessions for tenant"
+            );
+            return { success: true, message: `Todas las sesiones del tenant ${input.tenantId} terminadas.` };
+        }),
+
+    // ══════════════════════════════════════════════════════════════
+    //  BULK OPERATIONS
+    // ══════════════════════════════════════════════════════════════
+
+    /** Bulk change plan for multiple tenants */
+    bulkChangePlan: superadminGuard
+        .input(z.object({
+            tenantIds: z.array(z.number()).min(1).max(100),
+            plan: z.enum(["free", "starter", "pro", "enterprise"]),
+        }))
+        .mutation(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            // Protect platform tenant
+            const ids = input.tenantIds.filter(id => id !== 1);
+            if (ids.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "No hay tenants válidos para actualizar." });
+
+            await db.update(tenants)
+                .set({ plan: input.plan })
+                .where(inArray(tenants.id, ids));
+
+            logger.warn(
+                { adminId: ctx.user!.id, tenantIds: ids, plan: input.plan },
+                "[Superadmin] BULK plan change"
+            );
+
+            return { success: true, count: ids.length, message: `Plan cambiado a ${input.plan} para ${ids.length} tenants.` };
+        }),
+
+    /** Bulk suspend multiple tenants */
+    bulkSuspend: superadminGuard
+        .input(z.object({
+            tenantIds: z.array(z.number()).min(1).max(100),
+        }))
+        .mutation(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            const ids = input.tenantIds.filter(id => id !== 1);
+            if (ids.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "No se puede suspender el tenant de plataforma." });
+
+            await db.update(tenants)
+                .set({ status: "suspended" })
+                .where(inArray(tenants.id, ids));
+
+            logger.warn(
+                { adminId: ctx.user!.id, tenantIds: ids },
+                "[Superadmin] BULK suspend"
+            );
+
+            return { success: true, count: ids.length, message: `${ids.length} tenants suspendidos.` };
+        }),
+
+    /** Bulk reactivate multiple tenants */
+    bulkReactivate: superadminGuard
+        .input(z.object({
+            tenantIds: z.array(z.number()).min(1).max(100),
+        }))
+        .mutation(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            await db.update(tenants)
+                .set({ status: "active" })
+                .where(inArray(tenants.id, input.tenantIds));
+
+            logger.warn(
+                { adminId: ctx.user!.id, tenantIds: input.tenantIds },
+                "[Superadmin] BULK reactivate"
+            );
+
+            return { success: true, count: input.tenantIds.length, message: `${input.tenantIds.length} tenants reactivados.` };
+        }),
+
+    // ══════════════════════════════════════════════════════════════
+    //  TENANT NOTES (Internal CRM)
+    // ══════════════════════════════════════════════════════════════
+
+    /** Get internal notes for a tenant */
+    getTenantNotes: superadminGuard
+        .input(z.object({ tenantId: z.number() }))
+        .query(async ({ input }) => {
+            const db = await getDb();
+            if (!db) return { notes: "" };
+            try {
+                // Ensure column exists
+                await db.execute(sql.raw(
+                    `ALTER TABLE tenants ADD COLUMN internalNotes TEXT NULL`
+                )).catch(() => { /* column probably already exists */ });
+
+                const [rows] = await db.execute(sql.raw(
+                    `SELECT internalNotes FROM tenants WHERE id = ${Number(input.tenantId)}`
+                )) as any;
+                return { notes: rows?.[0]?.internalNotes ?? "" };
+            } catch {
+                return { notes: "" };
+            }
+        }),
+
+    /** Update internal notes for a tenant */
+    updateTenantNotes: superadminGuard
+        .input(z.object({
+            tenantId: z.number(),
+            notes: z.string().max(10000),
+        }))
+        .mutation(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            // Ensure column exists
+            await db.execute(sql.raw(
+                `ALTER TABLE tenants ADD COLUMN internalNotes TEXT NULL`
+            )).catch(() => { /* column probably already exists */ });
+
+            await db.execute(sql.raw(
+                `UPDATE tenants SET internalNotes = ${input.notes ? `'${input.notes.replace(/'/g, "''")}'` : 'NULL'} WHERE id = ${Number(input.tenantId)}`
+            ));
+
+            logger.info(
+                { adminId: ctx.user!.id, tenantId: input.tenantId },
+                "[Superadmin] Tenant notes updated"
+            );
+
+            return { success: true, message: "Notas actualizadas." };
+        }),
+
+    // ══════════════════════════════════════════════════════════════
+    //  REVENUE TIMELINE (Historical MRR estimation)
+    // ══════════════════════════════════════════════════════════════
+
+    /** Estimate MRR timeline based on tenant creation dates and current plans */
+    revenueTimeline: superadminGuard
+        .input(z.object({
+            months: z.number().min(1).max(24).default(12),
+        }))
+        .query(async ({ input }) => {
+            const db = await getDb();
+            if (!db) return [];
+            try {
+                // Get all tenants with their plan and creation date
+                const [rows] = await db.execute(sql.raw(`
+                    SELECT id, plan, createdAt, status FROM tenants ORDER BY createdAt ASC
+                `)) as any;
+
+                const allTenants = (rows ?? []) as Array<{ id: number; plan: string; createdAt: string; status: string }>;
+                const PLAN_PRICES: Record<string, number> = { free: 0, starter: 29, pro: 99, enterprise: 299 };
+
+                // Build monthly MRR timeline
+                const timeline: Array<{ month: string; mrr: number; tenantCount: number; paidCount: number }> = [];
+                const now = new Date();
+
+                for (let i = input.months - 1; i >= 0; i--) {
+                    const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                    const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+                    const monthStr = monthDate.toISOString().slice(0, 7); // YYYY-MM
+
+                    // Tenants that existed by end of this month (and not canceled)
+                    const activeTenants = allTenants.filter(t => {
+                        const created = new Date(t.createdAt);
+                        return created <= monthEnd && t.status !== "canceled";
+                    });
+
+                    const mrr = activeTenants.reduce((sum, t) => sum + (PLAN_PRICES[t.plan] ?? 0), 0);
+                    const paidCount = activeTenants.filter(t => t.plan !== "free").length;
+
+                    timeline.push({
+                        month: monthStr,
+                        mrr,
+                        tenantCount: activeTenants.length,
+                        paidCount,
+                    });
+                }
+
+                return timeline;
+            } catch (e) {
+                logger.warn({ err: (e as any)?.message }, "[SuperAdmin] revenueTimeline failed");
+                return [];
+            }
+        }),
+
+    // ══════════════════════════════════════════════════════════════
+    //  PLATFORM ANNOUNCEMENTS
+    // ══════════════════════════════════════════════════════════════
+
+    /** List all announcements */
+    listAnnouncements: superadminGuard
+        .query(async () => {
+            const db = await getDb();
+            if (!db) return [];
+            try {
+                // Ensure table exists
+                await db.execute(sql.raw(`
+                    CREATE TABLE IF NOT EXISTS platform_announcements (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        title VARCHAR(255) NOT NULL,
+                        message TEXT NOT NULL,
+                        type ENUM('info','warning','critical','maintenance') DEFAULT 'info' NOT NULL,
+                        active BOOLEAN DEFAULT TRUE NOT NULL,
+                        createdBy INT NULL,
+                        createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                        updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL
+                    )
+                `));
+
+                const results = await db.select().from(platformAnnouncements).orderBy(desc(platformAnnouncements.createdAt));
+                return results;
+            } catch (e) {
+                logger.warn({ err: (e as any)?.message }, "[SuperAdmin] listAnnouncements failed");
+                return [];
+            }
+        }),
+
+    /** Create a new announcement */
+    createAnnouncement: superadminGuard
+        .input(z.object({
+            title: z.string().min(1).max(255),
+            message: z.string().min(1).max(5000),
+            type: z.enum(["info", "warning", "critical", "maintenance"]).default("info"),
+        }))
+        .mutation(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            // Ensure table exists
+            await db.execute(sql.raw(`
+                CREATE TABLE IF NOT EXISTS platform_announcements (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    title VARCHAR(255) NOT NULL,
+                    message TEXT NOT NULL,
+                    type ENUM('info','warning','critical','maintenance') DEFAULT 'info' NOT NULL,
+                    active BOOLEAN DEFAULT TRUE NOT NULL,
+                    createdBy INT NULL,
+                    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL
+                )
+            `));
+
+            await db.insert(platformAnnouncements).values({
+                title: input.title,
+                message: input.message,
+                type: input.type,
+                createdBy: ctx.user!.id,
+            });
+
+            logger.info(
+                { adminId: ctx.user!.id, title: input.title, type: input.type },
+                "[Superadmin] Announcement created"
+            );
+
+            return { success: true, message: "Anuncio creado." };
+        }),
+
+    /** Toggle announcement active status */
+    toggleAnnouncement: superadminGuard
+        .input(z.object({
+            id: z.number(),
+            active: z.boolean(),
+        }))
+        .mutation(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            await db.update(platformAnnouncements)
+                .set({ active: input.active })
+                .where(eq(platformAnnouncements.id, input.id));
+
+            logger.info(
+                { adminId: ctx.user!.id, announcementId: input.id, active: input.active },
+                "[Superadmin] Announcement toggled"
+            );
+
+            return { success: true, message: input.active ? "Anuncio activado." : "Anuncio desactivado." };
+        }),
+
+    /** Delete an announcement */
+    deleteAnnouncement: superadminGuard
+        .input(z.object({ id: z.number() }))
+        .mutation(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            await db.delete(platformAnnouncements).where(eq(platformAnnouncements.id, input.id));
+
+            logger.warn(
+                { adminId: ctx.user!.id, announcementId: input.id },
+                "[Superadmin] Announcement deleted"
+            );
+
+            return { success: true, message: "Anuncio eliminado." };
+        }),
+
+    /** Get active announcements (public — for tenants dashboard) */
+    getActiveAnnouncements: superadminGuard
+        .query(async () => {
+            const db = await getDb();
+            if (!db) return [];
+            try {
+                const results = await db.select()
+                    .from(platformAnnouncements)
+                    .where(eq(platformAnnouncements.active, true))
+                    .orderBy(desc(platformAnnouncements.createdAt));
+                return results;
+            } catch { return []; }
         }),
 });

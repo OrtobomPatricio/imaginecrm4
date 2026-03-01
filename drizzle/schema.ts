@@ -1169,3 +1169,20 @@ export type InsertFileUpload = typeof fileUploads.$inferInsert;
 
 export type OnboardingProgress = typeof onboardingProgress.$inferSelect;
 export type InsertOnboardingProgress = typeof onboardingProgress.$inferInsert;
+
+/**
+ * Platform Announcements — Super Admin broadcasts to all tenants
+ */
+export const platformAnnouncements = mysqlTable("platform_announcements", {
+  id: int("id").autoincrement().primaryKey(),
+  title: varchar("title", { length: 255 }).notNull(),
+  message: text("message").notNull(),
+  type: mysqlEnum("type", ["info", "warning", "critical", "maintenance"]).default("info").notNull(),
+  active: boolean("active").default(true).notNull(),
+  createdBy: int("createdBy").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PlatformAnnouncement = typeof platformAnnouncements.$inferSelect;
+export type InsertPlatformAnnouncement = typeof platformAnnouncements.$inferInsert;
