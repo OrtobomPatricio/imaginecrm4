@@ -2630,6 +2630,702 @@ function SuperadminAuditPanel() {
   );
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   IMPERSONATION AUDIT PANEL
+   ═══════════════════════════════════════════════════════════════════ */
+function ImpersonationAuditPanel() {
+  const events = trpc.superadmin.listImpersonationEvents.useQuery({ limit: 100, offset: 0 });
+  const stats = trpc.superadmin.getImpersonationStats.useQuery();
+
+  const rows = events.data?.rows ?? [];
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-bold flex items-center gap-2"><Eye className="w-5 h-5 text-amber-500" /> Registro de Impersonaciones ({events.data?.total ?? 0})</h2>
+
+      {/* Stats summary */}
+      {stats.data && (
+        <div className="grid grid-cols-2 gap-4">
+          <Card className="p-3">
+            <h3 className="text-xs font-semibold text-muted-foreground mb-2">Por Admin</h3>
+            {(stats.data.byAdmin as any[]).map((a: any) => (
+              <div key={a.userId} className="flex items-center justify-between text-xs py-1">
+                <span>{a.name || a.email}</span><Badge variant="secondary">{a.cnt}</Badge>
+              </div>
+            ))}
+          </Card>
+          <Card className="p-3">
+            <h3 className="text-xs font-semibold text-muted-foreground mb-2">Por Tenant</h3>
+            {(stats.data.byTenant as any[]).map((t: any) => (
+              <div key={t.tenantId} className="flex items-center justify-between text-xs py-1">
+                <span>{t.tenantName}</span><Badge variant="secondary">{t.cnt}</Badge>
+              </div>
+            ))}
+          </Card>
+        </div>
+      )}
+
+      {events.isLoading ? (
+        <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">Sin registros de impersonación.</p>
+      ) : (
+        <div className="space-y-1">
+          {rows.map((r: any) => (
+            <div key={r.id} className="flex items-center gap-2 text-xs px-3 py-2 rounded bg-muted/30">
+              <Eye className="w-3 h-3 text-amber-500 shrink-0" />
+              <span className="font-medium">{r.adminName || r.adminEmail}</span>
+              <span className="text-muted-foreground">→</span>
+              <Badge variant="outline" className="text-[10px]">{r.targetTenantName || `T#${r.targetTenantId}`}</Badge>
+              <span className="text-[10px] text-muted-foreground ml-auto">{fmtDateTime(r.createdAt)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ONBOARDING TRACKER PANEL
+   ═══════════════════════════════════════════════════════════════════ */
+function OnboardingTrackerPanel() {
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const progress = trpc.superadmin.listOnboardingProgress.useQuery({ status: statusFilter as any, limit: 100, offset: 0 });
+  const rows = progress.data?.rows ?? [];
+
+  const STEPS = ["companyCompleted", "teamCompleted", "whatsappCompleted", "importCompleted", "firstMessageCompleted"] as const;
+  const STEP_LABELS: Record<string, string> = {
+    companyCompleted: "Empresa", teamCompleted: "Equipo", whatsappCompleted: "WhatsApp",
+    importCompleted: "Importar", firstMessageCompleted: "1er Mensaje",
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold flex items-center gap-2"><ClipboardCheck className="w-5 h-5 text-blue-500" /> Onboarding Tracker ({progress.data?.total ?? 0})</h2>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-36 h-9 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos</SelectItem>
+            <SelectItem value="completed">Completados</SelectItem>
+            <SelectItem value="in_progress">En Progreso</SelectItem>
+            <SelectItem value="stalled">Estancados</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {progress.isLoading ? (
+        <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">Sin datos de onboarding.</p>
+      ) : (
+        <div className="space-y-2">
+          {rows.map((r: any) => {
+            const completed = STEPS.filter(s => r[s]).length;
+            const pct = Math.round((completed / STEPS.length) * 100);
+            const isStalled = !r.completedAt && r.hoursElapsed > 72;
+            return (
+              <Card key={r.id} className={`p-3 ${isStalled ? "border-amber-400" : ""}`}>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-sm font-semibold">{r.tenantName}</span>
+                      <Badge className={`text-[10px] ${r.completedAt ? "bg-green-100 text-green-700" : isStalled ? "bg-amber-100 text-amber-700" : "bg-blue-100 text-blue-700"}`}>
+                        {r.completedAt ? "Completado" : isStalled ? "Estancado" : "En progreso"}
+                      </Badge>
+                      <Badge variant="outline" className="text-[10px]">{r.plan}</Badge>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {STEPS.map(s => (
+                        <span key={s} className={`text-[9px] px-1.5 py-0.5 rounded ${r[s] ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300" : "bg-muted text-muted-foreground"}`}>
+                          {STEP_LABELS[s]}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="text-right text-xs">
+                    <p className="font-bold text-lg">{pct}%</p>
+                    <p className="text-[10px] text-muted-foreground">{Math.round(r.hoursElapsed)}h transcurridas</p>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   WORKFLOW OVERSIGHT PANEL
+   ═══════════════════════════════════════════════════════════════════ */
+function WorkflowOversightPanel() {
+  const { toast } = useToast();
+  const wfStats = trpc.superadmin.getWorkflowStats.useQuery();
+  const wfList = trpc.superadmin.listAllWorkflows.useQuery({ limit: 100, offset: 0 });
+  const [errorsFor, setErrorsFor] = useState<number | null>(null);
+  const wfErrors = trpc.superadmin.getWorkflowErrors.useQuery({ workflowId: errorsFor ?? 0 }, { enabled: errorsFor !== null });
+  const toggleWf = trpc.superadmin.toggleWorkflowActive.useMutation({
+    onSuccess: (d) => { toast({ title: d.message }); wfList.refetch(); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const s = wfStats.data;
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-bold flex items-center gap-2"><Workflow className="w-5 h-5 text-indigo-500" /> Workflows ({wfList.data?.total ?? 0})</h2>
+
+      {s && (
+        <div className="grid grid-cols-5 gap-3">
+          <Card className="p-3 text-center"><p className="text-2xl font-bold">{Number(s.totalWorkflows)}</p><p className="text-[10px] text-muted-foreground">Total</p></Card>
+          <Card className="p-3 text-center"><p className="text-2xl font-bold text-green-500">{Number(s.activeWorkflows)}</p><p className="text-[10px] text-muted-foreground">Activos</p></Card>
+          <Card className="p-3 text-center"><p className="text-2xl font-bold">{Number(s.executions24h)}</p><p className="text-[10px] text-muted-foreground">Ejecuciones 24h</p></Card>
+          <Card className="p-3 text-center"><p className="text-2xl font-bold text-red-500">{Number(s.failures24h)}</p><p className="text-[10px] text-muted-foreground">Fallos 24h</p></Card>
+          <Card className="p-3 text-center"><p className="text-2xl font-bold text-amber-500">{Number(s.pendingJobs)}</p><p className="text-[10px] text-muted-foreground">Jobs Pendientes</p></Card>
+        </div>
+      )}
+
+      {wfList.isLoading ? (
+        <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+      ) : (
+        <div className="space-y-1">
+          {(wfList.data?.rows ?? []).map((w: any) => {
+            const total = Number(w.successCount) + Number(w.failCount);
+            const rate = total > 0 ? Math.round((Number(w.successCount) / total) * 100) : 0;
+            return (
+              <div key={w.id} className="flex items-center gap-2 text-xs px-3 py-2 rounded bg-muted/30 hover:bg-muted/50">
+                <Switch checked={w.isActive} onCheckedChange={(v) => toggleWf.mutate({ workflowId: w.id, isActive: v })} />
+                <div className="flex-1 min-w-0">
+                  <span className="font-medium">{w.name}</span>
+                  <span className="text-muted-foreground ml-2">{w.tenantName} · {w.triggerType}</span>
+                </div>
+                <span className="text-[10px] text-muted-foreground">{total} ejecuciones</span>
+                <Badge className={`text-[10px] ${rate >= 90 ? "bg-green-100 text-green-700" : rate >= 50 ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>{rate}% éxito</Badge>
+                <Badge variant="secondary" className="text-[10px]">{Number(w.pendingJobs)} pendientes</Badge>
+                {Number(w.failCount) > 0 && (
+                  <Button variant="ghost" size="sm" className="h-5 text-[10px] text-red-500" onClick={() => setErrorsFor(w.id)}>Ver errores</Button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Error detail modal */}
+      <Dialog open={errorsFor !== null} onOpenChange={() => setErrorsFor(null)}>
+        <DialogContent className="max-w-lg max-h-[60vh] overflow-auto">
+          <DialogHeader><DialogTitle>Errores del Workflow</DialogTitle></DialogHeader>
+          {wfErrors.isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : (
+            <div className="space-y-1">
+              {(wfErrors.data ?? []).map((e: any) => (
+                <div key={e.id} className="text-xs p-2 rounded bg-red-50 dark:bg-red-950">
+                  <p className="text-red-700 dark:text-red-300">{e.details}</p>
+                  <p className="text-[10px] text-muted-foreground">{fmtDateTime(e.createdAt)} · {e.tenantName}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   WEBHOOK MANAGEMENT PANEL
+   ═══════════════════════════════════════════════════════════════════ */
+function WebhookManagementPanel() {
+  const { toast } = useToast();
+  const whList = trpc.superadmin.listAllWebhooks.useQuery({ limit: 100, offset: 0 });
+  const [deliveryFor, setDeliveryFor] = useState<number | null>(null);
+  const deliveries = trpc.superadmin.getWebhookDeliveries.useQuery({ webhookId: deliveryFor ?? 0 }, { enabled: deliveryFor !== null });
+  const toggle = trpc.superadmin.toggleWebhook.useMutation({
+    onSuccess: (d) => { toast({ title: d.message }); whList.refetch(); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-bold flex items-center gap-2"><Globe className="w-5 h-5 text-cyan-500" /> Webhooks ({whList.data?.total ?? 0})</h2>
+
+      {whList.isLoading ? (
+        <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+      ) : (whList.data?.rows ?? []).length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">Sin webhooks registrados.</p>
+      ) : (
+        <div className="space-y-1">
+          {(whList.data?.rows ?? []).map((w: any) => {
+            const total = Number(w.totalDeliveries);
+            const ok = Number(w.successDeliveries);
+            const rate = total > 0 ? Math.round((ok / total) * 100) : 0;
+            return (
+              <div key={w.id} className="flex items-center gap-2 text-xs px-3 py-2 rounded bg-muted/30">
+                <Switch checked={w.active} onCheckedChange={(v) => toggle.mutate({ webhookId: w.id, active: v })} />
+                <div className="flex-1 min-w-0">
+                  <span className="font-medium">{w.name}</span>
+                  <span className="text-muted-foreground ml-2 text-[10px]">{w.tenantName} · {w.url?.slice(0, 40)}...</span>
+                </div>
+                <span className="text-[10px] text-muted-foreground">{total} entregas</span>
+                <Badge className={`text-[10px] ${rate >= 90 ? "bg-green-100 text-green-700" : rate >= 50 ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>{rate}% éxito</Badge>
+                <Button variant="ghost" size="sm" className="h-5 text-[10px]" onClick={() => setDeliveryFor(w.id)}>Entregas</Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <Dialog open={deliveryFor !== null} onOpenChange={() => setDeliveryFor(null)}>
+        <DialogContent className="max-w-md max-h-[60vh] overflow-auto">
+          <DialogHeader><DialogTitle>Entregas Recientes</DialogTitle></DialogHeader>
+          {deliveries.isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : (
+            <div className="space-y-1">
+              {(deliveries.data ?? []).map((d: any) => (
+                <div key={d.id} className={`text-xs p-2 rounded ${d.success ? "bg-green-50 dark:bg-green-950" : "bg-red-50 dark:bg-red-950"}`}>
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">{d.event}</span>
+                    <Badge className={`text-[10px] ${d.success ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>{d.responseStatus}</Badge>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">{fmtDateTime(d.createdAt)}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   CAMPAIGN MONITORING PANEL
+   ═══════════════════════════════════════════════════════════════════ */
+function CampaignMonitoringPanel() {
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const stats = trpc.superadmin.getCampaignStats.useQuery();
+  const campaigns = trpc.superadmin.listAllCampaigns.useQuery({ status: statusFilter as any, limit: 100, offset: 0 });
+
+  const s = stats.data;
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold flex items-center gap-2"><Megaphone className="w-5 h-5 text-pink-500" /> Campañas ({campaigns.data?.total ?? 0})</h2>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-36 h-9 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos</SelectItem>
+            <SelectItem value="running">Running</SelectItem>
+            <SelectItem value="scheduled">Scheduled</SelectItem>
+            <SelectItem value="completed">Completed</SelectItem>
+            <SelectItem value="draft">Draft</SelectItem>
+            <SelectItem value="paused">Paused</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {s && (
+        <div className="grid grid-cols-4 gap-3">
+          <Card className="p-3 text-center"><p className="text-2xl font-bold text-green-500">{Number(s.running)}</p><p className="text-[10px] text-muted-foreground">Running</p></Card>
+          <Card className="p-3 text-center"><p className="text-2xl font-bold">{Number(s.totalSent)}</p><p className="text-[10px] text-muted-foreground">Enviados</p></Card>
+          <Card className="p-3 text-center"><p className="text-2xl font-bold text-blue-500">{Number(s.totalDelivered)}</p><p className="text-[10px] text-muted-foreground">Entregados</p></Card>
+          <Card className="p-3 text-center"><p className="text-2xl font-bold text-red-500">{Number(s.totalFailed)}</p><p className="text-[10px] text-muted-foreground">Fallidos</p></Card>
+        </div>
+      )}
+
+      {campaigns.isLoading ? (
+        <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+      ) : (campaigns.data?.rows ?? []).length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">Sin campañas.</p>
+      ) : (
+        <div className="space-y-1">
+          {(campaigns.data?.rows ?? []).map((c: any) => {
+            const delivRate = Number(c.messagesSent) > 0 ? Math.round((Number(c.messagesDelivered) / Number(c.messagesSent)) * 100) : 0;
+            return (
+              <div key={c.id} className="flex items-center gap-2 text-xs px-3 py-2 rounded bg-muted/30">
+                <div className="flex-1 min-w-0">
+                  <span className="font-medium">{c.name}</span>
+                  <span className="text-muted-foreground ml-2">{c.tenantName} · {c.type}</span>
+                </div>
+                <Badge className={`text-[10px] ${STATUS_COLORS[c.status] ?? ""}`}>{c.status}</Badge>
+                <span className="text-[10px] text-muted-foreground">{c.messagesSent}/{c.totalRecipients} enviados</span>
+                <Badge className={`text-[10px] ${delivRate >= 90 ? "bg-green-100 text-green-700" : delivRate >= 50 ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>{delivRate}% entrega</Badge>
+                <span className="text-[10px] text-muted-foreground">{fmtDateTime(c.startedAt || c.scheduledAt)}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   TEMPLATE OVERSIGHT PANEL
+   ═══════════════════════════════════════════════════════════════════ */
+function TemplateOversightPanel() {
+  const { toast } = useToast();
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const tplList = trpc.superadmin.listAllTemplates.useQuery({ type: typeFilter as any, limit: 100, offset: 0 });
+  const tplStats = trpc.superadmin.getTemplateStats.useQuery();
+  const copyTpl = trpc.superadmin.copyTemplateToTenant.useMutation({
+    onSuccess: (d) => { toast({ title: d.message }); tplList.refetch(); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  const [copyTarget, setCopyTarget] = useState<{ templateId: number; targetTenantId: string } | null>(null);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold flex items-center gap-2"><Code className="w-5 h-5 text-teal-500" /> Templates ({tplList.data?.total ?? 0})</h2>
+        <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <SelectTrigger className="w-32 h-9 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos</SelectItem>
+            <SelectItem value="whatsapp">WhatsApp</SelectItem>
+            <SelectItem value="email">Email</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {tplList.isLoading ? (
+        <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+      ) : (tplList.data?.rows ?? []).length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">Sin templates.</p>
+      ) : (
+        <div className="space-y-1">
+          {(tplList.data?.rows ?? []).map((t: any) => (
+            <div key={t.id} className="flex items-center gap-2 text-xs px-3 py-2 rounded bg-muted/30">
+              <div className="flex-1 min-w-0">
+                <span className="font-medium">{t.name}</span>
+                <span className="text-muted-foreground ml-2">{t.tenantName}</span>
+              </div>
+              <Badge variant="outline" className="text-[10px]">{t.type}</Badge>
+              <span className="text-[10px] text-muted-foreground max-w-[200px] truncate">{t.content?.slice(0, 60)}</span>
+              <Button variant="ghost" size="sm" className="h-5 text-[10px]" onClick={() => setCopyTarget({ templateId: t.id, targetTenantId: "" })}>
+                <Copy className="w-3 h-3 mr-1" /> Copiar a…
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Dialog open={copyTarget !== null} onOpenChange={() => setCopyTarget(null)}>
+        <DialogContent className="max-w-xs">
+          <DialogHeader><DialogTitle>Copiar Template</DialogTitle></DialogHeader>
+          <Input placeholder="ID del tenant destino" value={copyTarget?.targetTenantId ?? ""} onChange={(e) => setCopyTarget(prev => prev ? { ...prev, targetTenantId: e.target.value } : null)} className="h-9 text-sm" />
+          <DialogFooter>
+            <DialogClose asChild><Button variant="ghost">Cancelar</Button></DialogClose>
+            <Button onClick={() => {
+              if (copyTarget) copyTpl.mutate({ templateId: copyTarget.templateId, targetTenantId: Number(copyTarget.targetTenantId) });
+              setCopyTarget(null);
+            }} disabled={!copyTarget?.targetTenantId}>Copiar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   LICENSE MANAGEMENT PANEL
+   ═══════════════════════════════════════════════════════════════════ */
+function LicenseManagementPanel() {
+  const { toast } = useToast();
+  const licList = trpc.superadmin.listAllLicenses.useQuery({ limit: 100, offset: 0 });
+  const rotateKey = trpc.superadmin.rotateLicenseKey.useMutation({
+    onSuccess: (d) => { toast({ title: "Clave rotada", description: d.newKey, duration: 10000 }); licList.refetch(); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  const updateStatus = trpc.superadmin.updateLicenseStatus.useMutation({
+    onSuccess: (d) => { toast({ title: d.message }); licList.refetch(); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const STATUS_COLORS_LIC: Record<string, string> = {
+    active: "bg-green-100 text-green-700", expired: "bg-red-100 text-red-700",
+    canceled: "bg-gray-100 text-gray-600", trial: "bg-blue-100 text-blue-700",
+  };
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-bold flex items-center gap-2"><KeyRound className="w-5 h-5 text-amber-500" /> Licencias ({licList.data?.total ?? 0})</h2>
+
+      {licList.isLoading ? (
+        <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+      ) : (licList.data?.rows ?? []).length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">Sin licencias registradas.</p>
+      ) : (
+        <div className="space-y-1">
+          {(licList.data?.rows ?? []).map((l: any) => (
+            <div key={l.id} className="flex items-center gap-2 text-xs px-3 py-2 rounded bg-muted/30">
+              <div className="flex-1 min-w-0">
+                <span className="font-medium">{l.tenantName}</span>
+                <span className="text-[10px] text-muted-foreground ml-2 font-mono">{l.key?.slice(0, 20)}...</span>
+              </div>
+              <Badge className={`text-[10px] ${STATUS_COLORS_LIC[l.status] ?? ""}`}>{l.status}</Badge>
+              <span className="text-[10px] text-muted-foreground">{l.maxUsers}u / {l.maxWhatsappNumbers}wa / {l.maxMessagesPerMonth}msg</span>
+              <Select value={l.status} onValueChange={(v) => updateStatus.mutate({ licenseId: l.id, status: v as any })}>
+                <SelectTrigger className="h-6 w-20 text-[10px]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {["active", "expired", "canceled", "trial"].map(s => <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Button variant="ghost" size="sm" className="h-5 text-[10px]" onClick={() => confirm("¿Rotar clave de licencia?") && rotateKey.mutate({ licenseId: l.id })}>
+                <RefreshCw className="w-3 h-3 mr-1" /> Rotar
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   TENANT COMPARISON PANEL
+   ═══════════════════════════════════════════════════════════════════ */
+function TenantComparisonPanel() {
+  const [ids, setIds] = useState<string>("");
+  const tenantIds = ids.split(",").map(s => Number(s.trim())).filter(n => n > 0);
+  const comp = trpc.superadmin.compareTenants.useQuery(
+    { tenantIds },
+    { enabled: tenantIds.length >= 2 }
+  );
+
+  const METRICS = [
+    { key: "activeUsers", label: "Usuarios Activos" },
+    { key: "totalLeads", label: "Leads" },
+    { key: "totalConversations", label: "Conversaciones" },
+    { key: "totalMessages", label: "Mensajes" },
+    { key: "waNumbers", label: "Números WA" },
+    { key: "activeWorkflows", label: "Workflows Activos" },
+    { key: "totalCampaigns", label: "Campañas" },
+    { key: "storageBytes", label: "Storage (bytes)" },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-bold flex items-center gap-2"><BarChart3 className="w-5 h-5 text-violet-500" /> Comparar Tenants</h2>
+      <div className="flex items-center gap-2">
+        <Input value={ids} onChange={(e) => setIds(e.target.value)} placeholder="IDs separados por coma (ej: 1,2,3)" className="h-9 max-w-xs" />
+        <span className="text-xs text-muted-foreground">{tenantIds.length >= 2 ? `${tenantIds.length} tenants seleccionados` : "Mínimo 2 IDs"}</span>
+      </div>
+
+      {comp.isLoading ? (
+        <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+      ) : tenantIds.length < 2 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">Ingresa al menos 2 IDs de tenants para comparar.</p>
+      ) : (comp.data ?? []).length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">Sin datos para esos IDs.</p>
+      ) : (
+        <div className="overflow-auto">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="border-b">
+                <th className="py-2 px-3 text-left font-semibold">Métrica</th>
+                {(comp.data ?? []).map((t: any) => (
+                  <th key={t.id} className="py-2 px-3 text-center font-semibold">
+                    {t.name} <Badge variant="outline" className="text-[9px] ml-1">{t.plan}</Badge>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {METRICS.map(m => (
+                <tr key={m.key} className="border-b hover:bg-muted/30">
+                  <td className="py-1.5 px-3 font-medium">{m.label}</td>
+                  {(comp.data ?? []).map((t: any) => {
+                    const val = Number(t[m.key] ?? 0);
+                    const max = Math.max(...(comp.data ?? []).map((x: any) => Number(x[m.key] ?? 0)));
+                    return (
+                      <td key={t.id} className={`py-1.5 px-3 text-center ${val === max && max > 0 ? "font-bold text-green-600" : ""}`}>
+                        {m.key === "storageBytes" ? fmtBytes(val) : val.toLocaleString()}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   HEALTH SCORE PANEL
+   ═══════════════════════════════════════════════════════════════════ */
+function HealthScorePanel() {
+  const scores = trpc.superadmin.computeHealthScores.useQuery();
+
+  const scoreColor = (s: number) => s >= 70 ? "text-green-600" : s >= 40 ? "text-amber-500" : "text-red-500";
+  const scoreBg = (s: number) => s >= 70 ? "bg-green-100" : s >= 40 ? "bg-amber-100" : "bg-red-100";
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-bold flex items-center gap-2"><Activity className="w-5 h-5 text-green-500" /> Health Scores</h2>
+
+      {scores.isLoading ? (
+        <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+      ) : (scores.data ?? []).length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">Sin datos.</p>
+      ) : (
+        <div className="space-y-1">
+          {(scores.data ?? []).sort((a: any, b: any) => a.healthScore - b.healthScore).map((t: any) => (
+            <div key={t.id} className="flex items-center gap-3 text-xs px-3 py-2 rounded bg-muted/30">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${scoreBg(t.healthScore)} ${scoreColor(t.healthScore)}`}>
+                {t.healthScore}
+              </div>
+              <div className="flex-1 min-w-0">
+                <span className="font-medium text-sm">{t.name}</span>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <Badge variant="outline" className="text-[10px]">{t.plan}</Badge>
+                  <span className="text-[10px] text-muted-foreground">{t.activeUsers} usuarios · {t.recentLeads} leads 7d · {t.recentMessages} msgs 7d</span>
+                </div>
+              </div>
+              <span className="text-[10px] text-muted-foreground">{t.lastActivity ? `Último: ${fmtDateTime(t.lastActivity)}` : "Sin actividad"}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   CHURN PREDICTION PANEL
+   ═══════════════════════════════════════════════════════════════════ */
+function ChurnPredictionPanel() {
+  const churn = trpc.superadmin.churnPrediction.useQuery();
+
+  const riskColor = (s: number) => s >= 60 ? "text-red-600" : s >= 30 ? "text-amber-500" : "text-green-600";
+  const riskBg = (s: number) => s >= 60 ? "bg-red-100" : s >= 30 ? "bg-amber-100" : "bg-green-100";
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-bold flex items-center gap-2"><TrendingUp className="w-5 h-5 text-red-500" /> Predicción de Churn</h2>
+
+      {churn.isLoading ? (
+        <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+      ) : (churn.data ?? []).length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">Sin datos.</p>
+      ) : (
+        <div className="space-y-2">
+          {(churn.data ?? []).map((t: any) => (
+            <Card key={t.id} className={`p-3 ${t.churnScore >= 60 ? "border-red-300" : ""}`}>
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${riskBg(t.churnScore)} ${riskColor(t.churnScore)}`}>
+                  {t.churnScore}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{t.name}</span>
+                    <Badge variant="outline" className="text-[10px]">{t.plan}</Badge>
+                  </div>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {t.factors.map((f: string, i: number) => (
+                      <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300">{f}</span>
+                    ))}
+                  </div>
+                </div>
+                <div className="text-right text-[10px] text-muted-foreground">
+                  <p>{t.messagesLast7d} msgs 7d</p>
+                  <p>{t.leadsLast7d} leads 7d</p>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   MAINTENANCE MODE PANEL
+   ═══════════════════════════════════════════════════════════════════ */
+function MaintenanceModePanel() {
+  const { toast } = useToast();
+  const status = trpc.superadmin.getMaintenanceStatus.useQuery();
+  const [msg, setMsg] = useState("");
+  const setMaintenance = trpc.superadmin.setMaintenanceMode.useMutation({
+    onSuccess: (d) => { toast({ title: d.message }); status.refetch(); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-bold flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-amber-500" /> Modo Mantenimiento</h2>
+
+      <Card className="p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold">Mantenimiento Global de Plataforma</h3>
+            <p className="text-xs text-muted-foreground">Bloquea acceso a todos los tenants (excepto SuperAdmin).</p>
+          </div>
+          <Switch
+            checked={status.data?.platformMaintenance ?? false}
+            onCheckedChange={(v) => setMaintenance.mutate({ enabled: v, message: msg || "Sistema en mantenimiento. Volvemos pronto." })}
+          />
+        </div>
+        <div>
+          <Label className="text-xs">Mensaje de mantenimiento</Label>
+          <Textarea
+            value={msg || status.data?.message || ""}
+            onChange={(e) => setMsg(e.target.value)}
+            className="text-sm"
+            rows={2}
+            placeholder="Sistema en mantenimiento. Volvemos pronto."
+          />
+        </div>
+        {status.data?.platformMaintenance && (
+          <Badge variant="destructive" className="text-sm"><AlertTriangle className="w-4 h-4 mr-1" /> MANTENIMIENTO ACTIVO</Badge>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   STORAGE OVERVIEW PANEL
+   ═══════════════════════════════════════════════════════════════════ */
+function StorageOverviewPanel() {
+  const storage = trpc.superadmin.storageOverview.useQuery();
+  const totalBytes = (storage.data ?? []).reduce((s: number, r: any) => s + Number(r.totalBytes), 0);
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-bold flex items-center gap-2"><HardDrive className="w-5 h-5 text-gray-500" /> Storage por Tenant — Total: {fmtBytes(totalBytes)}</h2>
+
+      {storage.isLoading ? (
+        <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+      ) : (storage.data ?? []).length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">Sin datos de archivos.</p>
+      ) : (
+        <div className="space-y-1">
+          {(storage.data ?? []).map((r: any) => {
+            const pct = totalBytes > 0 ? (Number(r.totalBytes) / totalBytes) * 100 : 0;
+            return (
+              <div key={r.tenantId} className="flex items-center gap-3 text-xs px-3 py-2 rounded bg-muted/30">
+                <span className="font-medium flex-1">{r.tenantName}</span>
+                <Badge variant="outline" className="text-[10px]">{r.plan}</Badge>
+                <span className="text-muted-foreground">{Number(r.fileCount)} archivos</span>
+                <span className="font-mono font-bold">{fmtBytes(Number(r.totalBytes))}</span>
+                <div className="w-20 h-2 rounded bg-muted overflow-hidden">
+                  <div className="h-full bg-blue-500 rounded" style={{ width: `${Math.min(pct, 100)}%` }} />
+                </div>
+                <span className="text-[10px] text-muted-foreground w-10 text-right">{pct.toFixed(1)}%</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ════════════════════════════════════════════════════════════════════════════
    MAIN PAGE
    ════════════════════════════════════════════════════════════════════════════ */
@@ -2783,6 +3479,42 @@ export default function SuperAdmin() {
             </TabsTrigger>
             <TabsTrigger value="audit" className="text-xs gap-1">
               <ShieldCheck className="w-3 h-3" /> Auditoría
+            </TabsTrigger>
+            <TabsTrigger value="impersonation" className="text-xs gap-1">
+              <Eye className="w-3 h-3" /> Impersonaciones
+            </TabsTrigger>
+            <TabsTrigger value="onboarding" className="text-xs gap-1">
+              <ClipboardCheck className="w-3 h-3" /> Onboarding
+            </TabsTrigger>
+            <TabsTrigger value="workflows" className="text-xs gap-1">
+              <Workflow className="w-3 h-3" /> Workflows
+            </TabsTrigger>
+            <TabsTrigger value="webhooks" className="text-xs gap-1">
+              <Globe className="w-3 h-3" /> Webhooks
+            </TabsTrigger>
+            <TabsTrigger value="campaigns" className="text-xs gap-1">
+              <Megaphone className="w-3 h-3" /> Campañas
+            </TabsTrigger>
+            <TabsTrigger value="templates" className="text-xs gap-1">
+              <Code className="w-3 h-3" /> Templates
+            </TabsTrigger>
+            <TabsTrigger value="licenses" className="text-xs gap-1">
+              <KeyRound className="w-3 h-3" /> Licencias
+            </TabsTrigger>
+            <TabsTrigger value="comparison" className="text-xs gap-1">
+              <BarChart3 className="w-3 h-3" /> Comparar
+            </TabsTrigger>
+            <TabsTrigger value="health-scores" className="text-xs gap-1">
+              <Activity className="w-3 h-3" /> Health Score
+            </TabsTrigger>
+            <TabsTrigger value="churn" className="text-xs gap-1">
+              <TrendingUp className="w-3 h-3" /> Churn
+            </TabsTrigger>
+            <TabsTrigger value="maintenance" className="text-xs gap-1">
+              <AlertTriangle className="w-3 h-3" /> Mantenimiento
+            </TabsTrigger>
+            <TabsTrigger value="storage" className="text-xs gap-1">
+              <HardDrive className="w-3 h-3" /> Storage
             </TabsTrigger>
           </TabsList>
 
@@ -2993,6 +3725,66 @@ export default function SuperAdmin() {
           {/* ─── SUPERADMIN AUDIT LOG TAB ─── */}
           <TabsContent value="audit" className="mt-4">
             <SuperadminAuditPanel />
+          </TabsContent>
+
+          {/* ─── IMPERSONATION AUDIT TAB ─── */}
+          <TabsContent value="impersonation" className="mt-4">
+            <ImpersonationAuditPanel />
+          </TabsContent>
+
+          {/* ─── ONBOARDING TRACKER TAB ─── */}
+          <TabsContent value="onboarding" className="mt-4">
+            <OnboardingTrackerPanel />
+          </TabsContent>
+
+          {/* ─── WORKFLOWS TAB ─── */}
+          <TabsContent value="workflows" className="mt-4">
+            <WorkflowOversightPanel />
+          </TabsContent>
+
+          {/* ─── WEBHOOKS TAB ─── */}
+          <TabsContent value="webhooks" className="mt-4">
+            <WebhookManagementPanel />
+          </TabsContent>
+
+          {/* ─── CAMPAIGNS TAB ─── */}
+          <TabsContent value="campaigns" className="mt-4">
+            <CampaignMonitoringPanel />
+          </TabsContent>
+
+          {/* ─── TEMPLATES TAB ─── */}
+          <TabsContent value="templates" className="mt-4">
+            <TemplateOversightPanel />
+          </TabsContent>
+
+          {/* ─── LICENSES TAB ─── */}
+          <TabsContent value="licenses" className="mt-4">
+            <LicenseManagementPanel />
+          </TabsContent>
+
+          {/* ─── COMPARISON TAB ─── */}
+          <TabsContent value="comparison" className="mt-4">
+            <TenantComparisonPanel />
+          </TabsContent>
+
+          {/* ─── HEALTH SCORES TAB ─── */}
+          <TabsContent value="health-scores" className="mt-4">
+            <HealthScorePanel />
+          </TabsContent>
+
+          {/* ─── CHURN PREDICTION TAB ─── */}
+          <TabsContent value="churn" className="mt-4">
+            <ChurnPredictionPanel />
+          </TabsContent>
+
+          {/* ─── MAINTENANCE MODE TAB ─── */}
+          <TabsContent value="maintenance" className="mt-4">
+            <MaintenanceModePanel />
+          </TabsContent>
+
+          {/* ─── STORAGE OVERVIEW TAB ─── */}
+          <TabsContent value="storage" className="mt-4">
+            <StorageOverviewPanel />
           </TabsContent>
         </Tabs>
       )}

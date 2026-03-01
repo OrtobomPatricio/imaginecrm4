@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
-import { tenants, users, whatsappNumbers, conversations, leads, sessions, platformAnnouncements, activityLogs, appSettings, license, superadminAlerts, chatMessages } from "../../drizzle/schema";
+import { tenants, users, whatsappNumbers, conversations, leads, sessions, platformAnnouncements, activityLogs, appSettings, license, superadminAlerts, chatMessages, webhooks, webhookDeliveries, onboardingProgress, workflows, workflowLogs, workflowJobs, campaigns, campaignRecipients, templates, fileUploads, usageTracking } from "../../drizzle/schema";
 import { eq, desc, sql, count, and, gte, lte, inArray } from "drizzle-orm";
 import { logger } from "../_core/logger";
 import { TRPCError } from "@trpc/server";
@@ -1860,5 +1860,598 @@ export const superadminRouter = router({
                 `) as any;
                 return rows?.[0] ?? null;
             } catch { return null; }
+        }),
+
+    /* ══════════════════════════════════════════════════════════════════════
+       MEDIUM PRIORITY — Feature 1: Impersonation Audit Trail
+       ══════════════════════════════════════════════════════════════════════ */
+    listImpersonationEvents: superadminGuard
+        .input(z.object({ limit: z.number().min(1).max(200).default(50), offset: z.number().min(0).default(0) }))
+        .query(async () => {
+            const db = getDb();
+            if (!db) return { rows: [], total: 0 };
+            const [rows] = await db.execute(sql`
+                SELECT al.id, al.userId, al.action, al.details, al.entityId AS targetTenantId,
+                       al.createdAt, u.name AS adminName, u.email AS adminEmail,
+                       t.name AS targetTenantName
+                FROM activity_logs al
+                LEFT JOIN users u ON u.id = al.userId
+                LEFT JOIN tenants t ON t.id = al.entityId
+                WHERE al.action = 'superadmin.impersonate'
+                ORDER BY al.createdAt DESC
+                LIMIT 200
+            `) as any;
+            const [cntRows] = await db.execute(sql`
+                SELECT COUNT(*) as total FROM activity_logs WHERE action = 'superadmin.impersonate'
+            `) as any;
+            return { rows: rows ?? [], total: Number(cntRows?.[0]?.total ?? 0) };
+        }),
+
+    getImpersonationStats: superadminGuard
+        .query(async () => {
+            const db = getDb();
+            if (!db) return { byAdmin: [], byTenant: [], total: 0 };
+            const [byAdmin] = await db.execute(sql`
+                SELECT al.userId, u.name, u.email, COUNT(*) as cnt
+                FROM activity_logs al
+                LEFT JOIN users u ON u.id = al.userId
+                WHERE al.action = 'superadmin.impersonate'
+                GROUP BY al.userId, u.name, u.email
+                ORDER BY cnt DESC LIMIT 20
+            `) as any;
+            const [byTenant] = await db.execute(sql`
+                SELECT al.entityId AS tenantId, t.name AS tenantName, COUNT(*) as cnt
+                FROM activity_logs al
+                LEFT JOIN tenants t ON t.id = al.entityId
+                WHERE al.action = 'superadmin.impersonate'
+                GROUP BY al.entityId, t.name
+                ORDER BY cnt DESC LIMIT 20
+            `) as any;
+            const [cntRows] = await db.execute(sql`
+                SELECT COUNT(*) as total FROM activity_logs WHERE action = 'superadmin.impersonate'
+            `) as any;
+            return { byAdmin: byAdmin ?? [], byTenant: byTenant ?? [], total: Number(cntRows?.[0]?.total ?? 0) };
+        }),
+
+    /* ══════════════════════════════════════════════════════════════════════
+       MEDIUM PRIORITY — Feature 2: Per-Tenant Onboarding Tracker
+       ══════════════════════════════════════════════════════════════════════ */
+    listOnboardingProgress: superadminGuard
+        .input(z.object({
+            status: z.enum(["all", "completed", "stalled", "in_progress"]).default("all"),
+            limit: z.number().min(1).max(200).default(50),
+            offset: z.number().min(0).default(0),
+        }))
+        .query(async ({ input }) => {
+            const db = getDb();
+            if (!db) return { rows: [], total: 0 };
+
+            let statusFilter = "";
+            if (input.status === "completed") statusFilter = "AND op.completedAt IS NOT NULL";
+            else if (input.status === "stalled") statusFilter = "AND op.completedAt IS NULL AND op.updatedAt < DATE_SUB(NOW(), INTERVAL 3 DAY)";
+            else if (input.status === "in_progress") statusFilter = "AND op.completedAt IS NULL AND op.updatedAt >= DATE_SUB(NOW(), INTERVAL 3 DAY)";
+
+            const [rows] = await db.execute(sql.raw(`
+                SELECT op.*, t.name AS tenantName, t.plan, t.status AS tenantStatus,
+                       TIMESTAMPDIFF(HOUR, op.startedAt, COALESCE(op.completedAt, NOW())) AS hoursElapsed
+                FROM onboarding_progress op
+                JOIN tenants t ON t.id = op.tenantId
+                WHERE 1=1 ${statusFilter}
+                ORDER BY op.updatedAt DESC
+                LIMIT ${input.limit} OFFSET ${input.offset}
+            `)) as any;
+
+            const [cntRows] = await db.execute(sql.raw(`
+                SELECT COUNT(*) as total FROM onboarding_progress op WHERE 1=1 ${statusFilter}
+            `)) as any;
+
+            return { rows: rows ?? [], total: Number(cntRows?.[0]?.total ?? 0) };
+        }),
+
+    /* ══════════════════════════════════════════════════════════════════════
+       MEDIUM PRIORITY — Feature 3: Workflow & Automation Oversight
+       ══════════════════════════════════════════════════════════════════════ */
+    listAllWorkflows: superadminGuard
+        .input(z.object({ limit: z.number().min(1).max(200).default(50), offset: z.number().min(0).default(0) }))
+        .query(async ({ input }) => {
+            const db = getDb();
+            if (!db) return { rows: [], total: 0 };
+            const [rows] = await db.execute(sql`
+                SELECT w.id, w.tenantId, w.name, w.description, w.isActive, w.triggerType, w.createdAt, w.updatedAt,
+                       t.name AS tenantName,
+                       (SELECT COUNT(*) FROM workflow_logs wl WHERE wl.workflowId = w.id AND wl.status = 'success') AS successCount,
+                       (SELECT COUNT(*) FROM workflow_logs wl WHERE wl.workflowId = w.id AND wl.status = 'failed') AS failCount,
+                       (SELECT COUNT(*) FROM workflow_jobs wj WHERE wj.workflowId = w.id AND wj.status = 'pending') AS pendingJobs
+                FROM workflows w
+                JOIN tenants t ON t.id = w.tenantId
+                ORDER BY w.updatedAt DESC
+                LIMIT ${input.limit} OFFSET ${input.offset}
+            `) as any;
+            const [cntRows] = await db.execute(sql`SELECT COUNT(*) as total FROM workflows`) as any;
+            return { rows: rows ?? [], total: Number(cntRows?.[0]?.total ?? 0) };
+        }),
+
+    getWorkflowErrors: superadminGuard
+        .input(z.object({ workflowId: z.number() }))
+        .query(async ({ input }) => {
+            const db = getDb();
+            if (!db) return [];
+            const [rows] = await db.execute(sql`
+                SELECT wl.id, wl.entityId, wl.status, wl.details, wl.createdAt,
+                       t.name AS tenantName
+                FROM workflow_logs wl
+                JOIN workflows w ON w.id = wl.workflowId
+                JOIN tenants t ON t.id = wl.tenantId
+                WHERE wl.workflowId = ${input.workflowId} AND wl.status = 'failed'
+                ORDER BY wl.createdAt DESC LIMIT 50
+            `) as any;
+            return rows ?? [];
+        }),
+
+    toggleWorkflowActive: superadminGuard
+        .input(z.object({ workflowId: z.number(), isActive: z.boolean() }))
+        .mutation(async ({ ctx, input }) => {
+            const db = getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+            await db.update(workflows).set({ isActive: input.isActive }).where(eq(workflows.id, input.workflowId));
+            await logSuperadminAction(ctx.user!.id, "toggleWorkflow", { workflowId: input.workflowId, isActive: input.isActive });
+            return { ok: true, message: input.isActive ? "Workflow activado" : "Workflow desactivado" };
+        }),
+
+    getWorkflowStats: superadminGuard
+        .query(async () => {
+            const db = getDb();
+            if (!db) return null;
+            const [rows] = await db.execute(sql`
+                SELECT
+                    (SELECT COUNT(*) FROM workflows) AS totalWorkflows,
+                    (SELECT COUNT(*) FROM workflows WHERE isActive = 1) AS activeWorkflows,
+                    (SELECT COUNT(*) FROM workflow_logs WHERE createdAt >= DATE_SUB(NOW(), INTERVAL 24 HOUR)) AS executions24h,
+                    (SELECT COUNT(*) FROM workflow_logs WHERE createdAt >= DATE_SUB(NOW(), INTERVAL 24 HOUR) AND status = 'failed') AS failures24h,
+                    (SELECT COUNT(*) FROM workflow_jobs WHERE status = 'pending') AS pendingJobs
+            `) as any;
+            return rows?.[0] ?? null;
+        }),
+
+    /* ══════════════════════════════════════════════════════════════════════
+       MEDIUM PRIORITY — Feature 4: Webhook Management
+       ══════════════════════════════════════════════════════════════════════ */
+    listAllWebhooks: superadminGuard
+        .input(z.object({ limit: z.number().min(1).max(200).default(50), offset: z.number().min(0).default(0) }))
+        .query(async ({ input }) => {
+            const db = getDb();
+            if (!db) return { rows: [], total: 0 };
+            const [rows] = await db.execute(sql`
+                SELECT wh.id, wh.tenantId, wh.name, wh.url, wh.events, wh.active, wh.createdAt,
+                       t.name AS tenantName,
+                       (SELECT COUNT(*) FROM webhook_deliveries wd WHERE wd.webhookId = wh.id) AS totalDeliveries,
+                       (SELECT COUNT(*) FROM webhook_deliveries wd WHERE wd.webhookId = wh.id AND wd.success = 1) AS successDeliveries,
+                       (SELECT COUNT(*) FROM webhook_deliveries wd WHERE wd.webhookId = wh.id AND wd.success = 0) AS failedDeliveries
+                FROM webhooks wh
+                JOIN tenants t ON t.id = wh.tenantId
+                ORDER BY wh.createdAt DESC
+                LIMIT ${input.limit} OFFSET ${input.offset}
+            `) as any;
+            const [cnt] = await db.execute(sql`SELECT COUNT(*) as total FROM webhooks`) as any;
+            return { rows: rows ?? [], total: Number(cnt?.[0]?.total ?? 0) };
+        }),
+
+    getWebhookDeliveries: superadminGuard
+        .input(z.object({ webhookId: z.number(), limit: z.number().min(1).max(100).default(30) }))
+        .query(async ({ input }) => {
+            const db = getDb();
+            if (!db) return [];
+            const [rows] = await db.execute(sql`
+                SELECT id, event, responseStatus, success, createdAt
+                FROM webhook_deliveries
+                WHERE webhookId = ${input.webhookId}
+                ORDER BY createdAt DESC
+                LIMIT ${input.limit}
+            `) as any;
+            return rows ?? [];
+        }),
+
+    toggleWebhook: superadminGuard
+        .input(z.object({ webhookId: z.number(), active: z.boolean() }))
+        .mutation(async ({ ctx, input }) => {
+            const db = getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+            await db.update(webhooks).set({ active: input.active }).where(eq(webhooks.id, input.webhookId));
+            await logSuperadminAction(ctx.user!.id, "toggleWebhook", { webhookId: input.webhookId, active: input.active });
+            return { ok: true, message: input.active ? "Webhook activado" : "Webhook desactivado" };
+        }),
+
+    /* ══════════════════════════════════════════════════════════════════════
+       MEDIUM PRIORITY — Feature 5: Campaign Monitoring
+       ══════════════════════════════════════════════════════════════════════ */
+    listAllCampaigns: superadminGuard
+        .input(z.object({
+            status: z.enum(["all", "draft", "scheduled", "running", "paused", "completed", "cancelled"]).default("all"),
+            limit: z.number().min(1).max(200).default(50),
+            offset: z.number().min(0).default(0),
+        }))
+        .query(async ({ input }) => {
+            const db = getDb();
+            if (!db) return { rows: [], total: 0 };
+            const statusFilter = input.status !== "all" ? `AND c.status = '${input.status}'` : "";
+            const [rows] = await db.execute(sql.raw(`
+                SELECT c.id, c.tenantId, c.name, c.type, c.status, c.scheduledAt, c.startedAt, c.completedAt,
+                       c.totalRecipients, c.messagesSent, c.messagesDelivered, c.messagesRead, c.messagesFailed,
+                       c.createdAt, t.name AS tenantName
+                FROM campaigns c
+                JOIN tenants t ON t.id = c.tenantId
+                WHERE 1=1 ${statusFilter}
+                ORDER BY c.updatedAt DESC
+                LIMIT ${input.limit} OFFSET ${input.offset}
+            `)) as any;
+            const [cnt] = await db.execute(sql.raw(`
+                SELECT COUNT(*) as total FROM campaigns c WHERE 1=1 ${statusFilter}
+            `)) as any;
+            return { rows: rows ?? [], total: Number(cnt?.[0]?.total ?? 0) };
+        }),
+
+    getCampaignStats: superadminGuard
+        .query(async () => {
+            const db = getDb();
+            if (!db) return null;
+            const [rows] = await db.execute(sql`
+                SELECT
+                    (SELECT COUNT(*) FROM campaigns WHERE status = 'running') AS running,
+                    (SELECT COUNT(*) FROM campaigns WHERE status = 'scheduled') AS scheduled,
+                    (SELECT COUNT(*) FROM campaigns) AS total,
+                    (SELECT COALESCE(SUM(messagesSent), 0) FROM campaigns) AS totalSent,
+                    (SELECT COALESCE(SUM(messagesDelivered), 0) FROM campaigns) AS totalDelivered,
+                    (SELECT COALESCE(SUM(messagesRead), 0) FROM campaigns) AS totalRead,
+                    (SELECT COALESCE(SUM(messagesFailed), 0) FROM campaigns) AS totalFailed
+            `) as any;
+            return rows?.[0] ?? null;
+        }),
+
+    /* ══════════════════════════════════════════════════════════════════════
+       MEDIUM PRIORITY — Feature 6: Template Oversight
+       ══════════════════════════════════════════════════════════════════════ */
+    listAllTemplates: superadminGuard
+        .input(z.object({
+            type: z.enum(["all", "whatsapp", "email"]).default("all"),
+            limit: z.number().min(1).max(200).default(50),
+            offset: z.number().min(0).default(0),
+        }))
+        .query(async ({ input }) => {
+            const db = getDb();
+            if (!db) return { rows: [], total: 0 };
+            const typeFilter = input.type !== "all" ? `AND tpl.type = '${input.type}'` : "";
+            const [rows] = await db.execute(sql.raw(`
+                SELECT tpl.id, tpl.tenantId, tpl.name, tpl.content, tpl.type, tpl.variables, tpl.createdAt,
+                       t.name AS tenantName
+                FROM templates tpl
+                JOIN tenants t ON t.id = tpl.tenantId
+                WHERE 1=1 ${typeFilter}
+                ORDER BY tpl.createdAt DESC
+                LIMIT ${input.limit} OFFSET ${input.offset}
+            `)) as any;
+            const [cnt] = await db.execute(sql.raw(`
+                SELECT COUNT(*) as total FROM templates tpl WHERE 1=1 ${typeFilter}
+            `)) as any;
+            return { rows: rows ?? [], total: Number(cnt?.[0]?.total ?? 0) };
+        }),
+
+    getTemplateStats: superadminGuard
+        .query(async () => {
+            const db = getDb();
+            if (!db) return [];
+            const [rows] = await db.execute(sql`
+                SELECT t.id, t.name AS tenantName,
+                       SUM(CASE WHEN tpl.type = 'whatsapp' THEN 1 ELSE 0 END) AS whatsappCount,
+                       SUM(CASE WHEN tpl.type = 'email' THEN 1 ELSE 0 END) AS emailCount,
+                       COUNT(tpl.id) AS totalTemplates
+                FROM tenants t
+                LEFT JOIN templates tpl ON tpl.tenantId = t.id
+                GROUP BY t.id, t.name
+                ORDER BY totalTemplates DESC
+            `) as any;
+            return rows ?? [];
+        }),
+
+    copyTemplateToTenant: superadminGuard
+        .input(z.object({ templateId: z.number(), targetTenantId: z.number() }))
+        .mutation(async ({ ctx, input }) => {
+            const db = getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+            const [src] = await db.execute(sql`SELECT * FROM templates WHERE id = ${input.templateId} LIMIT 1`) as any;
+            const template = (src as any)?.[0];
+            if (!template) throw new TRPCError({ code: "NOT_FOUND", message: "Template no encontrado" });
+            await db.execute(sql`
+                INSERT INTO templates (tenantId, name, content, type, attachments, variables, createdAt, updatedAt)
+                VALUES (${input.targetTenantId}, ${template.name + " (copy)"}, ${template.content}, ${template.type},
+                        ${template.attachments ? JSON.stringify(template.attachments) : null},
+                        ${template.variables ? JSON.stringify(template.variables) : null}, NOW(), NOW())
+            `);
+            await logSuperadminAction(ctx.user!.id, "copyTemplate", { templateId: input.templateId, targetTenantId: input.targetTenantId });
+            return { ok: true, message: "Template copiado" };
+        }),
+
+    /* ══════════════════════════════════════════════════════════════════════
+       MEDIUM PRIORITY — Feature 7: License/API Key Management
+       ══════════════════════════════════════════════════════════════════════ */
+    listAllLicenses: superadminGuard
+        .input(z.object({ limit: z.number().min(1).max(200).default(50), offset: z.number().min(0).default(0) }))
+        .query(async ({ input }) => {
+            const db = getDb();
+            if (!db) return { rows: [], total: 0 };
+            const [rows] = await db.execute(sql`
+                SELECT l.*, t.name AS tenantName, t.plan AS tenantPlan, t.status AS tenantStatus
+                FROM license l
+                JOIN tenants t ON t.id = l.tenantId
+                ORDER BY l.updatedAt DESC
+                LIMIT ${input.limit} OFFSET ${input.offset}
+            `) as any;
+            const [cnt] = await db.execute(sql`SELECT COUNT(*) as total FROM license`) as any;
+            return { rows: rows ?? [], total: Number(cnt?.[0]?.total ?? 0) };
+        }),
+
+    rotateLicenseKey: superadminGuard
+        .input(z.object({ licenseId: z.number() }))
+        .mutation(async ({ ctx, input }) => {
+            const db = getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+            const newKey = `lic_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
+            await db.update(license).set({ key: newKey }).where(eq(license.id, input.licenseId));
+            await logSuperadminAction(ctx.user!.id, "rotateLicenseKey", { licenseId: input.licenseId });
+            return { ok: true, message: "Clave rotada", newKey };
+        }),
+
+    updateLicenseStatus: superadminGuard
+        .input(z.object({ licenseId: z.number(), status: z.enum(["active", "expired", "canceled", "trial"]) }))
+        .mutation(async ({ ctx, input }) => {
+            const db = getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+            await db.update(license).set({ status: input.status }).where(eq(license.id, input.licenseId));
+            await logSuperadminAction(ctx.user!.id, "updateLicenseStatus", { licenseId: input.licenseId, status: input.status });
+            return { ok: true, message: `Licencia actualizada a ${input.status}` };
+        }),
+
+    updateLicenseFeatures: superadminGuard
+        .input(z.object({ licenseId: z.number(), features: z.array(z.string()) }))
+        .mutation(async ({ ctx, input }) => {
+            const db = getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+            await db.update(license).set({ features: input.features }).where(eq(license.id, input.licenseId));
+            await logSuperadminAction(ctx.user!.id, "updateLicenseFeatures", { licenseId: input.licenseId, features: input.features });
+            return { ok: true, message: "Features actualizados" };
+        }),
+
+    /* ══════════════════════════════════════════════════════════════════════
+       MEDIUM PRIORITY — Feature 8: Tenant Comparison
+       ══════════════════════════════════════════════════════════════════════ */
+    compareTenants: superadminGuard
+        .input(z.object({ tenantIds: z.array(z.number()).min(2).max(5) }))
+        .query(async ({ input }) => {
+            const db = getDb();
+            if (!db) return [];
+            const results: any[] = [];
+            for (const tid of input.tenantIds) {
+                const [tRows] = await db.execute(sql`
+                    SELECT t.*,
+                        (SELECT COUNT(*) FROM users WHERE tenantId = ${tid} AND isActive=1) AS activeUsers,
+                        (SELECT COUNT(*) FROM leads WHERE tenantId = ${tid} AND deletedAt IS NULL) AS totalLeads,
+                        (SELECT COUNT(*) FROM conversations WHERE tenantId = ${tid}) AS totalConversations,
+                        (SELECT COUNT(*) FROM chat_messages WHERE tenantId = ${tid}) AS totalMessages,
+                        (SELECT COUNT(*) FROM whatsapp_numbers WHERE tenantId = ${tid}) AS waNumbers,
+                        (SELECT COUNT(*) FROM workflows WHERE tenantId = ${tid} AND isActive=1) AS activeWorkflows,
+                        (SELECT COUNT(*) FROM campaigns WHERE tenantId = ${tid}) AS totalCampaigns,
+                        (SELECT COALESCE(SUM(size), 0) FROM file_uploads WHERE tenantId = ${tid}) AS storageBytes,
+                        (SELECT completedAt FROM onboarding_progress WHERE tenantId = ${tid} LIMIT 1) AS onboardingCompletedAt
+                    FROM tenants t WHERE t.id = ${tid} LIMIT 1
+                `) as any;
+                if (tRows?.[0]) results.push(tRows[0]);
+            }
+            return results;
+        }),
+
+    /* ══════════════════════════════════════════════════════════════════════
+       MEDIUM PRIORITY — Feature 9: Tenant Health Score
+       ══════════════════════════════════════════════════════════════════════ */
+    computeHealthScores: superadminGuard
+        .query(async () => {
+            const db = getDb();
+            if (!db) return [];
+            const [rows] = await db.execute(sql`
+                SELECT t.id, t.name, t.plan, t.status, t.createdAt,
+                    (SELECT COUNT(*) FROM users u WHERE u.tenantId = t.id AND u.isActive=1) AS activeUsers,
+                    (SELECT MAX(u.lastSignedIn) FROM users u WHERE u.tenantId = t.id) AS lastActivity,
+                    (SELECT COUNT(*) FROM leads l WHERE l.tenantId = t.id AND l.deletedAt IS NULL AND l.createdAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS recentLeads,
+                    (SELECT COUNT(*) FROM chat_messages cm WHERE cm.tenantId = t.id AND cm.createdAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS recentMessages,
+                    (SELECT COUNT(*) FROM whatsapp_numbers wn WHERE wn.tenantId = t.id) AS waNumbers,
+                    (SELECT completedAt FROM onboarding_progress op WHERE op.tenantId = t.id LIMIT 1) AS onboardingCompletedAt
+                FROM tenants t
+                WHERE t.status = 'active'
+                ORDER BY t.id
+            `) as any;
+
+            // Compute scores
+            return (rows ?? []).map((r: any) => {
+                let score = 0;
+                // Activity (max 30): last login within 1 day = 30, 3 days = 20, 7 days = 10, else 0
+                const lastAct = r.lastActivity ? (Date.now() - new Date(r.lastActivity).getTime()) / 86400000 : 999;
+                if (lastAct <= 1) score += 30;
+                else if (lastAct <= 3) score += 20;
+                else if (lastAct <= 7) score += 10;
+
+                // Users (max 15): >3 users = 15, >1 = 10, 1 = 5
+                const users = Number(r.activeUsers);
+                if (users >= 3) score += 15;
+                else if (users >= 2) score += 10;
+                else if (users >= 1) score += 5;
+
+                // Engagement (max 25): recent messages
+                const msgs = Number(r.recentMessages);
+                if (msgs >= 100) score += 25;
+                else if (msgs >= 20) score += 15;
+                else if (msgs >= 1) score += 8;
+
+                // Growth (max 15): recent leads
+                const lds = Number(r.recentLeads);
+                if (lds >= 10) score += 15;
+                else if (lds >= 3) score += 10;
+                else if (lds >= 1) score += 5;
+
+                // Onboarding (max 15): completed
+                if (r.onboardingCompletedAt) score += 15;
+                else score += 5; // partial credit
+
+                return { ...r, healthScore: Math.min(score, 100) };
+            });
+        }),
+
+    /* ══════════════════════════════════════════════════════════════════════
+       MEDIUM PRIORITY — Feature 10: Maintenance Mode
+       ══════════════════════════════════════════════════════════════════════ */
+    getMaintenanceStatus: superadminGuard
+        .query(async () => {
+            const db = getDb();
+            if (!db) return { platformMaintenance: false, message: "" };
+            try {
+                const [rows] = await db.execute(sql`
+                    SELECT value FROM app_settings WHERE tenantId = 1 AND \`key\` = 'maintenance_mode' LIMIT 1
+                `) as any;
+                if (rows?.[0]?.value) {
+                    const val = typeof rows[0].value === "string" ? JSON.parse(rows[0].value) : rows[0].value;
+                    return { platformMaintenance: val.enabled ?? false, message: val.message ?? "" };
+                }
+                return { platformMaintenance: false, message: "" };
+            } catch { return { platformMaintenance: false, message: "" }; }
+        }),
+
+    setMaintenanceMode: superadminGuard
+        .input(z.object({ enabled: z.boolean(), message: z.string().max(500).default("Sistema en mantenimiento. Volvemos pronto.") }))
+        .mutation(async ({ ctx, input }) => {
+            const db = getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+            const val = JSON.stringify({ enabled: input.enabled, message: input.message });
+            await db.execute(sql`
+                INSERT INTO app_settings (tenantId, \`key\`, value)
+                VALUES (1, 'maintenance_mode', ${val})
+                ON DUPLICATE KEY UPDATE value = ${val}
+            `);
+            await logSuperadminAction(ctx.user!.id, "setMaintenanceMode", { enabled: input.enabled });
+            return { ok: true, message: input.enabled ? "Modo mantenimiento ACTIVADO" : "Modo mantenimiento DESACTIVADO" };
+        }),
+
+    setTenantMaintenanceMode: superadminGuard
+        .input(z.object({ tenantId: z.number(), enabled: z.boolean(), message: z.string().max(500).default("") }))
+        .mutation(async ({ ctx, input }) => {
+            const db = getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+            const val = JSON.stringify({ enabled: input.enabled, message: input.message });
+            await db.execute(sql`
+                INSERT INTO app_settings (tenantId, \`key\`, value)
+                VALUES (${input.tenantId}, 'maintenance_mode', ${val})
+                ON DUPLICATE KEY UPDATE value = ${val}
+            `);
+            await logSuperadminAction(ctx.user!.id, "setTenantMaintenanceMode", { tenantId: input.tenantId, enabled: input.enabled }, input.tenantId);
+            return { ok: true, message: `Mantenimiento ${input.enabled ? "activado" : "desactivado"} para tenant ${input.tenantId}` };
+        }),
+
+    /* ══════════════════════════════════════════════════════════════════════
+       MEDIUM PRIORITY — Feature 11: Churn Prediction
+       ══════════════════════════════════════════════════════════════════════ */
+    churnPrediction: superadminGuard
+        .query(async () => {
+            const db = getDb();
+            if (!db) return [];
+            const [rows] = await db.execute(sql`
+                SELECT t.id, t.name, t.plan, t.status, t.createdAt,
+                    (SELECT MAX(u.lastSignedIn) FROM users u WHERE u.tenantId = t.id) AS lastLogin,
+                    (SELECT COUNT(*) FROM chat_messages cm WHERE cm.tenantId = t.id AND cm.createdAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS messagesLast7d,
+                    (SELECT COUNT(*) FROM chat_messages cm WHERE cm.tenantId = t.id AND cm.createdAt BETWEEN DATE_SUB(NOW(), INTERVAL 14 DAY) AND DATE_SUB(NOW(), INTERVAL 7 DAY)) AS messagesPrev7d,
+                    (SELECT COUNT(*) FROM leads l WHERE l.tenantId = t.id AND l.deletedAt IS NULL AND l.createdAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS leadsLast7d,
+                    (SELECT COUNT(*) FROM leads l WHERE l.tenantId = t.id AND l.deletedAt IS NULL AND l.createdAt BETWEEN DATE_SUB(NOW(), INTERVAL 14 DAY) AND DATE_SUB(NOW(), INTERVAL 7 DAY)) AS leadsPrev7d,
+                    (SELECT COUNT(*) FROM users u WHERE u.tenantId = t.id AND u.isActive = 1) AS activeUsers,
+                    (SELECT completedAt FROM onboarding_progress op WHERE op.tenantId = t.id LIMIT 1) AS onboardingCompleted
+                FROM tenants t
+                WHERE t.status = 'active'
+            `) as any;
+
+            return (rows ?? []).map((r: any) => {
+                const factors: string[] = [];
+                let risk = 0;
+
+                // Login recency (max 30)
+                const lastLogin = r.lastLogin ? (Date.now() - new Date(r.lastLogin).getTime()) / 86400000 : 999;
+                if (lastLogin > 14) { risk += 30; factors.push(`Sin login hace ${Math.round(lastLogin)}d`); }
+                else if (lastLogin > 7) { risk += 15; factors.push(`Último login hace ${Math.round(lastLogin)}d`); }
+
+                // Message volume decline (max 25)
+                const msgNow = Number(r.messagesLast7d);
+                const msgPrev = Number(r.messagesPrev7d);
+                if (msgPrev > 0 && msgNow === 0) { risk += 25; factors.push("0 mensajes esta semana (antes tenía)"); }
+                else if (msgPrev > 0 && msgNow < msgPrev * 0.5) { risk += 15; factors.push("Mensajes cayeron >50%"); }
+
+                // Lead creation decline (max 20)
+                const leadsNow = Number(r.leadsLast7d);
+                const leadsPrev = Number(r.leadsPrev7d);
+                if (leadsPrev > 0 && leadsNow === 0) { risk += 20; factors.push("0 leads nuevos esta semana"); }
+                else if (leadsPrev > 0 && leadsNow < leadsPrev * 0.5) { risk += 10; factors.push("Leads cayeron >50%"); }
+
+                // Onboarding not completed (max 15)
+                if (!r.onboardingCompleted) { risk += 15; factors.push("Onboarding incompleto"); }
+
+                // Few users (max 10)
+                if (Number(r.activeUsers) <= 1) { risk += 10; factors.push("Solo 1 usuario activo"); }
+
+                return {
+                    id: r.id, name: r.name, plan: r.plan, status: r.status,
+                    churnScore: Math.min(risk, 100),
+                    factors,
+                    lastLogin: r.lastLogin,
+                    messagesLast7d: msgNow,
+                    leadsLast7d: leadsNow,
+                };
+            }).sort((a: any, b: any) => b.churnScore - a.churnScore);
+        }),
+
+    /* ══════════════════════════════════════════════════════════════════════
+       MEDIUM PRIORITY — Feature 12: Data Retention Preview
+       ══════════════════════════════════════════════════════════════════════ */
+    previewRetentionPurge: superadminGuard
+        .input(z.object({
+            retentionDays: z.number().min(30).max(3650).default(365),
+            dataType: z.enum(["messages", "activity_logs", "access_logs", "files"]),
+        }))
+        .query(async ({ input }) => {
+            const db = getDb();
+            if (!db) return { count: 0 };
+            const tableMap: Record<string, string> = {
+                messages: "chat_messages",
+                activity_logs: "activity_logs",
+                access_logs: "access_logs",
+                files: "file_uploads",
+            };
+            const table = tableMap[input.dataType];
+            const [rows] = await db.execute(sql.raw(`
+                SELECT COUNT(*) as cnt FROM ${table}
+                WHERE createdAt < DATE_SUB(NOW(), INTERVAL ${input.retentionDays} DAY)
+            `)) as any;
+            return { count: Number(rows?.[0]?.cnt ?? 0) };
+        }),
+
+    /* ══════════════════════════════════════════════════════════════════════
+       MEDIUM PRIORITY — Feature 13: File/Storage Overview
+       ══════════════════════════════════════════════════════════════════════ */
+    storageOverview: superadminGuard
+        .query(async () => {
+            const db = getDb();
+            if (!db) return [];
+            const [rows] = await db.execute(sql`
+                SELECT t.id AS tenantId, t.name AS tenantName, t.plan,
+                       COUNT(f.id) AS fileCount,
+                       COALESCE(SUM(f.size), 0) AS totalBytes,
+                       MAX(f.createdAt) AS lastUpload
+                FROM tenants t
+                LEFT JOIN file_uploads f ON f.tenantId = t.id
+                GROUP BY t.id, t.name, t.plan
+                ORDER BY totalBytes DESC
+            `) as any;
+            return rows ?? [];
         }),
 });
