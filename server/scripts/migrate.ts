@@ -194,9 +194,37 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
     await ensureColumn("users", "dataRetentionUntil", "`dataRetentionUntil` TIMESTAMP NULL", "users.dataRetentionUntil column");
 
     await ensureColumn("leads", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "leads.tenantId column");
+    await ensureColumn("leads", "deletedAt", "`deletedAt` TIMESTAMP NULL", "leads.deletedAt column");
+    await ensureColumn("leads", "externalChatId", "`externalChatId` VARCHAR(255) NULL", "leads.externalChatId column");
     await ensureColumn("chat_messages", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "chat_messages.tenantId column");
     await ensureColumn("conversations", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "conversations.tenantId column");
+    await ensureColumn("pipelines", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "pipelines.tenantId column");
     await ensureColumn("pipeline_stages", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "pipeline_stages.tenantId column");
+    await ensureColumn("custom_field_definitions", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "custom_field_definitions.tenantId column");
+
+    // Remaining tables that need tenantId (schema defines it but SQL migrations never created it)
+    await ensureColumn("reminder_templates", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "reminder_templates.tenantId column");
+    await ensureColumn("whatsapp_numbers", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "whatsapp_numbers.tenantId column");
+    await ensureColumn("templates", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "templates.tenantId column");
+    await ensureColumn("campaigns", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "campaigns.tenantId column");
+    await ensureColumn("campaign_recipients", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "campaign_recipients.tenantId column");
+    await ensureColumn("activity_logs", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "activity_logs.tenantId column");
+    await ensureColumn("integrations", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "integrations.tenantId column");
+    await ensureColumn("workflows", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "workflows.tenantId column");
+    await ensureColumn("workflow_logs", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "workflow_logs.tenantId column");
+    await ensureColumn("appointment_reasons", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "appointment_reasons.tenantId column");
+    await ensureColumn("appointments", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "appointments.tenantId column");
+    await ensureColumn("support_queues", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "support_queues.tenantId column");
+    await ensureColumn("support_user_queues", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "support_user_queues.tenantId column");
+    await ensureColumn("quick_answers", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "quick_answers.tenantId column");
+    await ensureColumn("message_queue", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "message_queue.tenantId column");
+    await ensureColumn("whatsapp_connections", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "whatsapp_connections.tenantId column");
+    await ensureColumn("facebook_pages", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "facebook_pages.tenantId column");
+    await ensureColumn("access_logs", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "access_logs.tenantId column");
+    await ensureColumn("smtp_connections", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "smtp_connections.tenantId column");
+    await ensureColumn("goals", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "goals.tenantId column");
+    await ensureColumn("achievements", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "achievements.tenantId column");
+    await ensureColumn("internal_messages", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "internal_messages.tenantId column");
 
     if (!(await hasTable("lead_reminders"))) {
         await connection.query(`
@@ -825,6 +853,56 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
             )
         `);
         logger.warn("[Migration] Created missing file_uploads table");
+    }
+
+    // --- SuperAdmin module tables (added in schema but never had SQL migrations) ---
+
+    if (!(await hasTable("platform_announcements"))) {
+        await connection.query(`
+            CREATE TABLE platform_announcements (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              title VARCHAR(255) NOT NULL,
+              message TEXT NOT NULL,
+              type ENUM('info','warning','critical','maintenance') NOT NULL DEFAULT 'info',
+              active BOOLEAN NOT NULL DEFAULT TRUE,
+              createdBy INT NULL,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        logger.warn("[Migration] Created missing platform_announcements table");
+    }
+
+    if (!(await hasTable("feature_flags"))) {
+        await connection.query(`
+            CREATE TABLE feature_flags (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              flag VARCHAR(100) NOT NULL,
+              enabled BOOLEAN NOT NULL DEFAULT FALSE,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              UNIQUE KEY idx_ff_tenant_flag (tenantId, flag)
+            )
+        `);
+        logger.warn("[Migration] Created missing feature_flags table");
+    }
+
+    if (!(await hasTable("superadmin_alerts"))) {
+        await connection.query(`
+            CREATE TABLE superadmin_alerts (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              type ENUM('trial_expiring','quota_exceeded','new_tenant','error','churn_risk','security') NOT NULL,
+              severity ENUM('info','warning','critical') NOT NULL DEFAULT 'warning',
+              title VARCHAR(255) NOT NULL,
+              message TEXT NOT NULL,
+              tenantId INT NULL,
+              metadata JSON NULL,
+              isRead BOOLEAN NOT NULL DEFAULT FALSE,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        logger.warn("[Migration] Created missing superadmin_alerts table");
     }
 
     await ensureColumn("app_settings", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "app_settings.tenantId column");

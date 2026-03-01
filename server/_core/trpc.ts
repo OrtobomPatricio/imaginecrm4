@@ -160,24 +160,30 @@ function matchPermission(granted: string, required: string): boolean {
 }
 
 async function loadPermissionsMatrix(tenantId: number): Promise<Record<string, string[]>> {
-  const db = await getDb();
-  if (!db) return DEFAULT_PERMISSIONS_MATRIX;
+  try {
+    const db = await getDb();
+    if (!db) return DEFAULT_PERMISSIONS_MATRIX;
 
-  const existing = await db.select().from(appSettings).where(eq(appSettings.tenantId, tenantId)).limit(1);
-  if (existing.length === 0) {
-    await db.insert(appSettings).values({
-      tenantId,
-      companyName: "Imagine Lab CRM",
-      timezone: "America/Asuncion",
-      language: "es",
-      currency: "PYG",
-      permissionsMatrix: DEFAULT_PERMISSIONS_MATRIX,
-      scheduling: { slotMinutes: 15, maxPerSlot: 6, allowCustomTime: true },
-    });
+    const existing = await db.select().from(appSettings).where(eq(appSettings.tenantId, tenantId)).limit(1);
+    if (existing.length === 0) {
+      await db.insert(appSettings).values({
+        tenantId,
+        companyName: "Imagine Lab CRM",
+        timezone: "America/Asuncion",
+        language: "es",
+        currency: "PYG",
+        permissionsMatrix: DEFAULT_PERMISSIONS_MATRIX,
+        scheduling: { slotMinutes: 15, maxPerSlot: 6, allowCustomTime: true },
+      });
+      return DEFAULT_PERMISSIONS_MATRIX;
+    }
+
+    return existing[0]?.permissionsMatrix ?? DEFAULT_PERMISSIONS_MATRIX;
+  } catch {
+    // If app_settings table/columns are missing (schema drift), fall back to defaults
+    // so that permission-gated endpoints don't crash with 500
     return DEFAULT_PERMISSIONS_MATRIX;
   }
-
-  return existing[0]?.permissionsMatrix ?? DEFAULT_PERMISSIONS_MATRIX;
 }
 
 async function hasPermission(role: string, required: string, tenantId: number): Promise<boolean> {
