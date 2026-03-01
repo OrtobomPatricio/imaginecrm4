@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
-import { tenants, users, whatsappNumbers, conversations, leads, sessions, platformAnnouncements, activityLogs, appSettings, license, superadminAlerts, chatMessages, webhooks, webhookDeliveries, onboardingProgress, workflows, workflowLogs, workflowJobs, campaigns, campaignRecipients, templates, fileUploads, usageTracking } from "../../drizzle/schema";
-import { eq, desc, sql, count, and, gte, lte, inArray } from "drizzle-orm";
+import { tenants, users, sessions, platformAnnouncements, activityLogs, appSettings, license, superadminAlerts, webhooks, workflows } from "../../drizzle/schema";
+import { eq, desc, sql, count, and, inArray } from "drizzle-orm";
 import { logger } from "../_core/logger";
 import { TRPCError } from "@trpc/server";
 import { getAllFlags, setFeatureFlag, getFlagDefinitions } from "../services/feature-flags";
@@ -934,6 +934,7 @@ export const superadminRouter = router({
                 .set({ status: "suspended" })
                 .where(inArray(tenants.id, ids));
 
+            await logSuperadminAction(ctx.user!.id, "bulkSuspend", { tenantIds: ids, count: ids.length });
             logger.warn(
                 { adminId: ctx.user!.id, tenantIds: ids },
                 "[Superadmin] BULK suspend"
@@ -955,6 +956,7 @@ export const superadminRouter = router({
                 .set({ status: "active" })
                 .where(inArray(tenants.id, input.tenantIds));
 
+            await logSuperadminAction(ctx.user!.id, "bulkReactivate", { tenantIds: input.tenantIds, count: input.tenantIds.length });
             logger.warn(
                 { adminId: ctx.user!.id, tenantIds: input.tenantIds },
                 "[Superadmin] BULK reactivate"
@@ -997,6 +999,7 @@ export const superadminRouter = router({
                 UPDATE tenants SET internalNotes = ${input.notes || null} WHERE id = ${input.tenantId}
             `);
 
+            await logSuperadminAction(ctx.user!.id, "updateTenantNotes", { tenantId: input.tenantId }, input.tenantId);
             logger.info(
                 { adminId: ctx.user!.id, tenantId: input.tenantId },
                 "[Superadmin] Tenant notes updated"
@@ -1131,6 +1134,7 @@ export const superadminRouter = router({
                 createdBy: ctx.user!.id,
             });
 
+            await logSuperadminAction(ctx.user!.id, "createAnnouncement", { title: input.title, type: input.type });
             logger.info(
                 { adminId: ctx.user!.id, title: input.title, type: input.type },
                 "[Superadmin] Announcement created"
@@ -1153,6 +1157,7 @@ export const superadminRouter = router({
                 .set({ active: input.active })
                 .where(eq(platformAnnouncements.id, input.id));
 
+            await logSuperadminAction(ctx.user!.id, "toggleAnnouncement", { announcementId: input.id, active: input.active });
             logger.info(
                 { adminId: ctx.user!.id, announcementId: input.id, active: input.active },
                 "[Superadmin] Announcement toggled"
@@ -1170,6 +1175,7 @@ export const superadminRouter = router({
 
             await db.delete(platformAnnouncements).where(eq(platformAnnouncements.id, input.id));
 
+            await logSuperadminAction(ctx.user!.id, "deleteAnnouncement", { announcementId: input.id });
             logger.warn(
                 { adminId: ctx.user!.id, announcementId: input.id },
                 "[Superadmin] Announcement deleted"
@@ -1867,50 +1873,54 @@ export const superadminRouter = router({
        ══════════════════════════════════════════════════════════════════════ */
     listImpersonationEvents: superadminGuard
         .input(z.object({ limit: z.number().min(1).max(200).default(50), offset: z.number().min(0).default(0) }))
-        .query(async () => {
-            const db = getDb();
+        .query(async ({ input }) => {
+            const db = await getDb();
             if (!db) return { rows: [], total: 0 };
-            const [rows] = await db.execute(sql`
-                SELECT al.id, al.userId, al.action, al.details, al.entityId AS targetTenantId,
-                       al.createdAt, u.name AS adminName, u.email AS adminEmail,
-                       t.name AS targetTenantName
-                FROM activity_logs al
-                LEFT JOIN users u ON u.id = al.userId
-                LEFT JOIN tenants t ON t.id = al.entityId
-                WHERE al.action = 'superadmin.impersonate'
-                ORDER BY al.createdAt DESC
-                LIMIT 200
-            `) as any;
-            const [cntRows] = await db.execute(sql`
-                SELECT COUNT(*) as total FROM activity_logs WHERE action = 'superadmin.impersonate'
-            `) as any;
-            return { rows: rows ?? [], total: Number(cntRows?.[0]?.total ?? 0) };
+            try {
+                const [rows] = await db.execute(sql`
+                    SELECT al.id, al.userId, al.action, al.details, al.entityId AS targetTenantId,
+                           al.createdAt, u.name AS adminName, u.email AS adminEmail,
+                           t.name AS targetTenantName
+                    FROM activity_logs al
+                    LEFT JOIN users u ON u.id = al.userId
+                    LEFT JOIN tenants t ON t.id = al.entityId
+                    WHERE al.action = 'superadmin.impersonate'
+                    ORDER BY al.createdAt DESC
+                    LIMIT ${input.limit} OFFSET ${input.offset}
+                `) as any;
+                const [cntRows] = await db.execute(sql`
+                    SELECT COUNT(*) as total FROM activity_logs WHERE action = 'superadmin.impersonate'
+                `) as any;
+                return { rows: rows ?? [], total: Number(cntRows?.[0]?.total ?? 0) };
+            } catch { return { rows: [], total: 0 }; }
         }),
 
     getImpersonationStats: superadminGuard
         .query(async () => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) return { byAdmin: [], byTenant: [], total: 0 };
-            const [byAdmin] = await db.execute(sql`
-                SELECT al.userId, u.name, u.email, COUNT(*) as cnt
-                FROM activity_logs al
-                LEFT JOIN users u ON u.id = al.userId
-                WHERE al.action = 'superadmin.impersonate'
-                GROUP BY al.userId, u.name, u.email
-                ORDER BY cnt DESC LIMIT 20
-            `) as any;
-            const [byTenant] = await db.execute(sql`
-                SELECT al.entityId AS tenantId, t.name AS tenantName, COUNT(*) as cnt
-                FROM activity_logs al
-                LEFT JOIN tenants t ON t.id = al.entityId
-                WHERE al.action = 'superadmin.impersonate'
-                GROUP BY al.entityId, t.name
-                ORDER BY cnt DESC LIMIT 20
-            `) as any;
-            const [cntRows] = await db.execute(sql`
-                SELECT COUNT(*) as total FROM activity_logs WHERE action = 'superadmin.impersonate'
-            `) as any;
-            return { byAdmin: byAdmin ?? [], byTenant: byTenant ?? [], total: Number(cntRows?.[0]?.total ?? 0) };
+            try {
+                const [byAdmin] = await db.execute(sql`
+                    SELECT al.userId, u.name, u.email, COUNT(*) as cnt
+                    FROM activity_logs al
+                    LEFT JOIN users u ON u.id = al.userId
+                    WHERE al.action = 'superadmin.impersonate'
+                    GROUP BY al.userId, u.name, u.email
+                    ORDER BY cnt DESC LIMIT 20
+                `) as any;
+                const [byTenant] = await db.execute(sql`
+                    SELECT al.entityId AS tenantId, t.name AS tenantName, COUNT(*) as cnt
+                    FROM activity_logs al
+                    LEFT JOIN tenants t ON t.id = al.entityId
+                    WHERE al.action = 'superadmin.impersonate'
+                    GROUP BY al.entityId, t.name
+                    ORDER BY cnt DESC LIMIT 20
+                `) as any;
+                const [cntRows] = await db.execute(sql`
+                    SELECT COUNT(*) as total FROM activity_logs WHERE action = 'superadmin.impersonate'
+                `) as any;
+                return { byAdmin: byAdmin ?? [], byTenant: byTenant ?? [], total: Number(cntRows?.[0]?.total ?? 0) };
+            } catch { return { byAdmin: [], byTenant: [], total: 0 }; }
         }),
 
     /* ══════════════════════════════════════════════════════════════════════
@@ -1923,29 +1933,31 @@ export const superadminRouter = router({
             offset: z.number().min(0).default(0),
         }))
         .query(async ({ input }) => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) return { rows: [], total: 0 };
+            try {
 
-            let statusFilter = "";
-            if (input.status === "completed") statusFilter = "AND op.completedAt IS NOT NULL";
-            else if (input.status === "stalled") statusFilter = "AND op.completedAt IS NULL AND op.updatedAt < DATE_SUB(NOW(), INTERVAL 3 DAY)";
-            else if (input.status === "in_progress") statusFilter = "AND op.completedAt IS NULL AND op.updatedAt >= DATE_SUB(NOW(), INTERVAL 3 DAY)";
+                let statusFilter = "";
+                if (input.status === "completed") statusFilter = "AND op.completedAt IS NOT NULL";
+                else if (input.status === "stalled") statusFilter = "AND op.completedAt IS NULL AND op.updatedAt < DATE_SUB(NOW(), INTERVAL 3 DAY)";
+                else if (input.status === "in_progress") statusFilter = "AND op.completedAt IS NULL AND op.updatedAt >= DATE_SUB(NOW(), INTERVAL 3 DAY)";
 
-            const [rows] = await db.execute(sql.raw(`
-                SELECT op.*, t.name AS tenantName, t.plan, t.status AS tenantStatus,
-                       TIMESTAMPDIFF(HOUR, op.startedAt, COALESCE(op.completedAt, NOW())) AS hoursElapsed
-                FROM onboarding_progress op
-                JOIN tenants t ON t.id = op.tenantId
-                WHERE 1=1 ${statusFilter}
-                ORDER BY op.updatedAt DESC
-                LIMIT ${input.limit} OFFSET ${input.offset}
-            `)) as any;
+                const [rows] = await db.execute(sql.raw(`
+                    SELECT op.*, t.name AS tenantName, t.plan, t.status AS tenantStatus,
+                           TIMESTAMPDIFF(HOUR, op.startedAt, COALESCE(op.completedAt, NOW())) AS hoursElapsed
+                    FROM onboarding_progress op
+                    JOIN tenants t ON t.id = op.tenantId
+                    WHERE 1=1 ${statusFilter}
+                    ORDER BY op.updatedAt DESC
+                    LIMIT ${input.limit} OFFSET ${input.offset}
+                `)) as any;
 
-            const [cntRows] = await db.execute(sql.raw(`
-                SELECT COUNT(*) as total FROM onboarding_progress op WHERE 1=1 ${statusFilter}
-            `)) as any;
+                const [cntRows] = await db.execute(sql.raw(`
+                    SELECT COUNT(*) as total FROM onboarding_progress op WHERE 1=1 ${statusFilter}
+                `)) as any;
 
-            return { rows: rows ?? [], total: Number(cntRows?.[0]?.total ?? 0) };
+                return { rows: rows ?? [], total: Number(cntRows?.[0]?.total ?? 0) };
+            } catch { return { rows: [], total: 0 }; }
         }),
 
     /* ══════════════════════════════════════════════════════════════════════
@@ -1954,44 +1966,48 @@ export const superadminRouter = router({
     listAllWorkflows: superadminGuard
         .input(z.object({ limit: z.number().min(1).max(200).default(50), offset: z.number().min(0).default(0) }))
         .query(async ({ input }) => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) return { rows: [], total: 0 };
-            const [rows] = await db.execute(sql`
-                SELECT w.id, w.tenantId, w.name, w.description, w.isActive, w.triggerType, w.createdAt, w.updatedAt,
-                       t.name AS tenantName,
-                       (SELECT COUNT(*) FROM workflow_logs wl WHERE wl.workflowId = w.id AND wl.status = 'success') AS successCount,
-                       (SELECT COUNT(*) FROM workflow_logs wl WHERE wl.workflowId = w.id AND wl.status = 'failed') AS failCount,
-                       (SELECT COUNT(*) FROM workflow_jobs wj WHERE wj.workflowId = w.id AND wj.status = 'pending') AS pendingJobs
-                FROM workflows w
-                JOIN tenants t ON t.id = w.tenantId
-                ORDER BY w.updatedAt DESC
-                LIMIT ${input.limit} OFFSET ${input.offset}
-            `) as any;
-            const [cntRows] = await db.execute(sql`SELECT COUNT(*) as total FROM workflows`) as any;
-            return { rows: rows ?? [], total: Number(cntRows?.[0]?.total ?? 0) };
+            try {
+                const [rows] = await db.execute(sql`
+                    SELECT w.id, w.tenantId, w.name, w.description, w.isActive, w.triggerType, w.createdAt, w.updatedAt,
+                           t.name AS tenantName,
+                           (SELECT COUNT(*) FROM workflow_logs wl WHERE wl.workflowId = w.id AND wl.status = 'success') AS successCount,
+                           (SELECT COUNT(*) FROM workflow_logs wl WHERE wl.workflowId = w.id AND wl.status = 'failed') AS failCount,
+                           (SELECT COUNT(*) FROM workflow_jobs wj WHERE wj.workflowId = w.id AND wj.status = 'pending') AS pendingJobs
+                    FROM workflows w
+                    JOIN tenants t ON t.id = w.tenantId
+                    ORDER BY w.updatedAt DESC
+                    LIMIT ${input.limit} OFFSET ${input.offset}
+                `) as any;
+                const [cntRows] = await db.execute(sql`SELECT COUNT(*) as total FROM workflows`) as any;
+                return { rows: rows ?? [], total: Number(cntRows?.[0]?.total ?? 0) };
+            } catch { return { rows: [], total: 0 }; }
         }),
 
     getWorkflowErrors: superadminGuard
         .input(z.object({ workflowId: z.number() }))
         .query(async ({ input }) => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) return [];
-            const [rows] = await db.execute(sql`
-                SELECT wl.id, wl.entityId, wl.status, wl.details, wl.createdAt,
-                       t.name AS tenantName
-                FROM workflow_logs wl
-                JOIN workflows w ON w.id = wl.workflowId
-                JOIN tenants t ON t.id = wl.tenantId
-                WHERE wl.workflowId = ${input.workflowId} AND wl.status = 'failed'
-                ORDER BY wl.createdAt DESC LIMIT 50
-            `) as any;
-            return rows ?? [];
+            try {
+                const [rows] = await db.execute(sql`
+                    SELECT wl.id, wl.entityId, wl.status, wl.details, wl.createdAt,
+                           t.name AS tenantName
+                    FROM workflow_logs wl
+                    JOIN workflows w ON w.id = wl.workflowId
+                    JOIN tenants t ON t.id = wl.tenantId
+                    WHERE wl.workflowId = ${input.workflowId} AND wl.status = 'failed'
+                    ORDER BY wl.createdAt DESC LIMIT 50
+                `) as any;
+                return rows ?? [];
+            } catch { return []; }
         }),
 
     toggleWorkflowActive: superadminGuard
         .input(z.object({ workflowId: z.number(), isActive: z.boolean() }))
         .mutation(async ({ ctx, input }) => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
             await db.update(workflows).set({ isActive: input.isActive }).where(eq(workflows.id, input.workflowId));
             await logSuperadminAction(ctx.user!.id, "toggleWorkflow", { workflowId: input.workflowId, isActive: input.isActive });
@@ -2000,17 +2016,19 @@ export const superadminRouter = router({
 
     getWorkflowStats: superadminGuard
         .query(async () => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) return null;
-            const [rows] = await db.execute(sql`
-                SELECT
-                    (SELECT COUNT(*) FROM workflows) AS totalWorkflows,
-                    (SELECT COUNT(*) FROM workflows WHERE isActive = 1) AS activeWorkflows,
-                    (SELECT COUNT(*) FROM workflow_logs WHERE createdAt >= DATE_SUB(NOW(), INTERVAL 24 HOUR)) AS executions24h,
-                    (SELECT COUNT(*) FROM workflow_logs WHERE createdAt >= DATE_SUB(NOW(), INTERVAL 24 HOUR) AND status = 'failed') AS failures24h,
-                    (SELECT COUNT(*) FROM workflow_jobs WHERE status = 'pending') AS pendingJobs
-            `) as any;
-            return rows?.[0] ?? null;
+            try {
+                const [rows] = await db.execute(sql`
+                    SELECT
+                        (SELECT COUNT(*) FROM workflows) AS totalWorkflows,
+                        (SELECT COUNT(*) FROM workflows WHERE isActive = 1) AS activeWorkflows,
+                        (SELECT COUNT(*) FROM workflow_logs WHERE createdAt >= DATE_SUB(NOW(), INTERVAL 24 HOUR)) AS executions24h,
+                        (SELECT COUNT(*) FROM workflow_logs WHERE createdAt >= DATE_SUB(NOW(), INTERVAL 24 HOUR) AND status = 'failed') AS failures24h,
+                        (SELECT COUNT(*) FROM workflow_jobs WHERE status = 'pending') AS pendingJobs
+                `) as any;
+                return rows?.[0] ?? null;
+            } catch { return null; }
         }),
 
     /* ══════════════════════════════════════════════════════════════════════
@@ -2019,42 +2037,46 @@ export const superadminRouter = router({
     listAllWebhooks: superadminGuard
         .input(z.object({ limit: z.number().min(1).max(200).default(50), offset: z.number().min(0).default(0) }))
         .query(async ({ input }) => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) return { rows: [], total: 0 };
-            const [rows] = await db.execute(sql`
-                SELECT wh.id, wh.tenantId, wh.name, wh.url, wh.events, wh.active, wh.createdAt,
-                       t.name AS tenantName,
-                       (SELECT COUNT(*) FROM webhook_deliveries wd WHERE wd.webhookId = wh.id) AS totalDeliveries,
-                       (SELECT COUNT(*) FROM webhook_deliveries wd WHERE wd.webhookId = wh.id AND wd.success = 1) AS successDeliveries,
-                       (SELECT COUNT(*) FROM webhook_deliveries wd WHERE wd.webhookId = wh.id AND wd.success = 0) AS failedDeliveries
-                FROM webhooks wh
-                JOIN tenants t ON t.id = wh.tenantId
-                ORDER BY wh.createdAt DESC
-                LIMIT ${input.limit} OFFSET ${input.offset}
-            `) as any;
-            const [cnt] = await db.execute(sql`SELECT COUNT(*) as total FROM webhooks`) as any;
-            return { rows: rows ?? [], total: Number(cnt?.[0]?.total ?? 0) };
+            try {
+                const [rows] = await db.execute(sql`
+                    SELECT wh.id, wh.tenantId, wh.name, wh.url, wh.events, wh.active, wh.createdAt,
+                           t.name AS tenantName,
+                           (SELECT COUNT(*) FROM webhook_deliveries wd WHERE wd.webhookId = wh.id) AS totalDeliveries,
+                           (SELECT COUNT(*) FROM webhook_deliveries wd WHERE wd.webhookId = wh.id AND wd.success = 1) AS successDeliveries,
+                           (SELECT COUNT(*) FROM webhook_deliveries wd WHERE wd.webhookId = wh.id AND wd.success = 0) AS failedDeliveries
+                    FROM webhooks wh
+                    JOIN tenants t ON t.id = wh.tenantId
+                    ORDER BY wh.createdAt DESC
+                    LIMIT ${input.limit} OFFSET ${input.offset}
+                `) as any;
+                const [cnt] = await db.execute(sql`SELECT COUNT(*) as total FROM webhooks`) as any;
+                return { rows: rows ?? [], total: Number(cnt?.[0]?.total ?? 0) };
+            } catch { return { rows: [], total: 0 }; }
         }),
 
     getWebhookDeliveries: superadminGuard
         .input(z.object({ webhookId: z.number(), limit: z.number().min(1).max(100).default(30) }))
         .query(async ({ input }) => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) return [];
-            const [rows] = await db.execute(sql`
-                SELECT id, event, responseStatus, success, createdAt
-                FROM webhook_deliveries
-                WHERE webhookId = ${input.webhookId}
-                ORDER BY createdAt DESC
-                LIMIT ${input.limit}
-            `) as any;
-            return rows ?? [];
+            try {
+                const [rows] = await db.execute(sql`
+                    SELECT id, event, responseStatus, success, createdAt
+                    FROM webhook_deliveries
+                    WHERE webhookId = ${input.webhookId}
+                    ORDER BY createdAt DESC
+                    LIMIT ${input.limit}
+                `) as any;
+                return rows ?? [];
+            } catch { return []; }
         }),
 
     toggleWebhook: superadminGuard
         .input(z.object({ webhookId: z.number(), active: z.boolean() }))
         .mutation(async ({ ctx, input }) => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
             await db.update(webhooks).set({ active: input.active }).where(eq(webhooks.id, input.webhookId));
             await logSuperadminAction(ctx.user!.id, "toggleWebhook", { webhookId: input.webhookId, active: input.active });
@@ -2071,40 +2093,44 @@ export const superadminRouter = router({
             offset: z.number().min(0).default(0),
         }))
         .query(async ({ input }) => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) return { rows: [], total: 0 };
-            const statusFilter = input.status !== "all" ? `AND c.status = '${input.status}'` : "";
-            const [rows] = await db.execute(sql.raw(`
-                SELECT c.id, c.tenantId, c.name, c.type, c.status, c.scheduledAt, c.startedAt, c.completedAt,
-                       c.totalRecipients, c.messagesSent, c.messagesDelivered, c.messagesRead, c.messagesFailed,
-                       c.createdAt, t.name AS tenantName
-                FROM campaigns c
-                JOIN tenants t ON t.id = c.tenantId
-                WHERE 1=1 ${statusFilter}
-                ORDER BY c.updatedAt DESC
-                LIMIT ${input.limit} OFFSET ${input.offset}
-            `)) as any;
-            const [cnt] = await db.execute(sql.raw(`
-                SELECT COUNT(*) as total FROM campaigns c WHERE 1=1 ${statusFilter}
-            `)) as any;
-            return { rows: rows ?? [], total: Number(cnt?.[0]?.total ?? 0) };
+            try {
+                const statusFilter = input.status !== "all" ? `AND c.status = '${input.status}'` : "";
+                const [rows] = await db.execute(sql.raw(`
+                    SELECT c.id, c.tenantId, c.name, c.type, c.status, c.scheduledAt, c.startedAt, c.completedAt,
+                           c.totalRecipients, c.messagesSent, c.messagesDelivered, c.messagesRead, c.messagesFailed,
+                           c.createdAt, t.name AS tenantName
+                    FROM campaigns c
+                    JOIN tenants t ON t.id = c.tenantId
+                    WHERE 1=1 ${statusFilter}
+                    ORDER BY c.updatedAt DESC
+                    LIMIT ${input.limit} OFFSET ${input.offset}
+                `)) as any;
+                const [cnt] = await db.execute(sql.raw(`
+                    SELECT COUNT(*) as total FROM campaigns c WHERE 1=1 ${statusFilter}
+                `)) as any;
+                return { rows: rows ?? [], total: Number(cnt?.[0]?.total ?? 0) };
+            } catch { return { rows: [], total: 0 }; }
         }),
 
     getCampaignStats: superadminGuard
         .query(async () => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) return null;
-            const [rows] = await db.execute(sql`
-                SELECT
-                    (SELECT COUNT(*) FROM campaigns WHERE status = 'running') AS running,
-                    (SELECT COUNT(*) FROM campaigns WHERE status = 'scheduled') AS scheduled,
-                    (SELECT COUNT(*) FROM campaigns) AS total,
-                    (SELECT COALESCE(SUM(messagesSent), 0) FROM campaigns) AS totalSent,
-                    (SELECT COALESCE(SUM(messagesDelivered), 0) FROM campaigns) AS totalDelivered,
-                    (SELECT COALESCE(SUM(messagesRead), 0) FROM campaigns) AS totalRead,
-                    (SELECT COALESCE(SUM(messagesFailed), 0) FROM campaigns) AS totalFailed
-            `) as any;
-            return rows?.[0] ?? null;
+            try {
+                const [rows] = await db.execute(sql`
+                    SELECT
+                        (SELECT COUNT(*) FROM campaigns WHERE status = 'running') AS running,
+                        (SELECT COUNT(*) FROM campaigns WHERE status = 'scheduled') AS scheduled,
+                        (SELECT COUNT(*) FROM campaigns) AS total,
+                        (SELECT COALESCE(SUM(messagesSent), 0) FROM campaigns) AS totalSent,
+                        (SELECT COALESCE(SUM(messagesDelivered), 0) FROM campaigns) AS totalDelivered,
+                        (SELECT COALESCE(SUM(messagesRead), 0) FROM campaigns) AS totalRead,
+                        (SELECT COALESCE(SUM(messagesFailed), 0) FROM campaigns) AS totalFailed
+                `) as any;
+                return rows?.[0] ?? null;
+            } catch { return null; }
         }),
 
     /* ══════════════════════════════════════════════════════════════════════
@@ -2117,45 +2143,49 @@ export const superadminRouter = router({
             offset: z.number().min(0).default(0),
         }))
         .query(async ({ input }) => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) return { rows: [], total: 0 };
-            const typeFilter = input.type !== "all" ? `AND tpl.type = '${input.type}'` : "";
-            const [rows] = await db.execute(sql.raw(`
-                SELECT tpl.id, tpl.tenantId, tpl.name, tpl.content, tpl.type, tpl.variables, tpl.createdAt,
-                       t.name AS tenantName
-                FROM templates tpl
-                JOIN tenants t ON t.id = tpl.tenantId
-                WHERE 1=1 ${typeFilter}
-                ORDER BY tpl.createdAt DESC
-                LIMIT ${input.limit} OFFSET ${input.offset}
-            `)) as any;
-            const [cnt] = await db.execute(sql.raw(`
-                SELECT COUNT(*) as total FROM templates tpl WHERE 1=1 ${typeFilter}
-            `)) as any;
-            return { rows: rows ?? [], total: Number(cnt?.[0]?.total ?? 0) };
+            try {
+                const typeFilter = input.type !== "all" ? `AND tpl.type = '${input.type}'` : "";
+                const [rows] = await db.execute(sql.raw(`
+                    SELECT tpl.id, tpl.tenantId, tpl.name, tpl.content, tpl.type, tpl.variables, tpl.createdAt,
+                           t.name AS tenantName
+                    FROM templates tpl
+                    JOIN tenants t ON t.id = tpl.tenantId
+                    WHERE 1=1 ${typeFilter}
+                    ORDER BY tpl.createdAt DESC
+                    LIMIT ${input.limit} OFFSET ${input.offset}
+                `)) as any;
+                const [cnt] = await db.execute(sql.raw(`
+                    SELECT COUNT(*) as total FROM templates tpl WHERE 1=1 ${typeFilter}
+                `)) as any;
+                return { rows: rows ?? [], total: Number(cnt?.[0]?.total ?? 0) };
+            } catch { return { rows: [], total: 0 }; }
         }),
 
     getTemplateStats: superadminGuard
         .query(async () => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) return [];
-            const [rows] = await db.execute(sql`
-                SELECT t.id, t.name AS tenantName,
-                       SUM(CASE WHEN tpl.type = 'whatsapp' THEN 1 ELSE 0 END) AS whatsappCount,
-                       SUM(CASE WHEN tpl.type = 'email' THEN 1 ELSE 0 END) AS emailCount,
-                       COUNT(tpl.id) AS totalTemplates
-                FROM tenants t
-                LEFT JOIN templates tpl ON tpl.tenantId = t.id
-                GROUP BY t.id, t.name
-                ORDER BY totalTemplates DESC
-            `) as any;
-            return rows ?? [];
+            try {
+                const [rows] = await db.execute(sql`
+                    SELECT t.id, t.name AS tenantName,
+                           SUM(CASE WHEN tpl.type = 'whatsapp' THEN 1 ELSE 0 END) AS whatsappCount,
+                           SUM(CASE WHEN tpl.type = 'email' THEN 1 ELSE 0 END) AS emailCount,
+                           COUNT(tpl.id) AS totalTemplates
+                    FROM tenants t
+                    LEFT JOIN templates tpl ON tpl.tenantId = t.id
+                    GROUP BY t.id, t.name
+                    ORDER BY totalTemplates DESC
+                `) as any;
+                return rows ?? [];
+            } catch { return []; }
         }),
 
     copyTemplateToTenant: superadminGuard
         .input(z.object({ templateId: z.number(), targetTenantId: z.number() }))
         .mutation(async ({ ctx, input }) => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
             const [src] = await db.execute(sql`SELECT * FROM templates WHERE id = ${input.templateId} LIMIT 1`) as any;
             const template = (src as any)?.[0];
@@ -2176,23 +2206,25 @@ export const superadminRouter = router({
     listAllLicenses: superadminGuard
         .input(z.object({ limit: z.number().min(1).max(200).default(50), offset: z.number().min(0).default(0) }))
         .query(async ({ input }) => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) return { rows: [], total: 0 };
-            const [rows] = await db.execute(sql`
-                SELECT l.*, t.name AS tenantName, t.plan AS tenantPlan, t.status AS tenantStatus
-                FROM license l
-                JOIN tenants t ON t.id = l.tenantId
-                ORDER BY l.updatedAt DESC
-                LIMIT ${input.limit} OFFSET ${input.offset}
-            `) as any;
-            const [cnt] = await db.execute(sql`SELECT COUNT(*) as total FROM license`) as any;
-            return { rows: rows ?? [], total: Number(cnt?.[0]?.total ?? 0) };
+            try {
+                const [rows] = await db.execute(sql`
+                    SELECT l.*, t.name AS tenantName, t.plan AS tenantPlan, t.status AS tenantStatus
+                    FROM license l
+                    JOIN tenants t ON t.id = l.tenantId
+                    ORDER BY l.updatedAt DESC
+                    LIMIT ${input.limit} OFFSET ${input.offset}
+                `) as any;
+                const [cnt] = await db.execute(sql`SELECT COUNT(*) as total FROM license`) as any;
+                return { rows: rows ?? [], total: Number(cnt?.[0]?.total ?? 0) };
+            } catch { return { rows: [], total: 0 }; }
         }),
 
     rotateLicenseKey: superadminGuard
         .input(z.object({ licenseId: z.number() }))
         .mutation(async ({ ctx, input }) => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
             const newKey = `lic_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
             await db.update(license).set({ key: newKey }).where(eq(license.id, input.licenseId));
@@ -2203,7 +2235,7 @@ export const superadminRouter = router({
     updateLicenseStatus: superadminGuard
         .input(z.object({ licenseId: z.number(), status: z.enum(["active", "expired", "canceled", "trial"]) }))
         .mutation(async ({ ctx, input }) => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
             await db.update(license).set({ status: input.status }).where(eq(license.id, input.licenseId));
             await logSuperadminAction(ctx.user!.id, "updateLicenseStatus", { licenseId: input.licenseId, status: input.status });
@@ -2213,7 +2245,7 @@ export const superadminRouter = router({
     updateLicenseFeatures: superadminGuard
         .input(z.object({ licenseId: z.number(), features: z.array(z.string()) }))
         .mutation(async ({ ctx, input }) => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
             await db.update(license).set({ features: input.features }).where(eq(license.id, input.licenseId));
             await logSuperadminAction(ctx.user!.id, "updateLicenseFeatures", { licenseId: input.licenseId, features: input.features });
@@ -2226,26 +2258,28 @@ export const superadminRouter = router({
     compareTenants: superadminGuard
         .input(z.object({ tenantIds: z.array(z.number()).min(2).max(5) }))
         .query(async ({ input }) => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) return [];
-            const results: any[] = [];
-            for (const tid of input.tenantIds) {
-                const [tRows] = await db.execute(sql`
-                    SELECT t.*,
-                        (SELECT COUNT(*) FROM users WHERE tenantId = ${tid} AND isActive=1) AS activeUsers,
-                        (SELECT COUNT(*) FROM leads WHERE tenantId = ${tid} AND deletedAt IS NULL) AS totalLeads,
-                        (SELECT COUNT(*) FROM conversations WHERE tenantId = ${tid}) AS totalConversations,
-                        (SELECT COUNT(*) FROM chat_messages WHERE tenantId = ${tid}) AS totalMessages,
-                        (SELECT COUNT(*) FROM whatsapp_numbers WHERE tenantId = ${tid}) AS waNumbers,
-                        (SELECT COUNT(*) FROM workflows WHERE tenantId = ${tid} AND isActive=1) AS activeWorkflows,
-                        (SELECT COUNT(*) FROM campaigns WHERE tenantId = ${tid}) AS totalCampaigns,
-                        (SELECT COALESCE(SUM(size), 0) FROM file_uploads WHERE tenantId = ${tid}) AS storageBytes,
-                        (SELECT completedAt FROM onboarding_progress WHERE tenantId = ${tid} LIMIT 1) AS onboardingCompletedAt
-                    FROM tenants t WHERE t.id = ${tid} LIMIT 1
-                `) as any;
-                if (tRows?.[0]) results.push(tRows[0]);
-            }
-            return results;
+            try {
+                const results: any[] = [];
+                for (const tid of input.tenantIds) {
+                    const [tRows] = await db.execute(sql`
+                        SELECT t.*,
+                            (SELECT COUNT(*) FROM users WHERE tenantId = ${tid} AND isActive=1) AS activeUsers,
+                            (SELECT COUNT(*) FROM leads WHERE tenantId = ${tid} AND deletedAt IS NULL) AS totalLeads,
+                            (SELECT COUNT(*) FROM conversations WHERE tenantId = ${tid}) AS totalConversations,
+                            (SELECT COUNT(*) FROM chat_messages WHERE tenantId = ${tid}) AS totalMessages,
+                            (SELECT COUNT(*) FROM whatsapp_numbers WHERE tenantId = ${tid}) AS waNumbers,
+                            (SELECT COUNT(*) FROM workflows WHERE tenantId = ${tid} AND isActive=1) AS activeWorkflows,
+                            (SELECT COUNT(*) FROM campaigns WHERE tenantId = ${tid}) AS totalCampaigns,
+                            (SELECT COALESCE(SUM(size), 0) FROM file_uploads WHERE tenantId = ${tid}) AS storageBytes,
+                            (SELECT completedAt FROM onboarding_progress WHERE tenantId = ${tid} LIMIT 1) AS onboardingCompletedAt
+                        FROM tenants t WHERE t.id = ${tid} LIMIT 1
+                    `) as any;
+                    if (tRows?.[0]) results.push(tRows[0]);
+                }
+                return results;
+            } catch { return []; }
         }),
 
     /* ══════════════════════════════════════════════════════════════════════
@@ -2253,54 +2287,56 @@ export const superadminRouter = router({
        ══════════════════════════════════════════════════════════════════════ */
     computeHealthScores: superadminGuard
         .query(async () => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) return [];
-            const [rows] = await db.execute(sql`
-                SELECT t.id, t.name, t.plan, t.status, t.createdAt,
-                    (SELECT COUNT(*) FROM users u WHERE u.tenantId = t.id AND u.isActive=1) AS activeUsers,
-                    (SELECT MAX(u.lastSignedIn) FROM users u WHERE u.tenantId = t.id) AS lastActivity,
-                    (SELECT COUNT(*) FROM leads l WHERE l.tenantId = t.id AND l.deletedAt IS NULL AND l.createdAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS recentLeads,
-                    (SELECT COUNT(*) FROM chat_messages cm WHERE cm.tenantId = t.id AND cm.createdAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS recentMessages,
-                    (SELECT COUNT(*) FROM whatsapp_numbers wn WHERE wn.tenantId = t.id) AS waNumbers,
-                    (SELECT completedAt FROM onboarding_progress op WHERE op.tenantId = t.id LIMIT 1) AS onboardingCompletedAt
-                FROM tenants t
-                WHERE t.status = 'active'
-                ORDER BY t.id
-            `) as any;
+            try {
+                const [rows] = await db.execute(sql`
+                    SELECT t.id, t.name, t.plan, t.status, t.createdAt,
+                        (SELECT COUNT(*) FROM users u WHERE u.tenantId = t.id AND u.isActive=1) AS activeUsers,
+                        (SELECT MAX(u.lastSignedIn) FROM users u WHERE u.tenantId = t.id) AS lastActivity,
+                        (SELECT COUNT(*) FROM leads l WHERE l.tenantId = t.id AND l.deletedAt IS NULL AND l.createdAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS recentLeads,
+                        (SELECT COUNT(*) FROM chat_messages cm WHERE cm.tenantId = t.id AND cm.createdAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS recentMessages,
+                        (SELECT COUNT(*) FROM whatsapp_numbers wn WHERE wn.tenantId = t.id) AS waNumbers,
+                        (SELECT completedAt FROM onboarding_progress op WHERE op.tenantId = t.id LIMIT 1) AS onboardingCompletedAt
+                    FROM tenants t
+                    WHERE t.status = 'active'
+                    ORDER BY t.id
+                `) as any;
 
-            // Compute scores
-            return (rows ?? []).map((r: any) => {
-                let score = 0;
-                // Activity (max 30): last login within 1 day = 30, 3 days = 20, 7 days = 10, else 0
-                const lastAct = r.lastActivity ? (Date.now() - new Date(r.lastActivity).getTime()) / 86400000 : 999;
-                if (lastAct <= 1) score += 30;
-                else if (lastAct <= 3) score += 20;
-                else if (lastAct <= 7) score += 10;
+                // Compute scores
+                return (rows ?? []).map((r: any) => {
+                    let score = 0;
+                    // Activity (max 30): last login within 1 day = 30, 3 days = 20, 7 days = 10, else 0
+                    const lastAct = r.lastActivity ? (Date.now() - new Date(r.lastActivity).getTime()) / 86400000 : 999;
+                    if (lastAct <= 1) score += 30;
+                    else if (lastAct <= 3) score += 20;
+                    else if (lastAct <= 7) score += 10;
 
-                // Users (max 15): >3 users = 15, >1 = 10, 1 = 5
-                const users = Number(r.activeUsers);
-                if (users >= 3) score += 15;
-                else if (users >= 2) score += 10;
-                else if (users >= 1) score += 5;
+                    // Users (max 15): >3 users = 15, >1 = 10, 1 = 5
+                    const users = Number(r.activeUsers);
+                    if (users >= 3) score += 15;
+                    else if (users >= 2) score += 10;
+                    else if (users >= 1) score += 5;
 
-                // Engagement (max 25): recent messages
-                const msgs = Number(r.recentMessages);
-                if (msgs >= 100) score += 25;
-                else if (msgs >= 20) score += 15;
-                else if (msgs >= 1) score += 8;
+                    // Engagement (max 25): recent messages
+                    const msgs = Number(r.recentMessages);
+                    if (msgs >= 100) score += 25;
+                    else if (msgs >= 20) score += 15;
+                    else if (msgs >= 1) score += 8;
 
-                // Growth (max 15): recent leads
-                const lds = Number(r.recentLeads);
-                if (lds >= 10) score += 15;
-                else if (lds >= 3) score += 10;
-                else if (lds >= 1) score += 5;
+                    // Growth (max 15): recent leads
+                    const lds = Number(r.recentLeads);
+                    if (lds >= 10) score += 15;
+                    else if (lds >= 3) score += 10;
+                    else if (lds >= 1) score += 5;
 
-                // Onboarding (max 15): completed
-                if (r.onboardingCompletedAt) score += 15;
-                else score += 5; // partial credit
+                    // Onboarding (max 15): completed
+                    if (r.onboardingCompletedAt) score += 15;
+                    else score += 5; // partial credit
 
-                return { ...r, healthScore: Math.min(score, 100) };
-            });
+                    return { ...r, healthScore: Math.min(score, 100) };
+                });
+            } catch { return []; }
         }),
 
     /* ══════════════════════════════════════════════════════════════════════
@@ -2308,7 +2344,7 @@ export const superadminRouter = router({
        ══════════════════════════════════════════════════════════════════════ */
     getMaintenanceStatus: superadminGuard
         .query(async () => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) return { platformMaintenance: false, message: "" };
             try {
                 const [rows] = await db.execute(sql`
@@ -2325,7 +2361,7 @@ export const superadminRouter = router({
     setMaintenanceMode: superadminGuard
         .input(z.object({ enabled: z.boolean(), message: z.string().max(500).default("Sistema en mantenimiento. Volvemos pronto.") }))
         .mutation(async ({ ctx, input }) => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
             const val = JSON.stringify({ enabled: input.enabled, message: input.message });
             await db.execute(sql`
@@ -2340,7 +2376,7 @@ export const superadminRouter = router({
     setTenantMaintenanceMode: superadminGuard
         .input(z.object({ tenantId: z.number(), enabled: z.boolean(), message: z.string().max(500).default("") }))
         .mutation(async ({ ctx, input }) => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
             const val = JSON.stringify({ enabled: input.enabled, message: input.message });
             await db.execute(sql`
@@ -2357,57 +2393,59 @@ export const superadminRouter = router({
        ══════════════════════════════════════════════════════════════════════ */
     churnPrediction: superadminGuard
         .query(async () => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) return [];
-            const [rows] = await db.execute(sql`
-                SELECT t.id, t.name, t.plan, t.status, t.createdAt,
-                    (SELECT MAX(u.lastSignedIn) FROM users u WHERE u.tenantId = t.id) AS lastLogin,
-                    (SELECT COUNT(*) FROM chat_messages cm WHERE cm.tenantId = t.id AND cm.createdAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS messagesLast7d,
-                    (SELECT COUNT(*) FROM chat_messages cm WHERE cm.tenantId = t.id AND cm.createdAt BETWEEN DATE_SUB(NOW(), INTERVAL 14 DAY) AND DATE_SUB(NOW(), INTERVAL 7 DAY)) AS messagesPrev7d,
-                    (SELECT COUNT(*) FROM leads l WHERE l.tenantId = t.id AND l.deletedAt IS NULL AND l.createdAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS leadsLast7d,
-                    (SELECT COUNT(*) FROM leads l WHERE l.tenantId = t.id AND l.deletedAt IS NULL AND l.createdAt BETWEEN DATE_SUB(NOW(), INTERVAL 14 DAY) AND DATE_SUB(NOW(), INTERVAL 7 DAY)) AS leadsPrev7d,
-                    (SELECT COUNT(*) FROM users u WHERE u.tenantId = t.id AND u.isActive = 1) AS activeUsers,
-                    (SELECT completedAt FROM onboarding_progress op WHERE op.tenantId = t.id LIMIT 1) AS onboardingCompleted
-                FROM tenants t
-                WHERE t.status = 'active'
-            `) as any;
+            try {
+                const [rows] = await db.execute(sql`
+                    SELECT t.id, t.name, t.plan, t.status, t.createdAt,
+                        (SELECT MAX(u.lastSignedIn) FROM users u WHERE u.tenantId = t.id) AS lastLogin,
+                        (SELECT COUNT(*) FROM chat_messages cm WHERE cm.tenantId = t.id AND cm.createdAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS messagesLast7d,
+                        (SELECT COUNT(*) FROM chat_messages cm WHERE cm.tenantId = t.id AND cm.createdAt BETWEEN DATE_SUB(NOW(), INTERVAL 14 DAY) AND DATE_SUB(NOW(), INTERVAL 7 DAY)) AS messagesPrev7d,
+                        (SELECT COUNT(*) FROM leads l WHERE l.tenantId = t.id AND l.deletedAt IS NULL AND l.createdAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS leadsLast7d,
+                        (SELECT COUNT(*) FROM leads l WHERE l.tenantId = t.id AND l.deletedAt IS NULL AND l.createdAt BETWEEN DATE_SUB(NOW(), INTERVAL 14 DAY) AND DATE_SUB(NOW(), INTERVAL 7 DAY)) AS leadsPrev7d,
+                        (SELECT COUNT(*) FROM users u WHERE u.tenantId = t.id AND u.isActive = 1) AS activeUsers,
+                        (SELECT completedAt FROM onboarding_progress op WHERE op.tenantId = t.id LIMIT 1) AS onboardingCompleted
+                    FROM tenants t
+                    WHERE t.status = 'active'
+                `) as any;
 
-            return (rows ?? []).map((r: any) => {
-                const factors: string[] = [];
-                let risk = 0;
+                return (rows ?? []).map((r: any) => {
+                    const factors: string[] = [];
+                    let risk = 0;
 
-                // Login recency (max 30)
-                const lastLogin = r.lastLogin ? (Date.now() - new Date(r.lastLogin).getTime()) / 86400000 : 999;
-                if (lastLogin > 14) { risk += 30; factors.push(`Sin login hace ${Math.round(lastLogin)}d`); }
-                else if (lastLogin > 7) { risk += 15; factors.push(`Último login hace ${Math.round(lastLogin)}d`); }
+                    // Login recency (max 30)
+                    const lastLogin = r.lastLogin ? (Date.now() - new Date(r.lastLogin).getTime()) / 86400000 : 999;
+                    if (lastLogin > 14) { risk += 30; factors.push(`Sin login hace ${Math.round(lastLogin)}d`); }
+                    else if (lastLogin > 7) { risk += 15; factors.push(`Último login hace ${Math.round(lastLogin)}d`); }
 
-                // Message volume decline (max 25)
-                const msgNow = Number(r.messagesLast7d);
-                const msgPrev = Number(r.messagesPrev7d);
-                if (msgPrev > 0 && msgNow === 0) { risk += 25; factors.push("0 mensajes esta semana (antes tenía)"); }
-                else if (msgPrev > 0 && msgNow < msgPrev * 0.5) { risk += 15; factors.push("Mensajes cayeron >50%"); }
+                    // Message volume decline (max 25)
+                    const msgNow = Number(r.messagesLast7d);
+                    const msgPrev = Number(r.messagesPrev7d);
+                    if (msgPrev > 0 && msgNow === 0) { risk += 25; factors.push("0 mensajes esta semana (antes tenía)"); }
+                    else if (msgPrev > 0 && msgNow < msgPrev * 0.5) { risk += 15; factors.push("Mensajes cayeron >50%"); }
 
-                // Lead creation decline (max 20)
-                const leadsNow = Number(r.leadsLast7d);
-                const leadsPrev = Number(r.leadsPrev7d);
-                if (leadsPrev > 0 && leadsNow === 0) { risk += 20; factors.push("0 leads nuevos esta semana"); }
-                else if (leadsPrev > 0 && leadsNow < leadsPrev * 0.5) { risk += 10; factors.push("Leads cayeron >50%"); }
+                    // Lead creation decline (max 20)
+                    const leadsNow = Number(r.leadsLast7d);
+                    const leadsPrev = Number(r.leadsPrev7d);
+                    if (leadsPrev > 0 && leadsNow === 0) { risk += 20; factors.push("0 leads nuevos esta semana"); }
+                    else if (leadsPrev > 0 && leadsNow < leadsPrev * 0.5) { risk += 10; factors.push("Leads cayeron >50%"); }
 
-                // Onboarding not completed (max 15)
-                if (!r.onboardingCompleted) { risk += 15; factors.push("Onboarding incompleto"); }
+                    // Onboarding not completed (max 15)
+                    if (!r.onboardingCompleted) { risk += 15; factors.push("Onboarding incompleto"); }
 
-                // Few users (max 10)
-                if (Number(r.activeUsers) <= 1) { risk += 10; factors.push("Solo 1 usuario activo"); }
+                    // Few users (max 10)
+                    if (Number(r.activeUsers) <= 1) { risk += 10; factors.push("Solo 1 usuario activo"); }
 
-                return {
-                    id: r.id, name: r.name, plan: r.plan, status: r.status,
-                    churnScore: Math.min(risk, 100),
-                    factors,
-                    lastLogin: r.lastLogin,
-                    messagesLast7d: msgNow,
-                    leadsLast7d: leadsNow,
-                };
-            }).sort((a: any, b: any) => b.churnScore - a.churnScore);
+                    return {
+                        id: r.id, name: r.name, plan: r.plan, status: r.status,
+                        churnScore: Math.min(risk, 100),
+                        factors,
+                        lastLogin: r.lastLogin,
+                        messagesLast7d: msgNow,
+                        leadsLast7d: leadsNow,
+                    };
+                }).sort((a: any, b: any) => b.churnScore - a.churnScore);
+            } catch { return []; }
         }),
 
     /* ══════════════════════════════════════════════════════════════════════
@@ -2419,20 +2457,22 @@ export const superadminRouter = router({
             dataType: z.enum(["messages", "activity_logs", "access_logs", "files"]),
         }))
         .query(async ({ input }) => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) return { count: 0 };
-            const tableMap: Record<string, string> = {
-                messages: "chat_messages",
-                activity_logs: "activity_logs",
-                access_logs: "access_logs",
-                files: "file_uploads",
-            };
-            const table = tableMap[input.dataType];
-            const [rows] = await db.execute(sql.raw(`
-                SELECT COUNT(*) as cnt FROM ${table}
-                WHERE createdAt < DATE_SUB(NOW(), INTERVAL ${input.retentionDays} DAY)
-            `)) as any;
-            return { count: Number(rows?.[0]?.cnt ?? 0) };
+            try {
+                const tableMap: Record<string, string> = {
+                    messages: "chat_messages",
+                    activity_logs: "activity_logs",
+                    access_logs: "access_logs",
+                    files: "file_uploads",
+                };
+                const table = tableMap[input.dataType];
+                const [rows] = await db.execute(sql.raw(`
+                    SELECT COUNT(*) as cnt FROM ${table}
+                    WHERE createdAt < DATE_SUB(NOW(), INTERVAL ${input.retentionDays} DAY)
+                `)) as any;
+                return { count: Number(rows?.[0]?.cnt ?? 0) };
+            } catch { return { count: 0 }; }
         }),
 
     /* ══════════════════════════════════════════════════════════════════════
@@ -2440,18 +2480,20 @@ export const superadminRouter = router({
        ══════════════════════════════════════════════════════════════════════ */
     storageOverview: superadminGuard
         .query(async () => {
-            const db = getDb();
+            const db = await getDb();
             if (!db) return [];
-            const [rows] = await db.execute(sql`
-                SELECT t.id AS tenantId, t.name AS tenantName, t.plan,
-                       COUNT(f.id) AS fileCount,
-                       COALESCE(SUM(f.size), 0) AS totalBytes,
-                       MAX(f.createdAt) AS lastUpload
-                FROM tenants t
-                LEFT JOIN file_uploads f ON f.tenantId = t.id
-                GROUP BY t.id, t.name, t.plan
-                ORDER BY totalBytes DESC
-            `) as any;
-            return rows ?? [];
+            try {
+                const [rows] = await db.execute(sql`
+                    SELECT t.id AS tenantId, t.name AS tenantName, t.plan,
+                           COUNT(f.id) AS fileCount,
+                           COALESCE(SUM(f.size), 0) AS totalBytes,
+                           MAX(f.createdAt) AS lastUpload
+                    FROM tenants t
+                    LEFT JOIN file_uploads f ON f.tenantId = t.id
+                    GROUP BY t.id, t.name, t.plan
+                    ORDER BY totalBytes DESC
+                `) as any;
+                return rows ?? [];
+            } catch { return []; }
         }),
 });

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -36,8 +36,7 @@ import {
   Eye,
   LogIn,
   Copy,
-  User,
-  Mail,
+  // User, Mail — unused
   Settings2,
   Layers,
   Bot,
@@ -57,7 +56,7 @@ import {
   TrendingUp,
   KeyRound,
   Timer,
-  ToggleLeft,
+  // ToggleLeft — unused
   ServerCrash,
   Inbox,
   Workflow,
@@ -76,16 +75,15 @@ import {
   CheckSquare,
   Square,
   Bell,
-  BellRing,
+  // BellRing — unused
   Archive,
   Edit,
   SearchCode,
   Sliders,
   Save,
   MailIcon,
-  ServerIcon,
-  ShieldQuestion,
-  UserMinus,
+  // ServerIcon, ShieldQuestion, UserMinus — unused
+  type LucideIcon,
 } from "lucide-react";
 import {
   Select,
@@ -158,7 +156,7 @@ function downloadCSV(rows: any[], filename: string) {
   URL.revokeObjectURL(url);
 }
 
-function UsageBar({ label, current, limit, icon: Icon }: { label: string; current: number; limit: number; icon: any }) {
+function UsageBar({ label, current, limit, icon: Icon }: { label: string; current: number; limit: number; icon: LucideIcon }) {
   const pct = limit > 0 ? Math.min((current / limit) * 100, 100) : 0;
   const isUnlimited = limit >= 999999;
   const color = pct >= 90 ? "bg-red-500" : pct >= 70 ? "bg-amber-500" : "bg-green-500";
@@ -222,7 +220,7 @@ function KpiCard({
   value,
   color,
 }: {
-  icon: any;
+  icon: LucideIcon;
   label: string;
   value: string | number;
   color: string;
@@ -232,7 +230,7 @@ function KpiCard({
       <div className={`absolute top-0 left-0 right-0 h-1 ${color}`} />
       <CardContent className="pt-6 pb-4 px-5">
         <div className="flex items-center gap-3 mb-2">
-          <div className={`p-2 rounded-lg bg-opacity-15 ${color.replace("bg-", "bg-")}/10`}>
+          <div className={`p-2 rounded-lg ${color}/10`}>
             <Icon className="w-5 h-5 text-muted-foreground" />
           </div>
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -668,7 +666,10 @@ function TenantRow({
       {/* Row header */}
       <div
         className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/50 transition-colors"
+        role="button"
+        tabIndex={0}
         onClick={() => setExpanded(!expanded)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(!expanded); } }}
       >
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
@@ -2379,9 +2380,9 @@ function PlatformConfigPanel() {
   const [aiProvider, setAiProvider] = useState("");
   const [aiModel, setAiModel] = useState("");
 
-  // Load config into state
+  // Load config into state when data arrives
   const c = config.data;
-  useState(() => {
+  useEffect(() => {
     if (!c) return;
     setCompanyName(c.companyName ?? "");
     setTimezone(c.timezone ?? "");
@@ -2393,7 +2394,7 @@ function PlatformConfigPanel() {
     if (meta) { setMetaAppId(meta.appId ?? ""); setMetaVerifyToken(meta.verifyToken ?? ""); }
     const ai = c.aiConfig as any;
     if (ai) { setAiProvider(ai.provider ?? ""); setAiModel(ai.model ?? ""); }
-  });
+  }, [c]);
 
   if (config.isLoading) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>;
   if (!c) return <p className="text-sm text-muted-foreground text-center py-8">No se pudo cargar la configuración de plataforma.</p>;
@@ -2644,7 +2645,9 @@ function ImpersonationAuditPanel() {
       <h2 className="text-lg font-bold flex items-center gap-2"><Eye className="w-5 h-5 text-amber-500" /> Registro de Impersonaciones ({events.data?.total ?? 0})</h2>
 
       {/* Stats summary */}
-      {stats.data && (
+      {stats.isLoading ? (
+        <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin" /></div>
+      ) : stats.data && (
         <div className="grid grid-cols-2 gap-4">
           <Card className="p-3">
             <h3 className="text-xs font-semibold text-muted-foreground mb-2">Por Admin</h3>
@@ -2665,7 +2668,7 @@ function ImpersonationAuditPanel() {
         </div>
       )}
 
-      {events.isLoading ? (
+      {events.isLoading || events.isError ? (
         <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
       ) : rows.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-8">Sin registros de impersonación.</p>
@@ -2777,7 +2780,9 @@ function WorkflowOversightPanel() {
     <div className="space-y-4">
       <h2 className="text-lg font-bold flex items-center gap-2"><Workflow className="w-5 h-5 text-indigo-500" /> Workflows ({wfList.data?.total ?? 0})</h2>
 
-      {s && (
+      {wfStats.isLoading ? (
+        <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin" /></div>
+      ) : s && (
         <div className="grid grid-cols-5 gap-3">
           <Card className="p-3 text-center"><p className="text-2xl font-bold">{Number(s.totalWorkflows)}</p><p className="text-[10px] text-muted-foreground">Total</p></Card>
           <Card className="p-3 text-center"><p className="text-2xl font-bold text-green-500">{Number(s.activeWorkflows)}</p><p className="text-[10px] text-muted-foreground">Activos</p></Card>
@@ -2924,7 +2929,9 @@ function CampaignMonitoringPanel() {
         </Select>
       </div>
 
-      {s && (
+      {stats.isLoading ? (
+        <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin" /></div>
+      ) : s && (
         <div className="grid grid-cols-4 gap-3">
           <Card className="p-3 text-center"><p className="text-2xl font-bold text-green-500">{Number(s.running)}</p><p className="text-[10px] text-muted-foreground">Running</p></Card>
           <Card className="p-3 text-center"><p className="text-2xl font-bold">{Number(s.totalSent)}</p><p className="text-[10px] text-muted-foreground">Enviados</p></Card>
@@ -2967,7 +2974,7 @@ function TemplateOversightPanel() {
   const { toast } = useToast();
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const tplList = trpc.superadmin.listAllTemplates.useQuery({ type: typeFilter as any, limit: 100, offset: 0 });
-  const tplStats = trpc.superadmin.getTemplateStats.useQuery();
+  // tplStats removed — fetched but never rendered (dead API call)
   const copyTpl = trpc.superadmin.copyTemplateToTenant.useMutation({
     onSuccess: (d) => { toast({ title: d.message }); tplList.refetch(); },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
@@ -3265,10 +3272,12 @@ function MaintenanceModePanel() {
             <h3 className="text-sm font-semibold">Mantenimiento Global de Plataforma</h3>
             <p className="text-xs text-muted-foreground">Bloquea acceso a todos los tenants (excepto SuperAdmin).</p>
           </div>
-          <Switch
-            checked={status.data?.platformMaintenance ?? false}
-            onCheckedChange={(v) => setMaintenance.mutate({ enabled: v, message: msg || "Sistema en mantenimiento. Volvemos pronto." })}
-          />
+          {status.isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : (
+            <Switch
+              checked={status.data?.platformMaintenance ?? false}
+              onCheckedChange={(v) => setMaintenance.mutate({ enabled: v, message: msg || "Sistema en mantenimiento. Volvemos pronto." })}
+            />
+          )}
         </div>
         <div>
           <Label className="text-xs">Mensaje de mantenimiento</Label>
@@ -3437,7 +3446,7 @@ export default function SuperAdmin() {
         </div>
       ) : (
         <Tabs value={mainTab} onValueChange={setMainTab}>
-          <TabsList className="h-9 flex-wrap">
+          <TabsList className="h-auto flex-wrap gap-1 p-1.5">
             <TabsTrigger value="overview" className="text-xs gap-1">
               <BarChart3 className="w-3 h-3" /> Overview
             </TabsTrigger>
