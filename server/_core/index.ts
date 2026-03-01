@@ -360,6 +360,71 @@ async function startServer() {
   });
 }
 
+/**
+ * Idempotent bootstrap: ensures the admin user from env vars exists.
+ * Safe to call on every startup — inserts or updates.
+ */
+async function bootstrapAdmin() {
+  const email = String(process.env.BOOTSTRAP_ADMIN_EMAIL || "").trim().toLowerCase();
+  const pass  = process.env.BOOTSTRAP_ADMIN_PASSWORD;
+  if (!email || !pass) {
+    logger.warn("startup: BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD not set — skipping admin bootstrap");
+    return;
+  }
+
+  const tenantId = Number(process.env.BOOTSTRAP_ADMIN_TENANT_ID ?? "1");
+  if (!Number.isFinite(tenantId) || tenantId <= 0) {
+    logger.warn("startup: invalid BOOTSTRAP_ADMIN_TENANT_ID — skipping admin bootstrap");
+    return;
+  }
+
+  try {
+    const { default: bcrypt } = await import("bcryptjs");
+    const { nanoid }          = await import("nanoid");
+    const { users }           = await import("../../drizzle/schema");
+    const { and, eq }         = await import("drizzle-orm");
+
+    const db = await getDb();
+    if (!db) { logger.warn("startup: DB unavailable — skipping admin bootstrap"); return; }
+
+    const hashed = await bcrypt.hash(pass, 12);
+    const existing = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.email, email), eq(users.tenantId, tenantId)))
+      .limit(1);
+
+    if (existing.length > 0) {
+      await db.update(users)
+        .set({ password: hashed, role: "admin", loginMethod: "credentials", isActive: true, updatedAt: new Date() } as any)
+        .where(eq(users.id, existing[0].id));
+      logger.info({ email, tenantId }, "startup: admin user password/role updated");
+    } else {
+      await db.insert(users).values({
+        tenantId,
+        openId: `local_${nanoid(16)}`,
+        name: "Admin",
+        email,
+        password: hashed,
+        role: "admin",
+        loginMethod: "credentials",
+        isActive: true,
+        hasSeenTour: false,
+      });
+      logger.info({ email, tenantId }, "startup: admin user created");
+    }
+
+    // Clear any rate-limit blocks accumulated for the admin email
+    try {
+      const { clearRateLimitByPrefix } = await import("./trpc-rate-limit");
+      await clearRateLimitByPrefix(`${email}:`);
+      logger.info("startup: cleared rate-limit entries for admin email");
+    } catch { /* rate limit module not ready yet — harmless */ }
+  } catch (e) {
+    logger.error({ err: safeError(e) }, "startup: admin bootstrap failed (non-fatal)");
+  }
+}
+
 const run = async () => {
   logger.info("startup: server version modular-v2");
   assertEnv();
@@ -374,6 +439,9 @@ const run = async () => {
       process.exit(1);
     }
   }
+
+  // Always ensure bootstrap admin exists (idempotent)
+  await bootstrapAdmin();
 
   await startServer();
   await ensureAppSettings();

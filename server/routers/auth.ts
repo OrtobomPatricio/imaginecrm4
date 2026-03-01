@@ -159,16 +159,19 @@ export const authRouter = router({
             }
 
             if (!user[0] || !user[0].password) {
+                logger.warn({ email: normalizedEmail, tenantId: tenantId ?? 1, ip, userFound: !!user[0], hasPassword: !!user[0]?.password }, "[Auth] Login failed: user not found or no password");
                 return { success: false, error: "Credenciales inválidas" };
             }
 
             // Check if user account is active
             if (!user[0].isActive) {
+                logger.warn({ email: normalizedEmail, userId: user[0].id, ip }, "[Auth] Login failed: account disabled");
                 return { success: false, error: "Cuenta desactivada. Contacte al administrador." };
             }
 
             const valid = await bcrypt.compare(input.password, user[0].password);
             if (!valid) {
+                logger.warn({ email: normalizedEmail, userId: user[0].id, ip }, "[Auth] Login failed: invalid password");
                 return { success: false, error: "Credenciales inválidas" };
             }
 

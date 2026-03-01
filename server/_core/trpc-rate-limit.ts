@@ -189,3 +189,33 @@ export function clearRateLimit(identifier: string, type: 'auth' | 'general' = 'a
     const key = `${type}:${identifier}`;
     store.del(key).catch(() => { /* ignore */ });
 }
+
+/**
+ * Clear all rate-limit entries whose key starts with a given prefix.
+ * Used at bootstrap to unblock the admin email regardless of IP.
+ */
+export async function clearRateLimitByPrefix(prefix: string): Promise<void> {
+    // Memory store: iterate map
+    if (store instanceof MemoryStore) {
+        const fullPrefix = `auth:${prefix}`;
+        for (const key of (store as any).map.keys()) {
+            if (key.startsWith(fullPrefix)) {
+                store.del(key).catch(() => {});
+            }
+        }
+        return;
+    }
+    // Redis store: SCAN for matching keys
+    if (store instanceof RedisRateLimitStore) {
+        try {
+            const redis = (store as any).redis as Redis;
+            const pattern = `trpc_rl:auth:${prefix}*`;
+            let cursor = "0";
+            do {
+                const [next, keys] = await redis.scan(cursor, "MATCH", pattern, "COUNT", 100);
+                cursor = next;
+                if (keys.length > 0) await redis.del(...keys);
+            } while (cursor !== "0");
+        } catch { /* swallow */ }
+    }
+}
