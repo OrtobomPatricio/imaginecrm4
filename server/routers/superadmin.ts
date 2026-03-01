@@ -53,6 +53,7 @@ export const superadminRouter = router({
             const db = await getDb();
             if (!db) return [];
 
+            // First get base tenant data (always safe)
             const tenantList = await db
                 .select({
                     id: tenants.id,
@@ -62,14 +63,36 @@ export const superadminRouter = router({
                     status: tenants.status,
                     createdAt: tenants.createdAt,
                     updatedAt: tenants.updatedAt,
-                    userCount: sql<number>`(SELECT COUNT(*) FROM users WHERE users.tenantId = ${tenants.id})`,
-                    leadCount: sql<number>`(SELECT COUNT(*) FROM leads WHERE leads.tenantId = ${tenants.id} AND leads.deletedAt IS NULL)`,
-                    waNumberCount: sql<number>`(SELECT COUNT(*) FROM whatsapp_numbers WHERE whatsapp_numbers.tenantId = ${tenants.id})`,
                 })
                 .from(tenants)
                 .orderBy(desc(tenants.createdAt));
 
-            return tenantList;
+            // Enrich with counts (safe — tables may not exist)
+            const safeCountByTenant = async (query: string): Promise<Map<number, number>> => {
+                try {
+                    const [rows] = await db.execute(sql.raw(query)) as any;
+                    const map = new Map<number, number>();
+                    for (const row of (rows ?? [])) {
+                        map.set(Number(row.tenantId ?? row.tid), Number(row.cnt ?? 0));
+                    }
+                    return map;
+                } catch {
+                    return new Map();
+                }
+            };
+
+            const [userCounts, leadCounts, waCounts] = await Promise.all([
+                safeCountByTenant("SELECT tenantId as tid, COUNT(*) as cnt FROM users GROUP BY tenantId"),
+                safeCountByTenant("SELECT tenantId as tid, COUNT(*) as cnt FROM leads WHERE deletedAt IS NULL GROUP BY tenantId"),
+                safeCountByTenant("SELECT tenantId as tid, COUNT(*) as cnt FROM whatsapp_numbers GROUP BY tenantId"),
+            ]);
+
+            return tenantList.map(t => ({
+                ...t,
+                userCount: userCounts.get(t.id) ?? 0,
+                leadCount: leadCounts.get(t.id) ?? 0,
+                waNumberCount: waCounts.get(t.id) ?? 0,
+            }));
         }),
 
     /** Get platform-wide stats */
@@ -78,15 +101,26 @@ export const superadminRouter = router({
             const db = await getDb();
             if (!db) return null;
 
-            const [stats] = await db.select({
-                totalTenants: sql<number>`(SELECT COUNT(*) FROM tenants)`,
-                totalUsers: sql<number>`(SELECT COUNT(*) FROM users WHERE isActive = 1)`,
-                totalLeads: sql<number>`(SELECT COUNT(*) FROM leads WHERE deletedAt IS NULL)`,
-                totalConversations: sql<number>`(SELECT COUNT(*) FROM conversations)`,
-                totalMessages: sql<number>`(SELECT COUNT(*) FROM chat_messages)`,
-            }).from(sql`(SELECT 1) as dummy`);
+            // Use individual safe queries to handle missing tables gracefully
+            const safeCount = async (query: string): Promise<number> => {
+                try {
+                    const [row] = await db.execute(sql.raw(query)) as any;
+                    return Number(row?.[0]?.cnt ?? row?.cnt ?? 0);
+                } catch (e) {
+                    logger.warn({ query, err: (e as any)?.message }, "[SuperAdmin] stats query failed (table may not exist)");
+                    return 0;
+                }
+            };
 
-            return stats;
+            const [totalTenants, totalUsers, totalLeads, totalConversations, totalMessages] = await Promise.all([
+                safeCount("SELECT COUNT(*) as cnt FROM tenants"),
+                safeCount("SELECT COUNT(*) as cnt FROM users WHERE isActive = 1"),
+                safeCount("SELECT COUNT(*) as cnt FROM leads WHERE deletedAt IS NULL"),
+                safeCount("SELECT COUNT(*) as cnt FROM conversations"),
+                safeCount("SELECT COUNT(*) as cnt FROM chat_messages"),
+            ]);
+
+            return { totalTenants, totalUsers, totalLeads, totalConversations, totalMessages };
         }),
 
     // ── Impersonate ──
