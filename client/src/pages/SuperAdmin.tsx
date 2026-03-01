@@ -337,8 +337,8 @@ export default function SuperAdmin() {
         <ShieldAlert className="w-16 h-16 text-red-400" />
         <h2 className="text-xl font-bold">Acceso Denegado</h2>
         <p className="text-muted-foreground text-sm max-w-md text-center">
-          Este panel es exclusivo para el Super Admin de la plataforma (owner del tenant principal).
-          Se requiere rol "owner" o "admin" + tenantId=1.
+          Este panel es exclusivo para el creador de la plataforma (owner del tenant principal).
+          Se requiere rol "owner" + tenantId=1.
         </p>
         {info && (
           <div className="bg-muted/50 rounded-lg p-4 text-xs font-mono space-y-1 max-w-md">

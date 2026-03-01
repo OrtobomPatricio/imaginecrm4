@@ -95,7 +95,7 @@ const menuItems: MenuItem[] = [
   { icon: LayoutGrid, label: "Pipelines", path: "/settings/pipelines", requiredPerm: "kanban.manage" },
   { icon: Database, label: "Backups", path: "/backup", requiredPerm: "backups.view", roles: ["owner", "admin"] },
   { icon: Settings, label: "Configuración", path: "/settings", requiredPerm: "settings.view" },
-  { icon: Shield, label: "Super Admin", path: "/admin", roles: ["owner", "admin"] },
+  { icon: Shield, label: "Super Admin", path: "/admin", roles: ["owner"] },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

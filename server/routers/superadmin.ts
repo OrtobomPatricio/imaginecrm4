@@ -23,12 +23,12 @@ import { getAllFlags, setFeatureFlag, getFlagDefinitions } from "../services/fea
 const superadminGuard = protectedProcedure.use(async ({ ctx, next }) => {
     const role = ctx.user?.role;
     const tid = ctx.tenantId;
-    const isPlatformAdmin = (role === "owner" || role === "admin") && tid === 1;
-    logger.info({ role, tenantId: tid, userId: ctx.user?.id, isPlatformAdmin }, "[SuperAdmin] guard check");
-    if (!isPlatformAdmin) {
+    const isPlatformOwner = role === "owner" && tid === 1;
+    logger.info({ role, tenantId: tid, userId: ctx.user?.id, isPlatformOwner }, "[SuperAdmin] guard check");
+    if (!isPlatformOwner) {
         throw new TRPCError({
             code: "FORBIDDEN",
-            message: `Acceso restringido. Tu rol=${role}, tenantId=${tid}. Se requiere (owner|admin) + tenantId=1.`,
+            message: `Acceso restringido. Tu rol=${role}, tenantId=${tid}. Se requiere role=owner + tenantId=1.`,
         });
     }
     return next();
