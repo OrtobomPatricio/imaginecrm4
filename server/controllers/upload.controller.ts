@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import { createContext } from "../_core/context";
 import { getDb } from "../db";
 import { fileUploads } from "../../drizzle/schema";
@@ -21,7 +22,7 @@ const storage = multer.diskStorage({
         cb(null, uploadDir);
     },
     filename: function (_req, file, cb) {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const uniqueSuffix = Date.now() + '-' + crypto.randomBytes(8).toString('hex');
         cb(null, uniqueSuffix + path.extname(file.originalname));
     }
 });

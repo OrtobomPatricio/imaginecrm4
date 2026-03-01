@@ -523,13 +523,13 @@ export const superadminRouter = router({
             const db = await getDb();
             if (!db) return [];
             try {
-                const [rows] = await db.execute(sql.raw(`
+                const [rows] = await db.execute(sql`
                     SELECT DATE(createdAt) as date, COUNT(*) as cnt
                     FROM tenants
                     WHERE createdAt >= DATE_SUB(NOW(), INTERVAL ${input.days} DAY)
                     GROUP BY DATE(createdAt)
                     ORDER BY date ASC
-                `)) as any;
+                `) as any;
                 return (rows ?? []).map((r: any) => ({
                     date: r.date,
                     count: Number(r.cnt),
@@ -546,14 +546,14 @@ export const superadminRouter = router({
             const db = await getDb();
             if (!db) return [];
             try {
-                const [rows] = await db.execute(sql.raw(`
+                const [rows] = await db.execute(sql`
                     SELECT id, name, slug, plan, trialEndsAt, status,
                            DATEDIFF(trialEndsAt, NOW()) as daysLeft
                     FROM tenants
                     WHERE trialEndsAt IS NOT NULL
                       AND trialEndsAt <= DATE_ADD(NOW(), INTERVAL ${input.daysAhead} DAY)
                     ORDER BY trialEndsAt ASC
-                `)) as any;
+                `) as any;
                 return rows ?? [];
             } catch { return []; }
         }),
@@ -567,7 +567,7 @@ export const superadminRouter = router({
             const db = await getDb();
             if (!db) return [];
             try {
-                const [rows] = await db.execute(sql.raw(`
+                const [rows] = await db.execute(sql`
                     SELECT t.id, t.name, t.slug, t.plan, t.status,
                            COALESCE(MAX(u.lastSignedIn), t.createdAt) as lastActivity,
                            DATEDIFF(NOW(), COALESCE(MAX(u.lastSignedIn), t.createdAt)) as daysSinceActivity
@@ -576,7 +576,7 @@ export const superadminRouter = router({
                     GROUP BY t.id
                     HAVING daysSinceActivity >= ${input.inactiveDays}
                     ORDER BY daysSinceActivity DESC
-                `)) as any;
+                `) as any;
                 return rows ?? [];
             } catch { return []; }
         }),
@@ -1974,24 +1974,27 @@ export const superadminRouter = router({
             if (!db) return { rows: [], total: 0 };
             try {
 
-                let statusFilter = "";
-                if (input.status === "completed") statusFilter = "AND op.completedAt IS NOT NULL";
-                else if (input.status === "stalled") statusFilter = "AND op.completedAt IS NULL AND op.updatedAt < DATE_SUB(NOW(), INTERVAL 3 DAY)";
-                else if (input.status === "in_progress") statusFilter = "AND op.completedAt IS NULL AND op.updatedAt >= DATE_SUB(NOW(), INTERVAL 3 DAY)";
+                const conditions: SQL[] = [];
+                if (input.status === "completed") conditions.push(sql`op.completedAt IS NOT NULL`);
+                else if (input.status === "stalled") conditions.push(sql`op.completedAt IS NULL AND op.updatedAt < DATE_SUB(NOW(), INTERVAL 3 DAY)`);
+                else if (input.status === "in_progress") conditions.push(sql`op.completedAt IS NULL AND op.updatedAt >= DATE_SUB(NOW(), INTERVAL 3 DAY)`);
+                const whereClause = conditions.length > 0
+                    ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
+                    : sql``;
 
-                const [rows] = await db.execute(sql.raw(`
+                const [rows] = await db.execute(sql`
                     SELECT op.*, t.name AS tenantName, t.plan, t.status AS tenantStatus,
                            TIMESTAMPDIFF(HOUR, op.startedAt, COALESCE(op.completedAt, NOW())) AS hoursElapsed
                     FROM onboarding_progress op
                     JOIN tenants t ON t.id = op.tenantId
-                    WHERE 1=1 ${statusFilter}
+                    ${whereClause}
                     ORDER BY op.updatedAt DESC
                     LIMIT ${input.limit} OFFSET ${input.offset}
-                `)) as any;
+                `) as any;
 
-                const [cntRows] = await db.execute(sql.raw(`
-                    SELECT COUNT(*) as total FROM onboarding_progress op WHERE 1=1 ${statusFilter}
-                `)) as any;
+                const [cntRows] = await db.execute(sql`
+                    SELECT COUNT(*) as total FROM onboarding_progress op ${whereClause}
+                `) as any;
 
                 return { rows: rows ?? [], total: Number(cntRows?.[0]?.total ?? 0) };
             } catch { return { rows: [], total: 0 }; }
@@ -2133,20 +2136,20 @@ export const superadminRouter = router({
             const db = await getDb();
             if (!db) return { rows: [], total: 0 };
             try {
-                const statusFilter = input.status !== "all" ? `AND c.status = '${input.status}'` : "";
-                const [rows] = await db.execute(sql.raw(`
+                const statusCondition = input.status !== "all" ? sql`AND c.status = ${input.status}` : sql``;
+                const [rows] = await db.execute(sql`
                     SELECT c.id, c.tenantId, c.name, c.type, c.status, c.scheduledAt, c.startedAt, c.completedAt,
                            c.totalRecipients, c.messagesSent, c.messagesDelivered, c.messagesRead, c.messagesFailed,
                            c.createdAt, t.name AS tenantName
                     FROM campaigns c
                     JOIN tenants t ON t.id = c.tenantId
-                    WHERE 1=1 ${statusFilter}
+                    WHERE 1=1 ${statusCondition}
                     ORDER BY c.updatedAt DESC
                     LIMIT ${input.limit} OFFSET ${input.offset}
-                `)) as any;
-                const [cnt] = await db.execute(sql.raw(`
-                    SELECT COUNT(*) as total FROM campaigns c WHERE 1=1 ${statusFilter}
-                `)) as any;
+                `) as any;
+                const [cnt] = await db.execute(sql`
+                    SELECT COUNT(*) as total FROM campaigns c WHERE 1=1 ${statusCondition}
+                `) as any;
                 return { rows: rows ?? [], total: Number(cnt?.[0]?.total ?? 0) };
             } catch { return { rows: [], total: 0 }; }
         }),
@@ -2183,19 +2186,19 @@ export const superadminRouter = router({
             const db = await getDb();
             if (!db) return { rows: [], total: 0 };
             try {
-                const typeFilter = input.type !== "all" ? `AND tpl.type = '${input.type}'` : "";
-                const [rows] = await db.execute(sql.raw(`
+                const typeCondition = input.type !== "all" ? sql`AND tpl.type = ${input.type}` : sql``;
+                const [rows] = await db.execute(sql`
                     SELECT tpl.id, tpl.tenantId, tpl.name, tpl.content, tpl.type, tpl.variables, tpl.createdAt,
                            t.name AS tenantName
                     FROM templates tpl
                     JOIN tenants t ON t.id = tpl.tenantId
-                    WHERE 1=1 ${typeFilter}
+                    WHERE 1=1 ${typeCondition}
                     ORDER BY tpl.createdAt DESC
                     LIMIT ${input.limit} OFFSET ${input.offset}
-                `)) as any;
-                const [cnt] = await db.execute(sql.raw(`
-                    SELECT COUNT(*) as total FROM templates tpl WHERE 1=1 ${typeFilter}
-                `)) as any;
+                `) as any;
+                const [cnt] = await db.execute(sql`
+                    SELECT COUNT(*) as total FROM templates tpl WHERE 1=1 ${typeCondition}
+                `) as any;
                 return { rows: rows ?? [], total: Number(cnt?.[0]?.total ?? 0) };
             } catch { return { rows: [], total: 0 }; }
         }),
@@ -2505,10 +2508,12 @@ export const superadminRouter = router({
                     files: "file_uploads",
                 };
                 const table = tableMap[input.dataType];
-                const [rows] = await db.execute(sql.raw(`
-                    SELECT COUNT(*) as cnt FROM ${table}
+                if (!table) return { count: 0 };
+                // Table name is from a static allowlist — safe to use sql.raw() for identifier only
+                const [rows] = await db.execute(sql`
+                    SELECT COUNT(*) as cnt FROM ${sql.raw(table)}
                     WHERE createdAt < DATE_SUB(NOW(), INTERVAL ${input.retentionDays} DAY)
-                `)) as any;
+                `) as any;
                 return { count: Number(rows?.[0]?.cnt ?? 0) };
             } catch { return { count: 0 }; }
         }),
