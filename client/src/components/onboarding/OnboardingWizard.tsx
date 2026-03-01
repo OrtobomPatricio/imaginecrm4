@@ -12,7 +12,8 @@ import Step2Team from "./steps/Step2Team";
 import Step3ConnectWhatsApp from "./steps/Step3ConnectWhatsApp";
 import Step4ImportContacts from "./steps/Step4ImportContacts";
 import Step5FirstMessage from "./steps/Step5FirstMessage";
-import { Loader2 } from "lucide-react";
+import { Loader2, Rocket } from "lucide-react";
+import { useEffect } from "react";
 
 /**
  * OnboardingWizard
@@ -20,7 +21,14 @@ import { Loader2 } from "lucide-react";
  */
 
 export function OnboardingWizard() {
-    const { currentStep, progress, isLoading } = useOnboarding();
+    const { currentStep, progress, isLoading, isCompleting } = useOnboarding();
+
+    // Redirect to dashboard only AFTER completion state is confirmed
+    useEffect(() => {
+        if (currentStep === 'completed') {
+            window.location.href = "/";
+        }
+    }, [currentStep]);
 
     if (isLoading) {
         return (
@@ -30,9 +38,14 @@ export function OnboardingWizard() {
         );
     }
 
-    if (currentStep === 'completed') {
-        window.location.href = "/"; // Redirect to dashboard
-        return null;
+    if (currentStep === 'completed' || isCompleting) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+                <Rocket className="w-12 h-12 text-blue-600 animate-bounce" />
+                <p className="text-lg font-semibold text-slate-700">Preparando tu CRM...</p>
+                <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+            </div>
+        );
     }
 
     const renderStep = () => {

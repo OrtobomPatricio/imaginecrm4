@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext, type ReactNode } from "react";
+import { useState, useEffect, useCallback, createContext, useContext, type ReactNode } from "react";
 import { trpc } from "@/lib/trpc";
 import { useToast } from "@/hooks/use-toast";
 
@@ -22,6 +22,7 @@ interface OnboardingContextValue {
     currentStep: OnboardingStep;
     progress: number;
     isLoading: boolean;
+    isCompleting: boolean;
     nextStep: (data?: any) => void;
     prevStep: () => void;
     skipStep: (step: OnboardingStep) => void;
@@ -36,6 +37,7 @@ const OnboardingContext = createContext<OnboardingContextValue | null>(null);
  */
 export function OnboardingProvider({ children }: { children: ReactNode }) {
     const [currentStep, setCurrentStep] = useState<OnboardingStep>('company');
+    const [isCompleting, setIsCompleting] = useState(false);
     const { toast } = useToast();
     const _utils = trpc.useUtils(); // Keep hook for consistent hook ordering
 
@@ -65,7 +67,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [progressData]);
 
-    const nextStep = (data?: any) => {
+    const nextStep = useCallback((data?: any) => {
         const currentIndex = STEPS.indexOf(currentStep);
         if (currentIndex < STEPS.length - 1) {
             const next = STEPS[currentIndex + 1];
@@ -79,16 +81,28 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
                 { onError: () => {} }
             );
         } else {
-            // Finalize — advance UI immediately
-            setCurrentStep('completed');
-            toast({ title: "¡Bienvenido!", description: "Onboarding completado con éxito." });
+            // Finalize — save first-message step, then complete
+            setIsCompleting(true);
 
-            // Best-effort backend sync
+            // Save the last step synchronously, then finalize
+            saveStepMutation.mutate(
+                { step: 'first-message' as any, data, completed: true },
+                { onError: () => {} }
+            );
+
             completeMutation.mutate(undefined, {
-                onError: () => {}
+                onSuccess: () => {
+                    setCurrentStep('completed');
+                    toast({ title: "¡Bienvenido!", description: "Onboarding completado con éxito." });
+                },
+                onError: () => {
+                    // Even if backend fails, let the user proceed
+                    setCurrentStep('completed');
+                },
             });
         }
-    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentStep]);
 
     const prevStep = () => {
         const currentIndex = STEPS.indexOf(currentStep);
@@ -114,6 +128,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         currentStep,
         progress: (STEPS.indexOf(currentStep) / STEPS.length) * 100,
         isLoading: isLoading && !hasInitialized,
+        isCompleting,
         nextStep,
         prevStep,
         skipStep,
