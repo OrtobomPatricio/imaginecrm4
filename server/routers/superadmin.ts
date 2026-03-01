@@ -233,6 +233,29 @@ export const superadminRouter = router({
             return { success: true, message: `Plan cambiado a ${input.plan}.` };
         }),
 
+    // ── Tenant Users ──
+
+    /** List all users for a specific tenant */
+    listTenantUsers: superadminGuard
+        .input(z.object({ tenantId: z.number() }))
+        .query(async ({ input }) => {
+            const db = await getDb();
+            if (!db) return [];
+            try {
+                const userList = await db.select({
+                    id: users.id,
+                    name: (users as any).name,
+                    email: (users as any).email,
+                    role: users.role,
+                    isActive: users.isActive,
+                    createdAt: users.createdAt,
+                }).from(users).where(eq(users.tenantId, input.tenantId));
+                return userList;
+            } catch {
+                return [];
+            }
+        }),
+
     // ── Feature Flags ──
 
     /** Get all flags for a tenant */
