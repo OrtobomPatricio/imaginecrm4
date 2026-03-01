@@ -705,17 +705,15 @@ export const superadminRouter = router({
 
             // Get actual counts
             const [[userResult], [leadResult], [waResult]] = await Promise.all([
-                db.execute(sql.raw(`SELECT COUNT(*) as cnt FROM users WHERE tenantId = ${Number(input.tenantId)} AND isActive = 1`)) as any,
-                db.execute(sql.raw(`SELECT COUNT(*) as cnt FROM leads WHERE tenantId = ${Number(input.tenantId)} AND deletedAt IS NULL`)) as any,
-                db.execute(sql.raw(`SELECT COUNT(*) as cnt FROM whatsapp_numbers WHERE tenantId = ${Number(input.tenantId)}`)) as any,
+                db.execute(sql`SELECT COUNT(*) as cnt FROM users WHERE tenantId = ${input.tenantId} AND isActive = 1`) as any,
+                db.execute(sql`SELECT COUNT(*) as cnt FROM leads WHERE tenantId = ${input.tenantId} AND deletedAt IS NULL`) as any,
+                db.execute(sql`SELECT COUNT(*) as cnt FROM whatsapp_numbers WHERE tenantId = ${input.tenantId}`) as any,
             ]);
 
             // Get messages this month
             let msgThisMonth = 0;
             try {
-                const [msgResult] = await db.execute(sql.raw(
-                    `SELECT COUNT(*) as cnt FROM chat_messages WHERE tenantId = ${Number(input.tenantId)} AND createdAt >= DATE_FORMAT(NOW(), '%Y-%m-01')`
-                )) as any;
+                const [msgResult] = await db.execute(sql`SELECT COUNT(*) as cnt FROM chat_messages WHERE tenantId = ${input.tenantId} AND createdAt >= DATE_FORMAT(NOW(), '%Y-%m-01')`) as any;
                 msgThisMonth = Number(msgResult?.[0]?.cnt ?? 0);
             } catch { /* table might not exist */ }
 
@@ -1378,7 +1376,7 @@ export const superadminRouter = router({
                 });
             }
 
-            await logSuperadminAction(ctx.user!.id, "updateTenantLimits", { tenantId: input.tenantId, ...input });
+            await logSuperadminAction(ctx.user!.id, "updateTenantLimits", { ...input });
             return { success: true, message: "Límites actualizados." };
         }),
 

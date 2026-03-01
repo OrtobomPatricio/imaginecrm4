@@ -129,7 +129,7 @@ export function StorageConfigEditor({ query, updateMutation }: StorageConfigEdit
                                 <Label htmlFor="accessKey">Access Key ID</Label>
                                 <Input
                                     id="accessKey"
-                                    placeholder="AKIAIOSFODNN7EXAMPLE"
+                                    placeholder="Tu Access Key ID"
                                     value={form.accessKey}
                                     onChange={(e) => setForm(p => ({ ...p, accessKey: e.target.value }))}
                                 />
