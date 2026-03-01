@@ -10,6 +10,7 @@ export const tenants = mysqlTable("tenants", {
   plan: mysqlEnum("plan", ["free", "starter", "pro", "enterprise"]).default("free").notNull(),
   stripeCustomerId: varchar("stripeCustomerId", { length: 255 }),
   status: mysqlEnum("status", ["active", "suspended", "canceled"]).default("active").notNull(),
+  trialEndsAt: timestamp("trialEndsAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (t) => ({

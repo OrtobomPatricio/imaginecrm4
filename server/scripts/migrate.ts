@@ -184,6 +184,8 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
         }
     }
 
+    await ensureColumn("tenants", "trialEndsAt", "`trialEndsAt` TIMESTAMP NULL", "tenants.trialEndsAt column");
+
     await ensureColumn("users", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "users.tenantId column");
     await ensureColumn("users", "gdprConsentAt", "`gdprConsentAt` TIMESTAMP NULL", "users.gdprConsentAt column");
     await ensureColumn("users", "gdprConsentVersion", "`gdprConsentVersion` VARCHAR(20) NULL", "users.gdprConsentVersion column");

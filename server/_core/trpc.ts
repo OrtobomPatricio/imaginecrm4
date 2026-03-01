@@ -27,38 +27,45 @@ const requireUser = t.middleware(async opts => {
   }
 
   // BILLING LOCK: Query tenant status and trial expiry to enforce suspension
-  const db = await getDb();
-  if (db && ctx.user.tenantId !== 1) { // Skip platform tenant
-    const { tenants } = await import("../../drizzle/schema");
-    const tenantRows = await db.select({
-      status: tenants.status,
-      plan: tenants.plan,
-      trialEndsAt: (tenants as any).trialEndsAt,
-    }).from(tenants).where(eq(tenants.id, ctx.user.tenantId)).limit(1);
+  try {
+    const db = await getDb();
+    if (db && ctx.user.tenantId !== 1) { // Skip platform tenant
+      const { tenants } = await import("../../drizzle/schema");
+      const tenantRows = await db.select({
+        status: tenants.status,
+        plan: tenants.plan,
+        trialEndsAt: tenants.trialEndsAt,
+      }).from(tenants).where(eq(tenants.id, ctx.user.tenantId)).limit(1);
 
-    const tenant = tenantRows[0];
-    if (tenant) {
-      // Check if tenant is suspended
-      if (tenant.status === "suspended") {
-        const isAllowed = path.startsWith("auth.") || path.startsWith("billing.") || path.startsWith("settings.getBilling") || path.startsWith("trial.");
-        if (!isAllowed) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "PAYMENT_REQUIRED: Su cuenta se encuentra suspendida. Por favor, actualice su método de pago."
-          });
+      const tenant = tenantRows[0];
+      if (tenant) {
+        // Check if tenant is suspended
+        if (tenant.status === "suspended") {
+          const isAllowed = path.startsWith("auth.") || path.startsWith("billing.") || path.startsWith("settings.getBilling") || path.startsWith("trial.");
+          if (!isAllowed) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "PAYMENT_REQUIRED: Su cuenta se encuentra suspendida. Por favor, actualice su método de pago."
+            });
+          }
+        }
+
+        // Check if trial has expired (auto-downgrade to free)
+        const trialEnd = tenant.trialEndsAt as Date | null;
+        if (trialEnd && new Date() > trialEnd && tenant.plan !== "free") {
+          // Auto-downgrade: set plan to free and clear trial
+          await db.update(tenants).set({
+            plan: "free",
+            trialEndsAt: null,
+          }).where(eq(tenants.id, ctx.user.tenantId));
         }
       }
-
-      // Check if trial has expired (auto-downgrade to free)
-      const trialEnd = (tenant as any).trialEndsAt as Date | null;
-      if (trialEnd && new Date() > trialEnd && tenant.plan !== "free") {
-        // Auto-downgrade: set plan to free and clear trial
-        await db.update(tenants).set({
-          plan: "free",
-          trialEndsAt: null,
-        } as any).where(eq(tenants.id, ctx.user.tenantId));
-      }
     }
+  } catch (err: any) {
+    // Re-throw FORBIDDEN (billing lock) — it's intentional
+    if (err instanceof TRPCError) throw err;
+    // Swallow DB/schema errors so the billing check never crashes the request
+    // (e.g. trialEndsAt column missing from DB)
   }
 
   return next({
