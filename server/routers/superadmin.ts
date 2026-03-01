@@ -2,7 +2,7 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { tenants, users, sessions, platformAnnouncements, activityLogs, appSettings, license, superadminAlerts, webhooks, workflows } from "../../drizzle/schema";
-import { eq, desc, sql, count, and, inArray } from "drizzle-orm";
+import { eq, desc, sql, count, and, inArray, type SQL } from "drizzle-orm";
 import { logger } from "../_core/logger";
 import { TRPCError } from "@trpc/server";
 import { getAllFlags, setFeatureFlag, getFlagDefinitions } from "../services/feature-flags";
@@ -78,6 +78,7 @@ export const superadminRouter = router({
         .query(async () => {
             const db = await getDb();
             if (!db) return [];
+            try {
 
             // First get base tenant data (always safe)
             const tenantList = await db
@@ -121,6 +122,11 @@ export const superadminRouter = router({
                 leadCount: leadCounts.get(t.id) ?? 0,
                 waNumberCount: waCounts.get(t.id) ?? 0,
             }));
+
+            } catch (e) {
+                logger.warn({ err: (e as any)?.message }, "[SuperAdmin] listTenants failed");
+                return [];
+            }
         }),
 
     /** Get platform-wide stats */
@@ -311,9 +317,14 @@ export const superadminRouter = router({
     getFeatureFlags: superadminGuard
         .input(z.object({ tenantId: z.number() }))
         .query(async ({ input }) => {
-            const flags = await getAllFlags(input.tenantId);
-            const definitions = getFlagDefinitions();
-            return { flags, definitions };
+            try {
+                const flags = await getAllFlags(input.tenantId);
+                const definitions = getFlagDefinitions();
+                return { flags, definitions };
+            } catch (e) {
+                logger.warn({ err: (e as any)?.message }, "[SuperAdmin] getFeatureFlags failed");
+                return { flags: {}, definitions: [] };
+            }
         }),
 
     /** Update a feature flag for a tenant */
@@ -423,29 +434,31 @@ export const superadminRouter = router({
             const db = await getDb();
             if (!db) return { rows: [], total: 0 };
             try {
-                let where = "1=1";
-                if (input.tenantId) where += ` AND al.tenantId = ${Number(input.tenantId)}`;
+                const conditions: SQL[] = [];
+                if (input.tenantId) conditions.push(sql`al.tenantId = ${input.tenantId}`);
                 if (input.action) {
-                    // Sanitize: only allow alphanumeric, underscore, dot, dash
                     const safeAction = input.action.replace(/[^a-zA-Z0-9_.\-]/g, "");
-                    if (safeAction) where += ` AND al.action LIKE '%${safeAction}%'`;
+                    if (safeAction) conditions.push(sql`al.action LIKE ${'%' + safeAction + '%'}`);
                 }
+                const whereClause = conditions.length > 0
+                    ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
+                    : sql``;
 
-                const [countResult] = await db.execute(sql.raw(
-                    `SELECT COUNT(*) as cnt FROM activity_logs al WHERE ${where}`
-                )) as any;
+                const [countResult] = await db.execute(sql`
+                    SELECT COUNT(*) as cnt FROM activity_logs al ${whereClause}
+                `) as any;
                 const total = Number(countResult?.[0]?.cnt ?? 0);
 
-                const [rows] = await db.execute(sql.raw(`
+                const [rows] = await db.execute(sql`
                     SELECT al.id, al.tenantId, t.name as tenantName, al.userId, u.name as userName,
                            al.action, al.entityType, al.entityId, al.details, al.createdAt
                     FROM activity_logs al
                     LEFT JOIN tenants t ON t.id = al.tenantId
                     LEFT JOIN users u ON u.id = al.userId
-                    WHERE ${where}
+                    ${whereClause}
                     ORDER BY al.createdAt DESC
                     LIMIT ${input.limit} OFFSET ${input.offset}
-                `)) as any;
+                `) as any;
 
                 return { rows: rows ?? [], total };
             } catch (e) {
@@ -466,26 +479,29 @@ export const superadminRouter = router({
             const db = await getDb();
             if (!db) return { rows: [], total: 0 };
             try {
-                let where = "1=1";
-                if (input.tenantId) where += ` AND al.tenantId = ${Number(input.tenantId)}`;
-                if (input.success !== undefined) where += ` AND al.success = ${input.success ? 1 : 0}`;
+                const conditions: SQL[] = [];
+                if (input.tenantId) conditions.push(sql`al.tenantId = ${input.tenantId}`);
+                if (input.success !== undefined) conditions.push(sql`al.success = ${input.success ? 1 : 0}`);
+                const whereClause = conditions.length > 0
+                    ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
+                    : sql``;
 
-                const [countResult] = await db.execute(sql.raw(
-                    `SELECT COUNT(*) as cnt FROM access_logs al WHERE ${where}`
-                )) as any;
+                const [countResult] = await db.execute(sql`
+                    SELECT COUNT(*) as cnt FROM access_logs al ${whereClause}
+                `) as any;
                 const total = Number(countResult?.[0]?.cnt ?? 0);
 
-                const [rows] = await db.execute(sql.raw(`
+                const [rows] = await db.execute(sql`
                     SELECT al.id, al.tenantId, t.name as tenantName, al.userId, u.name as userName,
                            al.action, al.entityType, al.ipAddress, al.userAgent,
                            al.success, al.errorMessage, al.createdAt
                     FROM access_logs al
                     LEFT JOIN tenants t ON t.id = al.tenantId
                     LEFT JOIN users u ON u.id = al.userId
-                    WHERE ${where}
+                    ${whereClause}
                     ORDER BY al.createdAt DESC
                     LIMIT ${input.limit} OFFSET ${input.offset}
-                `)) as any;
+                `) as any;
 
                 return { rows: rows ?? [], total };
             } catch (e) {
@@ -700,6 +716,7 @@ export const superadminRouter = router({
         .query(async ({ input }) => {
             const db = await getDb();
             if (!db) return null;
+            try {
 
             const limits = await getPlanLimits(input.tenantId);
 
@@ -723,6 +740,11 @@ export const superadminRouter = router({
                 whatsapp: { current: Number(waResult?.[0]?.cnt ?? 0),   limit: limits.maxWhatsappNumbers },
                 messages: { current: msgThisMonth,                      limit: limits.maxMessagesPerMonth },
             };
+
+            } catch (e) {
+                logger.warn({ err: (e as any)?.message }, "[SuperAdmin] usageVsLimits failed");
+                return null;
+            }
         }),
 
     // ══════════════════════════════════════════════════════════════
@@ -740,22 +762,26 @@ export const superadminRouter = router({
             const db = await getDb();
             if (!db) return [];
             try {
-                let where = "1=1";
-                if (input.tenantId) where += ` AND al.tenantId = ${Number(input.tenantId)}`;
+                const conditions: SQL[] = [];
+                if (input.tenantId) conditions.push(sql`al.tenantId = ${input.tenantId}`);
                 if (input.action) {
                     const safeAction = input.action.replace(/[^a-zA-Z0-9_.\-]/g, "");
-                    if (safeAction) where += ` AND al.action LIKE '%${safeAction}%'`;
+                    if (safeAction) conditions.push(sql`al.action LIKE ${'%' + safeAction + '%'}`);
                 }
-                const [rows] = await db.execute(sql.raw(`
+                const whereClause = conditions.length > 0
+                    ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
+                    : sql``;
+
+                const [rows] = await db.execute(sql`
                     SELECT al.id, al.tenantId, t.name as tenantName, al.userId, u.name as userName,
                            al.action, al.entityType, al.entityId, al.createdAt
                     FROM activity_logs al
                     LEFT JOIN tenants t ON t.id = al.tenantId
                     LEFT JOIN users u ON u.id = al.userId
-                    WHERE ${where}
+                    ${whereClause}
                     ORDER BY al.createdAt DESC
                     LIMIT ${input.limit}
-                `)) as any;
+                `) as any;
                 return rows ?? [];
             } catch { return []; }
         }),
@@ -771,20 +797,24 @@ export const superadminRouter = router({
             const db = await getDb();
             if (!db) return [];
             try {
-                let where = "1=1";
-                if (input.tenantId) where += ` AND al.tenantId = ${Number(input.tenantId)}`;
-                if (input.success !== undefined) where += ` AND al.success = ${input.success ? 1 : 0}`;
-                const [rows] = await db.execute(sql.raw(`
+                const conditions: SQL[] = [];
+                if (input.tenantId) conditions.push(sql`al.tenantId = ${input.tenantId}`);
+                if (input.success !== undefined) conditions.push(sql`al.success = ${input.success ? 1 : 0}`);
+                const whereClause = conditions.length > 0
+                    ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
+                    : sql``;
+
+                const [rows] = await db.execute(sql`
                     SELECT al.id, al.tenantId, t.name as tenantName, al.userId, u.name as userName,
                            al.action, al.entityType, al.ipAddress, al.userAgent,
                            al.success, al.errorMessage, al.createdAt
                     FROM access_logs al
                     LEFT JOIN tenants t ON t.id = al.tenantId
                     LEFT JOIN users u ON u.id = al.userId
-                    WHERE ${where}
+                    ${whereClause}
                     ORDER BY al.createdAt DESC
                     LIMIT ${input.limit}
-                `)) as any;
+                `) as any;
                 return rows ?? [];
             } catch { return []; }
         }),
@@ -832,20 +862,21 @@ export const superadminRouter = router({
             const db = await getDb();
             if (!db) return [];
             try {
-                let where = "s.expiresAt > NOW()";
-                if (input.tenantId) where += ` AND s.tenantId = ${Number(input.tenantId)}`;
+                const conditions: SQL[] = [sql`s.expiresAt > NOW()`];
+                if (input.tenantId) conditions.push(sql`s.tenantId = ${input.tenantId}`);
+                const whereClause = sql`WHERE ${sql.join(conditions, sql` AND `)}`;
 
-                const [rows] = await db.execute(sql.raw(`
+                const [rows] = await db.execute(sql`
                     SELECT s.id, s.tenantId, t.name as tenantName, s.userId,
                            u.name as userName, u.email as userEmail, u.role as userRole,
                            s.ipAddress, s.userAgent, s.lastActivityAt, s.expiresAt, s.createdAt
                     FROM sessions s
                     LEFT JOIN tenants t ON t.id = s.tenantId
                     LEFT JOIN users u ON u.id = s.userId
-                    WHERE ${where}
+                    ${whereClause}
                     ORDER BY s.lastActivityAt DESC
                     LIMIT ${input.limit}
-                `)) as any;
+                `) as any;
                 return rows ?? [];
             } catch (e) {
                 logger.warn({ err: (e as any)?.message }, "[SuperAdmin] listSessions failed");
@@ -950,17 +981,21 @@ export const superadminRouter = router({
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
+            // Filter out platform tenant (id=1)
+            const ids = input.tenantIds.filter(id => id !== 1);
+            if (ids.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "No se puede reactivar el tenant de plataforma." });
+
             await db.update(tenants)
                 .set({ status: "active" })
-                .where(inArray(tenants.id, input.tenantIds));
+                .where(inArray(tenants.id, ids));
 
-            await logSuperadminAction(ctx.user!.id, "bulkReactivate", { tenantIds: input.tenantIds, count: input.tenantIds.length });
+            await logSuperadminAction(ctx.user!.id, "bulkReactivate", { tenantIds: ids, count: ids.length });
             logger.warn(
-                { adminId: ctx.user!.id, tenantIds: input.tenantIds },
+                { adminId: ctx.user!.id, tenantIds: ids },
                 "[Superadmin] BULK reactivate"
             );
 
-            return { success: true, count: input.tenantIds.length, message: `${input.tenantIds.length} tenants reactivados.` };
+            return { success: true, count: ids.length, message: `${ids.length} tenants reactivados.` };
         }),
 
     // ══════════════════════════════════════════════════════════════
@@ -1509,32 +1544,32 @@ export const superadminRouter = router({
             const db = await getDb();
             if (!db) return { rows: [], total: 0 };
             try {
-                let where = "1=1";
-                if (input.tenantId) where += ` AND u.tenantId = ${Number(input.tenantId)}`;
-                if (input.role) {
-                    const safeRole = input.role.replace(/[^a-zA-Z]/g, "");
-                    where += ` AND u.role = '${safeRole}'`;
-                }
-                if (input.isActive !== undefined) where += ` AND u.isActive = ${input.isActive ? 1 : 0}`;
+                const conditions: SQL[] = [];
+                if (input.tenantId) conditions.push(sql`u.tenantId = ${input.tenantId}`);
+                if (input.role) conditions.push(sql`u.role = ${input.role}`);
+                if (input.isActive !== undefined) conditions.push(sql`u.isActive = ${input.isActive ? 1 : 0}`);
                 if (input.search) {
                     const safeSearch = input.search.replace(/['"\\%_]/g, "");
-                    where += ` AND (u.name LIKE '%${safeSearch}%' OR u.email LIKE '%${safeSearch}%')`;
+                    conditions.push(sql`(u.name LIKE ${'%' + safeSearch + '%'} OR u.email LIKE ${'%' + safeSearch + '%'})`);
                 }
+                const whereClause = conditions.length > 0
+                    ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
+                    : sql``;
 
-                const [countResult] = await db.execute(sql.raw(
-                    `SELECT COUNT(*) as cnt FROM users u WHERE ${where}`
-                )) as any;
+                const [countResult] = await db.execute(sql`
+                    SELECT COUNT(*) as cnt FROM users u ${whereClause}
+                `) as any;
                 const total = Number(countResult?.[0]?.cnt ?? 0);
 
-                const [rows] = await db.execute(sql.raw(`
+                const [rows] = await db.execute(sql`
                     SELECT u.id, u.tenantId, t.name as tenantName, u.name, u.email,
                            u.role, u.isActive, u.lastSignedIn, u.createdAt
                     FROM users u
                     LEFT JOIN tenants t ON t.id = u.tenantId
-                    WHERE ${where}
+                    ${whereClause}
                     ORDER BY u.lastSignedIn DESC
                     LIMIT ${input.limit} OFFSET ${input.offset}
-                `)) as any;
+                `) as any;
 
                 return { rows: rows ?? [], total };
             } catch { return { rows: [], total: 0 }; }
@@ -1614,50 +1649,50 @@ export const superadminRouter = router({
             const db = await getDb();
             if (!db) return { leads: [], conversations: [], messages: [] };
 
-            const safeQ = input.query.replace(/['"\\%_]/g, "");
+            const searchTerm = '%' + input.query + '%';
             const result: { leads: any[]; conversations: any[]; messages: any[] } = { leads: [], conversations: [], messages: [] };
 
             try {
                 if (input.entities.includes("leads")) {
-                    const [rows] = await db.execute(sql.raw(`
+                    const [rows] = await db.execute(sql`
                         SELECT l.id, l.tenantId, t.name as tenantName, l.name, l.phone, l.email, l.status, l.createdAt
                         FROM leads l
                         JOIN tenants t ON t.id = l.tenantId
                         WHERE l.deletedAt IS NULL
-                          AND (l.name LIKE '%${safeQ}%' OR l.phone LIKE '%${safeQ}%' OR l.email LIKE '%${safeQ}%')
+                          AND (l.name LIKE ${searchTerm} OR l.phone LIKE ${searchTerm} OR l.email LIKE ${searchTerm})
                         ORDER BY l.createdAt DESC
                         LIMIT ${input.limit}
-                    `)) as any;
+                    `) as any;
                     result.leads = rows ?? [];
                 }
             } catch { /* table may not exist */ }
 
             try {
                 if (input.entities.includes("conversations")) {
-                    const [rows] = await db.execute(sql.raw(`
+                    const [rows] = await db.execute(sql`
                         SELECT c.id, c.tenantId, t.name as tenantName, c.contactName, c.contactPhone,
                                c.status, c.lastMessageAt, c.createdAt
                         FROM conversations c
                         JOIN tenants t ON t.id = c.tenantId
-                        WHERE c.contactName LIKE '%${safeQ}%' OR c.contactPhone LIKE '%${safeQ}%'
+                        WHERE c.contactName LIKE ${searchTerm} OR c.contactPhone LIKE ${searchTerm}
                         ORDER BY c.lastMessageAt DESC
                         LIMIT ${input.limit}
-                    `)) as any;
+                    `) as any;
                     result.conversations = rows ?? [];
                 }
             } catch { /* table may not exist */ }
 
             try {
                 if (input.entities.includes("messages")) {
-                    const [rows] = await db.execute(sql.raw(`
+                    const [rows] = await db.execute(sql`
                         SELECT cm.id, cm.tenantId, t.name as tenantName, cm.conversationId,
                                SUBSTRING(cm.content, 1, 200) as content, cm.sender, cm.createdAt
                         FROM chat_messages cm
                         JOIN tenants t ON t.id = cm.tenantId
-                        WHERE cm.content LIKE '%${safeQ}%'
+                        WHERE cm.content LIKE ${searchTerm}
                         ORDER BY cm.createdAt DESC
                         LIMIT ${input.limit}
-                    `)) as any;
+                    `) as any;
                     result.messages = rows ?? [];
                 }
             } catch { /* table may not exist */ }
@@ -1738,14 +1773,17 @@ export const superadminRouter = router({
             const db = await getDb();
             if (!db) return { rows: [], total: 0, unreadCount: 0 };
             try {
-                let where = "1=1";
-                if (input.type) where += ` AND type = '${input.type.replace(/[^a-z_]/g, "")}'`;
-                if (input.severity) where += ` AND severity = '${input.severity.replace(/[^a-z]/g, "")}'`;
-                if (input.isRead !== undefined) where += ` AND isRead = ${input.isRead ? 1 : 0}`;
+                const conditions: SQL[] = [];
+                if (input.type) conditions.push(sql`type = ${input.type}`);
+                if (input.severity) conditions.push(sql`severity = ${input.severity}`);
+                if (input.isRead !== undefined) conditions.push(sql`isRead = ${input.isRead ? 1 : 0}`);
+                const whereClause = conditions.length > 0
+                    ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
+                    : sql``;
 
-                const [countResult] = await db.execute(sql.raw(
-                    `SELECT COUNT(*) as cnt FROM superadmin_alerts WHERE ${where}`
-                )) as any;
+                const [countResult] = await db.execute(sql`
+                    SELECT COUNT(*) as cnt FROM superadmin_alerts ${whereClause}
+                `) as any;
                 const total = Number(countResult?.[0]?.cnt ?? 0);
 
                 const [unreadResult] = await db.execute(sql`
@@ -1753,14 +1791,14 @@ export const superadminRouter = router({
                 `) as any;
                 const unreadCount = Number(unreadResult?.[0]?.cnt ?? 0);
 
-                const [rows] = await db.execute(sql.raw(`
+                const [rows] = await db.execute(sql`
                     SELECT sa.*, t.name as tenantName
                     FROM superadmin_alerts sa
                     LEFT JOIN tenants t ON t.id = sa.tenantId
-                    WHERE ${where}
+                    ${whereClause}
                     ORDER BY sa.createdAt DESC
                     LIMIT ${input.limit} OFFSET ${input.offset}
-                `)) as any;
+                `) as any;
 
                 return { rows: rows ?? [], total, unreadCount };
             } catch { return { rows: [], total: 0, unreadCount: 0 }; }
@@ -1772,7 +1810,7 @@ export const superadminRouter = router({
             alertId: z.number().optional(),
             all: z.boolean().optional(),
         }))
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
@@ -1782,6 +1820,7 @@ export const superadminRouter = router({
                 await db.update(superadminAlerts).set({ isRead: true }).where(eq(superadminAlerts.id, input.alertId));
             }
 
+            await logSuperadminAction(ctx.user!.id, "markAlertRead", { alertId: input.alertId, all: input.all });
             return { success: true, message: "Alertas marcadas como leídas." };
         }),
 
@@ -2224,7 +2263,8 @@ export const superadminRouter = router({
         .mutation(async ({ ctx, input }) => {
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-            const newKey = `lic_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
+            const crypto = await import("crypto");
+            const newKey = `lic_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
             await db.update(license).set({ key: newKey }).where(eq(license.id, input.licenseId));
             await logSuperadminAction(ctx.user!.id, "rotateLicenseKey", { licenseId: input.licenseId });
             return { ok: true, message: "Clave rotada", newKey };

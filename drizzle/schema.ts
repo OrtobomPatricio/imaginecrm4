@@ -840,6 +840,7 @@ export const achievements = mysqlTable('achievements', {
 });
 
 export type Achievement = typeof achievements.$inferSelect;
+export type InsertAchievement = typeof achievements.$inferInsert;
 /**
  * Internal Team Chat messages
  */
@@ -1195,6 +1196,7 @@ export const featureFlags = mysqlTable("feature_flags", {
   tenantId: int("tenantId").notNull().references(() => tenants.id, { onDelete: "cascade" }),
   flag: varchar("flag", { length: 100 }).notNull(),
   enabled: boolean("enabled").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (t) => ({
   uniqueTenantFlag: uniqueIndex("idx_ff_tenant_flag").on(t.tenantId, t.flag),
@@ -1212,7 +1214,7 @@ export const superadminAlerts = mysqlTable("superadmin_alerts", {
   severity: mysqlEnum("severity", ["info", "warning", "critical"]).default("warning").notNull(),
   title: varchar("title", { length: 255 }).notNull(),
   message: text("message").notNull(),
-  tenantId: int("tenantId"),
+  tenantId: int("tenantId").references(() => tenants.id, { onDelete: "set null" }),
   metadata: json("metadata"),
   isRead: boolean("isRead").default(false).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

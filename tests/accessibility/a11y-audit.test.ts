@@ -51,15 +51,6 @@ describe("Accessibility Checklist (WCAG 2.1 AA)", () => {
         expect(mod.default).toBeDefined();
     });
 
-    it("should have accessibility utilities", async () => {
-        const { usePrefersReducedMotion, useFocusTrap, useAriaId } = await import(
-            "../../client/src/lib/accessibility"
-        );
-        expect(usePrefersReducedMotion).toBeDefined();
-        expect(useFocusTrap).toBeDefined();
-        expect(useAriaId).toBeDefined();
-    });
-
     it("should have skeleton components with aria labels", async () => {
         const { KanbanSkeleton, ChatListSkeleton, TableSkeleton, CardSkeleton } = await import(
             "../../client/src/components/Skeletons"

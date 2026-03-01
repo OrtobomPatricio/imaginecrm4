@@ -6,10 +6,8 @@ import { useOnboarding } from "@/hooks/useOnboarding";
 import {
     Send,
     Sparkles,
-    MessageSquare,
     CheckCircle2,
     Users,
-    ChevronRight,
     Rocket
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";

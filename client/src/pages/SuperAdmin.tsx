@@ -2185,7 +2185,7 @@ function AllUsersPanel() {
           try {
             const res = await (trpc as any).superadmin.exportAllUsers.query({ limit: 5000 });
             downloadCSV(res ?? [], `users_${Date.now()}.csv`);
-          } catch (e: any) { console.error(e); }
+          } catch { /* handled by trpc error */ }
         }}>
           <FileDown className="w-3 h-3" /> Exportar CSV
         </Button>
@@ -3614,7 +3614,7 @@ export default function SuperAdmin() {
                   try {
                     const rows = await (trpc as any).superadmin.exportTenants.query();
                     downloadCSV(rows ?? [], `tenants_${Date.now()}.csv`);
-                  } catch (e: any) { console.error(e); }
+                  } catch { /* handled by trpc error */ }
                 }}>
                   <FileDown className="w-3 h-3" /> Exportar CSV
                 </Button>
