@@ -62,31 +62,50 @@ export async function runMigrations() {
 async function ensureCompatibilitySchema(connection: mysql.Connection) {
     const REQUIRED_SCHEMA_TABLES = [
         "access_logs",
+        "achievements",
         "activity_logs",
+        "ai_suggestions",
         "app_settings",
         "appointment_reasons",
         "appointments",
         "campaign_recipients",
         "campaigns",
         "chat_messages",
+        "chatbot_flows",
+        "conversation_tags",
         "conversations",
         "custom_field_definitions",
         "facebook_pages",
+        "file_uploads",
+        "forms",
+        "goals",
         "integrations",
+        "internal_messages",
+        "lead_notes",
         "lead_reminders",
+        "lead_tags",
+        "lead_tasks",
         "leads",
+        "license",
         "message_queue",
         "onboarding_progress",
         "pipeline_stages",
         "pipelines",
         "quick_answers",
+        "quotations",
         "reminder_templates",
         "sessions",
         "smtp_connections",
+        "support_queues",
+        "support_user_queues",
+        "tags",
         "templates",
         "tenants",
         "terms_acceptance",
+        "usage_tracking",
         "users",
+        "webhook_deliveries",
+        "webhooks",
         "whatsapp_connections",
         "whatsapp_numbers",
         "workflow_jobs",
@@ -470,7 +489,366 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
         logger.warn("[Migration] Created missing workflow_jobs table");
     }
 
+    // ---- Additional feature tables (auto-created if missing) ----
+
+    if (!(await hasTable("support_queues"))) {
+        await connection.query(`
+            CREATE TABLE support_queues (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              name VARCHAR(100) NOT NULL,
+              color VARCHAR(32) NOT NULL,
+              greetingMessage TEXT NULL,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              UNIQUE KEY uniq_support_queues_name (tenantId, name)
+            )
+        `);
+        logger.warn("[Migration] Created missing support_queues table");
+    }
+
+    if (!(await hasTable("support_user_queues"))) {
+        await connection.query(`
+            CREATE TABLE support_user_queues (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              userId INT NOT NULL,
+              queueId INT NOT NULL,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              UNIQUE KEY uniq_user_queue (tenantId, userId, queueId)
+            )
+        `);
+        logger.warn("[Migration] Created missing support_user_queues table");
+    }
+
+    if (!(await hasTable("goals"))) {
+        await connection.query(`
+            CREATE TABLE goals (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              userId INT NOT NULL,
+              type ENUM('sales_amount','deals_closed','leads_created','messages_sent') NOT NULL,
+              targetAmount INT NOT NULL,
+              currentAmount INT NOT NULL DEFAULT 0,
+              period ENUM('daily','weekly','monthly') NOT NULL DEFAULT 'monthly',
+              startDate TIMESTAMP NOT NULL,
+              endDate TIMESTAMP NOT NULL,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        logger.warn("[Migration] Created missing goals table");
+    }
+
+    if (!(await hasTable("achievements"))) {
+        await connection.query(`
+            CREATE TABLE achievements (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              userId INT NOT NULL,
+              type VARCHAR(50) NOT NULL,
+              unlockedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              metadata JSON NULL
+            )
+        `);
+        logger.warn("[Migration] Created missing achievements table");
+    }
+
+    if (!(await hasTable("internal_messages"))) {
+        await connection.query(`
+            CREATE TABLE internal_messages (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              senderId INT NOT NULL,
+              recipientId INT NULL,
+              content TEXT NOT NULL,
+              attachments JSON NULL,
+              isRead BOOLEAN NOT NULL DEFAULT FALSE,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        logger.warn("[Migration] Created missing internal_messages table");
+    }
+
+    if (!(await hasTable("tags"))) {
+        await connection.query(`
+            CREATE TABLE tags (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              name VARCHAR(50) NOT NULL,
+              color VARCHAR(7) NOT NULL DEFAULT '#3b82f6',
+              description TEXT NULL,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              UNIQUE KEY uniq_tag_name (tenantId, name)
+            )
+        `);
+        logger.warn("[Migration] Created missing tags table");
+    }
+
+    if (!(await hasTable("lead_tags"))) {
+        await connection.query(`
+            CREATE TABLE lead_tags (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              leadId INT NOT NULL,
+              tagId INT NOT NULL,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              UNIQUE KEY uniq_lead_tag (tenantId, leadId, tagId)
+            )
+        `);
+        logger.warn("[Migration] Created missing lead_tags table");
+    }
+
+    if (!(await hasTable("conversation_tags"))) {
+        await connection.query(`
+            CREATE TABLE conversation_tags (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              conversationId INT NOT NULL,
+              tagId INT NOT NULL,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              UNIQUE KEY uniq_conv_tag (tenantId, conversationId, tagId)
+            )
+        `);
+        logger.warn("[Migration] Created missing conversation_tags table");
+    }
+
+    if (!(await hasTable("lead_notes"))) {
+        await connection.query(`
+            CREATE TABLE lead_notes (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              leadId INT NOT NULL,
+              content TEXT NOT NULL,
+              createdById INT NULL,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        logger.warn("[Migration] Created missing lead_notes table");
+    }
+
+    if (!(await hasTable("lead_tasks"))) {
+        await connection.query(`
+            CREATE TABLE lead_tasks (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              leadId INT NOT NULL,
+              title VARCHAR(200) NOT NULL,
+              description TEXT NULL,
+              dueDate TIMESTAMP NULL,
+              status ENUM('pending','completed','cancelled') NOT NULL DEFAULT 'pending',
+              priority ENUM('low','medium','high') NOT NULL DEFAULT 'medium',
+              assignedToId INT NULL,
+              createdById INT NULL,
+              completedAt TIMESTAMP NULL,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        logger.warn("[Migration] Created missing lead_tasks table");
+    }
+
+    if (!(await hasTable("ai_suggestions"))) {
+        await connection.query(`
+            CREATE TABLE ai_suggestions (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              conversationId INT NOT NULL,
+              suggestion TEXT NOT NULL,
+              context TEXT NULL,
+              used BOOLEAN NOT NULL DEFAULT FALSE,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        logger.warn("[Migration] Created missing ai_suggestions table");
+    }
+
+    if (!(await hasTable("chatbot_flows"))) {
+        await connection.query(`
+            CREATE TABLE chatbot_flows (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              name VARCHAR(100) NOT NULL,
+              \`trigger\` ENUM('keyword','new_conversation','no_match','hours') NOT NULL,
+              triggerValue VARCHAR(200) NULL,
+              responses JSON NOT NULL,
+              isActive BOOLEAN NOT NULL DEFAULT TRUE,
+              hoursOnly BOOLEAN NOT NULL DEFAULT FALSE,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        logger.warn("[Migration] Created missing chatbot_flows table");
+    }
+
+    if (!(await hasTable("quotations"))) {
+        await connection.query(`
+            CREATE TABLE quotations (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              leadId INT NOT NULL,
+              conversationId INT NULL,
+              quoteNumber VARCHAR(50) NOT NULL,
+              title VARCHAR(200) NOT NULL,
+              description TEXT NULL,
+              items JSON NOT NULL,
+              subtotal DECIMAL(12,2) NOT NULL,
+              tax DECIMAL(12,2) DEFAULT '0.00',
+              total DECIMAL(12,2) NOT NULL,
+              currency VARCHAR(10) NOT NULL DEFAULT 'PYG',
+              status ENUM('draft','sent','approved','rejected','expired') NOT NULL DEFAULT 'draft',
+              validUntil TIMESTAMP NULL,
+              approvedAt TIMESTAMP NULL,
+              rejectedAt TIMESTAMP NULL,
+              rejectionReason TEXT NULL,
+              pdfUrl VARCHAR(500) NULL,
+              createdById INT NULL,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              UNIQUE KEY uniq_quote_number (tenantId, quoteNumber)
+            )
+        `);
+        logger.warn("[Migration] Created missing quotations table");
+    }
+
+    if (!(await hasTable("forms"))) {
+        await connection.query(`
+            CREATE TABLE forms (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              name VARCHAR(100) NOT NULL,
+              slug VARCHAR(100) NOT NULL,
+              title VARCHAR(200) NULL,
+              description TEXT NULL,
+              fields JSON NOT NULL,
+              whatsappNumberId INT NULL,
+              welcomeMessage TEXT NULL,
+              isActive BOOLEAN NOT NULL DEFAULT TRUE,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              UNIQUE KEY uniq_form_slug (tenantId, slug)
+            )
+        `);
+        logger.warn("[Migration] Created missing forms table");
+    }
+
+    if (!(await hasTable("license"))) {
+        await connection.query(`
+            CREATE TABLE license (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              \`key\` VARCHAR(255) NOT NULL,
+              status ENUM('active','expired','canceled','trial') NOT NULL DEFAULT 'trial',
+              plan VARCHAR(50) NOT NULL DEFAULT 'starter',
+              expiresAt TIMESTAMP NULL,
+              maxUsers INT DEFAULT 5,
+              maxWhatsappNumbers INT DEFAULT 3,
+              maxMessagesPerMonth INT DEFAULT 10000,
+              features JSON NULL,
+              metadata JSON NULL,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              UNIQUE KEY uniq_license_key (\`key\`)
+            )
+        `);
+        logger.warn("[Migration] Created missing license table");
+    }
+
+    if (!(await hasTable("usage_tracking"))) {
+        await connection.query(`
+            CREATE TABLE usage_tracking (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              year INT NOT NULL,
+              month INT NOT NULL,
+              messagesSent INT DEFAULT 0,
+              messagesReceived INT DEFAULT 0,
+              activeUsers INT DEFAULT 0,
+              activeWhatsappNumbers INT DEFAULT 0,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              UNIQUE KEY uniq_usage_year_month (tenantId, year, month)
+            )
+        `);
+        logger.warn("[Migration] Created missing usage_tracking table");
+    }
+
+    if (!(await hasTable("webhooks"))) {
+        await connection.query(`
+            CREATE TABLE webhooks (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              name VARCHAR(100) NOT NULL,
+              url VARCHAR(500) NOT NULL,
+              secret VARCHAR(255) NOT NULL,
+              events JSON NOT NULL,
+              active BOOLEAN NOT NULL DEFAULT TRUE,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        logger.warn("[Migration] Created missing webhooks table");
+    }
+
+    if (!(await hasTable("webhook_deliveries"))) {
+        await connection.query(`
+            CREATE TABLE webhook_deliveries (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              webhookId INT NOT NULL,
+              event VARCHAR(100) NOT NULL,
+              payload TEXT NOT NULL,
+              responseStatus INT NULL,
+              responseBody TEXT NULL,
+              success BOOLEAN NOT NULL DEFAULT FALSE,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        logger.warn("[Migration] Created missing webhook_deliveries table");
+    }
+
+    if (!(await hasTable("file_uploads"))) {
+        await connection.query(`
+            CREATE TABLE file_uploads (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL,
+              userId INT NULL,
+              filename VARCHAR(255) NOT NULL,
+              originalName VARCHAR(255) NOT NULL,
+              mimeType VARCHAR(100) NOT NULL,
+              size INT NOT NULL,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              UNIQUE KEY uniq_file_uploads_filename (filename)
+            )
+        `);
+        logger.warn("[Migration] Created missing file_uploads table");
+    }
+
     await ensureColumn("app_settings", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "app_settings.tenantId column");
+
+    // Unique constraint on (tenantId, email) for users — prevents duplicate emails within a tenant
+    if (await hasTable("users") && await hasColumn("users", "email") && await hasColumn("users", "tenantId")) {
+        const [idxRows] = await connection.query(
+            `SELECT COUNT(*) AS cnt
+             FROM information_schema.statistics
+             WHERE table_schema = DATABASE()
+               AND table_name = 'users'
+               AND index_name = 'uniq_users_tenant_email'`,
+        );
+        const hasIdx = Number((idxRows as Array<{ cnt: number }>)[0]?.cnt ?? 0) > 0;
+        if (!hasIdx) {
+            try {
+                await connection.query(
+                    `ALTER TABLE users ADD UNIQUE INDEX uniq_users_tenant_email (tenantId, email)`
+                );
+                logger.warn("[Migration] Added unique index uniq_users_tenant_email (tenantId, email)");
+            } catch (e: any) {
+                // May fail if duplicates already exist — log but don't crash
+                logger.warn({ err: safeError(e) }, "[Migration] Could not add uniq_users_tenant_email (possible duplicate emails). Clean duplicates and retry.");
+            }
+        }
+    }
 
     await ensureColumn("app_settings", "singleton", "`singleton` INT NOT NULL DEFAULT 1", "app_settings.singleton column");
     await ensureColumn("app_settings", "securityConfig", "`securityConfig` JSON NULL", "app_settings.securityConfig column");

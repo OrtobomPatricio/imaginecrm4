@@ -94,10 +94,13 @@ export async function createApp() {
   // Rate Limiting (Modular)
   app.use(rateLimitMiddleware);
 
-  // Idempotency (Modular)
-  import("./middleware/idempotency").then(({ idempotencyMiddleware }) => {
+  // Idempotency (Modular) — await to ensure it's registered before first request
+  try {
+    const { idempotencyMiddleware } = await import("./middleware/idempotency");
     app.use(idempotencyMiddleware);
-  });
+  } catch (e) {
+    logger.warn({ err: safeError(e) }, "idempotency middleware load failed, skipping");
+  }
 
   // Trust Proxy Config
   if (process.env.TRUST_PROXY === "1") {

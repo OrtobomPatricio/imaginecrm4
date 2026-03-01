@@ -12,8 +12,15 @@ import { logger, safeError } from "../_core/logger";
 
 // Concurrency limit per tick
 const BATCH_SIZE = 50;
+// Throttle gap between WhatsApp messages (ms) – avoids Meta rate limits
+const WA_THROTTLE_MS = Number(process.env.CAMPAIGN_WA_THROTTLE_MS ?? "200"); // ~5 msg/s max
+// Max WhatsApp messages per number per day (Meta recommended limit for new numbers)
+const WA_DAILY_LIMIT = Number(process.env.CAMPAIGN_WA_DAILY_LIMIT ?? "1000");
+
 let schemaChecked = false;
 let schemaReady = false;
+
+function sleep(ms: number) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
 async function ensureCampaignSchema(): Promise<boolean> {
     if (schemaChecked) return schemaReady;
@@ -339,7 +346,11 @@ async function processWhatsAppCampaignBatch(campaign: typeof campaigns.$inferSel
         return;
     }
 
-    // 4. Send Messages
+    // 4. Send Messages (with throttling to respect Meta API limits)
+    let sentThisBatch = 0;
+    // Track daily count per phoneNumberId to enforce WA_DAILY_LIMIT
+    const dailyCountCache = new Map<string, number>();
+
     for (const recipient of recipients) {
         try {
             // TENANT-SCOPED lead lookup
@@ -375,6 +386,34 @@ async function processWhatsAppCampaignBatch(campaign: typeof campaigns.$inferSel
                 continue;
             }
 
+            // --- Daily limit check per phone number ---
+            if (!dailyCountCache.has(phoneNumberId)) {
+                try {
+                    const [countRows] = await db.execute(sql`
+                        SELECT COUNT(*) AS cnt FROM campaign_recipients
+                        WHERE whatsapp_number_id = ${connForRecipient.whatsappNumberId}
+                          AND status IN ('sent','delivered','read')
+                          AND sent_at >= CURDATE()
+                    `) as any;
+                    dailyCountCache.set(phoneNumberId, Number(countRows?.[0]?.cnt ?? countRows?.cnt ?? 0));
+                } catch {
+                    dailyCountCache.set(phoneNumberId, 0);
+                }
+            }
+
+            const dailySent = dailyCountCache.get(phoneNumberId) ?? 0;
+            if (dailySent + sentThisBatch >= WA_DAILY_LIMIT) {
+                logger.warn({ phoneNumberId, dailySent, limit: WA_DAILY_LIMIT, campaignId: campaign.id },
+                    "[CampaignWorker] Daily WA limit reached for number, pausing campaign");
+                await db.update(campaigns).set({ status: "paused" }).where(eq(campaigns.id, campaign.id));
+                return; // Stop entire batch for this campaign
+            }
+
+            // --- Throttle between messages ---
+            if (sentThisBatch > 0 && WA_THROTTLE_MS > 0) {
+                await sleep(WA_THROTTLE_MS);
+            }
+
             const { messageId } = await sendCloudTemplate({
                 accessToken,
                 phoneNumberId,
@@ -395,6 +434,8 @@ async function processWhatsAppCampaignBatch(campaign: typeof campaigns.$inferSel
             await db.update(campaigns)
                 .set({ messagesSent: sql`${campaigns.messagesSent} + 1` })
                 .where(eq(campaigns.id, campaign.id));
+
+            sentThisBatch++;
 
         } catch (error: any) {
             logger.error({ err: safeError(error), recipientId: recipient.id }, `[CampaignWorker] Failed to send to recipient ${recipient.id}`);
