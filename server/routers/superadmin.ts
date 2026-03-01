@@ -2,7 +2,7 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { tenants, users, whatsappNumbers, conversations, leads, sessions } from "../../drizzle/schema";
-import { eq, desc, sql, count } from "drizzle-orm";
+import { eq, desc, sql, count, and, gte, lte } from "drizzle-orm";
 import { logger } from "../_core/logger";
 import { TRPCError } from "@trpc/server";
 import { getAllFlags, setFeatureFlag, getFlagDefinitions } from "../services/feature-flags";
@@ -61,6 +61,8 @@ export const superadminRouter = router({
                     slug: tenants.slug,
                     plan: tenants.plan,
                     status: tenants.status,
+                    stripeCustomerId: tenants.stripeCustomerId,
+                    trialEndsAt: tenants.trialEndsAt,
                     createdAt: tenants.createdAt,
                     updatedAt: tenants.updatedAt,
                 })
@@ -248,6 +250,7 @@ export const superadminRouter = router({
                     email: (users as any).email,
                     role: users.role,
                     isActive: users.isActive,
+                    lastSignedIn: (users as any).lastSignedIn,
                     createdAt: users.createdAt,
                 }).from(users).where(eq(users.tenantId, input.tenantId));
                 return userList;
@@ -281,5 +284,385 @@ export const superadminRouter = router({
                 "[Superadmin] Feature flag updated"
             );
             return { success: true };
+        }),
+
+    // ══════════════════════════════════════════════════════════════
+    //  SYSTEM HEALTH & OPERATIONS
+    // ══════════════════════════════════════════════════════════════
+
+    /** System health: uptime, memory, Node version, env */
+    systemHealth: superadminGuard
+        .query(async () => {
+            const mem = process.memoryUsage();
+            const upSeconds = process.uptime();
+
+            // Test DB connection
+            let dbStatus = "disconnected";
+            try {
+                const db = await getDb();
+                if (db) {
+                    await db.execute(sql.raw("SELECT 1"));
+                    dbStatus = "connected";
+                }
+            } catch { dbStatus = "error"; }
+
+            // Test Redis
+            let redisStatus = "unknown";
+            try {
+                const { cacheGet } = await import("../services/app-cache");
+                await cacheGet("__health_check__");
+                redisStatus = "connected";
+            } catch { redisStatus = "disconnected"; }
+
+            return {
+                nodeVersion: process.version,
+                nodeEnv: process.env.NODE_ENV ?? "development",
+                platform: process.platform,
+                uptimeSeconds: Math.floor(upSeconds),
+                uptimeFormatted: `${Math.floor(upSeconds / 86400)}d ${Math.floor((upSeconds % 86400) / 3600)}h ${Math.floor((upSeconds % 3600) / 60)}m`,
+                memory: {
+                    rss: Math.round(mem.rss / 1024 / 1024),
+                    heapUsed: Math.round(mem.heapUsed / 1024 / 1024),
+                    heapTotal: Math.round(mem.heapTotal / 1024 / 1024),
+                    external: Math.round(mem.external / 1024 / 1024),
+                },
+                dbStatus,
+                redisStatus,
+                timestamp: new Date().toISOString(),
+            };
+        }),
+
+    // ══════════════════════════════════════════════════════════════
+    //  WHATSAPP HEALTH
+    // ══════════════════════════════════════════════════════════════
+
+    /** Cross-tenant WhatsApp connection status */
+    whatsappHealth: superadminGuard
+        .query(async () => {
+            const db = await getDb();
+            if (!db) return [];
+            try {
+                const [rows] = await db.execute(sql.raw(`
+                    SELECT wn.id, wn.tenantId, t.name as tenantName, wn.phoneNumber, wn.displayName,
+                           wn.status, wn.isConnected, wn.lastConnected, wn.totalMessagesSent,
+                           wn.messagesSentToday, wn.dailyMessageLimit, wn.warmupDay
+                    FROM whatsapp_numbers wn
+                    JOIN tenants t ON t.id = wn.tenantId
+                    ORDER BY wn.isConnected ASC, wn.tenantId ASC
+                `)) as any;
+                return (rows ?? []).map((r: any) => ({
+                    ...r,
+                    isConnected: Boolean(r.isConnected),
+                }));
+            } catch (e) {
+                logger.warn({ err: (e as any)?.message }, "[SuperAdmin] whatsappHealth query failed");
+                return [];
+            }
+        }),
+
+    // ══════════════════════════════════════════════════════════════
+    //  ACTIVITY & ACCESS LOGS
+    // ══════════════════════════════════════════════════════════════
+
+    /** Cross-tenant activity log viewer */
+    activityLogs: superadminGuard
+        .input(z.object({
+            tenantId: z.number().optional(),
+            action: z.string().optional(),
+            limit: z.number().min(1).max(200).default(50),
+            offset: z.number().default(0),
+        }))
+        .query(async ({ input }) => {
+            const db = await getDb();
+            if (!db) return { rows: [], total: 0 };
+            try {
+                let where = "1=1";
+                if (input.tenantId) where += ` AND al.tenantId = ${Number(input.tenantId)}`;
+                if (input.action) where += ` AND al.action LIKE '%${input.action.replace(/'/g, "")}%'`;
+
+                const [countResult] = await db.execute(sql.raw(
+                    `SELECT COUNT(*) as cnt FROM activity_logs al WHERE ${where}`
+                )) as any;
+                const total = Number(countResult?.[0]?.cnt ?? 0);
+
+                const [rows] = await db.execute(sql.raw(`
+                    SELECT al.id, al.tenantId, t.name as tenantName, al.userId, u.name as userName,
+                           al.action, al.entityType, al.entityId, al.details, al.createdAt
+                    FROM activity_logs al
+                    LEFT JOIN tenants t ON t.id = al.tenantId
+                    LEFT JOIN users u ON u.id = al.userId
+                    WHERE ${where}
+                    ORDER BY al.createdAt DESC
+                    LIMIT ${input.limit} OFFSET ${input.offset}
+                `)) as any;
+
+                return { rows: rows ?? [], total };
+            } catch (e) {
+                logger.warn({ err: (e as any)?.message }, "[SuperAdmin] activityLogs query failed");
+                return { rows: [], total: 0 };
+            }
+        }),
+
+    /** Security access log viewer (IPs, failed logins, etc.) */
+    accessLogs: superadminGuard
+        .input(z.object({
+            tenantId: z.number().optional(),
+            success: z.boolean().optional(),
+            limit: z.number().min(1).max(200).default(50),
+            offset: z.number().default(0),
+        }))
+        .query(async ({ input }) => {
+            const db = await getDb();
+            if (!db) return { rows: [], total: 0 };
+            try {
+                let where = "1=1";
+                if (input.tenantId) where += ` AND al.tenantId = ${Number(input.tenantId)}`;
+                if (input.success !== undefined) where += ` AND al.success = ${input.success ? 1 : 0}`;
+
+                const [countResult] = await db.execute(sql.raw(
+                    `SELECT COUNT(*) as cnt FROM access_logs al WHERE ${where}`
+                )) as any;
+                const total = Number(countResult?.[0]?.cnt ?? 0);
+
+                const [rows] = await db.execute(sql.raw(`
+                    SELECT al.id, al.tenantId, t.name as tenantName, al.userId, u.name as userName,
+                           al.action, al.entityType, al.ipAddress, al.userAgent,
+                           al.success, al.errorMessage, al.createdAt
+                    FROM access_logs al
+                    LEFT JOIN tenants t ON t.id = al.tenantId
+                    LEFT JOIN users u ON u.id = al.userId
+                    WHERE ${where}
+                    ORDER BY al.createdAt DESC
+                    LIMIT ${input.limit} OFFSET ${input.offset}
+                `)) as any;
+
+                return { rows: rows ?? [], total };
+            } catch (e) {
+                logger.warn({ err: (e as any)?.message }, "[SuperAdmin] accessLogs query failed");
+                return { rows: [], total: 0 };
+            }
+        }),
+
+    // ══════════════════════════════════════════════════════════════
+    //  GROWTH & ANALYTICS
+    // ══════════════════════════════════════════════════════════════
+
+    /** Tenant growth over time (new registrations per day) */
+    tenantGrowth: superadminGuard
+        .input(z.object({
+            days: z.number().min(7).max(365).default(30),
+        }))
+        .query(async ({ input }) => {
+            const db = await getDb();
+            if (!db) return [];
+            try {
+                const [rows] = await db.execute(sql.raw(`
+                    SELECT DATE(createdAt) as date, COUNT(*) as cnt
+                    FROM tenants
+                    WHERE createdAt >= DATE_SUB(NOW(), INTERVAL ${input.days} DAY)
+                    GROUP BY DATE(createdAt)
+                    ORDER BY date ASC
+                `)) as any;
+                return (rows ?? []).map((r: any) => ({
+                    date: r.date,
+                    count: Number(r.cnt),
+                }));
+            } catch { return []; }
+        }),
+
+    /** Trial expiration tracker */
+    expiringTrials: superadminGuard
+        .input(z.object({
+            daysAhead: z.number().min(0).max(90).default(7),
+        }))
+        .query(async ({ input }) => {
+            const db = await getDb();
+            if (!db) return [];
+            try {
+                const [rows] = await db.execute(sql.raw(`
+                    SELECT id, name, slug, plan, trialEndsAt, status,
+                           DATEDIFF(trialEndsAt, NOW()) as daysLeft
+                    FROM tenants
+                    WHERE trialEndsAt IS NOT NULL
+                      AND trialEndsAt <= DATE_ADD(NOW(), INTERVAL ${input.daysAhead} DAY)
+                    ORDER BY trialEndsAt ASC
+                `)) as any;
+                return rows ?? [];
+            } catch { return []; }
+        }),
+
+    /** Churn detection: tenants with zero activity in last N days */
+    inactiveTenants: superadminGuard
+        .input(z.object({
+            inactiveDays: z.number().min(1).max(365).default(14),
+        }))
+        .query(async ({ input }) => {
+            const db = await getDb();
+            if (!db) return [];
+            try {
+                const [rows] = await db.execute(sql.raw(`
+                    SELECT t.id, t.name, t.slug, t.plan, t.status,
+                           COALESCE(MAX(u.lastSignedIn), t.createdAt) as lastActivity,
+                           DATEDIFF(NOW(), COALESCE(MAX(u.lastSignedIn), t.createdAt)) as daysSinceActivity
+                    FROM tenants t
+                    LEFT JOIN users u ON u.tenantId = t.id
+                    GROUP BY t.id
+                    HAVING daysSinceActivity >= ${input.inactiveDays}
+                    ORDER BY daysSinceActivity DESC
+                `)) as any;
+                return rows ?? [];
+            } catch { return []; }
+        }),
+
+    /** Onboarding funnel: completion rates across tenants */
+    onboardingFunnel: superadminGuard
+        .query(async () => {
+            const db = await getDb();
+            if (!db) return null;
+            try {
+                const [rows] = await db.execute(sql.raw(`
+                    SELECT
+                        COUNT(*) as total,
+                        SUM(companyCompleted) as company,
+                        SUM(teamCompleted) as team,
+                        SUM(whatsappCompleted) as whatsapp,
+                        SUM(importCompleted) as import_step,
+                        SUM(firstMessageCompleted) as firstMessage,
+                        SUM(CASE WHEN completedAt IS NOT NULL THEN 1 ELSE 0 END) as fullyCompleted
+                    FROM onboarding_progress
+                `)) as any;
+                const r = rows?.[0];
+                if (!r) return null;
+                return {
+                    total: Number(r.total),
+                    company: Number(r.company),
+                    team: Number(r.team),
+                    whatsapp: Number(r.whatsapp),
+                    importStep: Number(r.import_step),
+                    firstMessage: Number(r.firstMessage),
+                    fullyCompleted: Number(r.fullyCompleted),
+                };
+            } catch { return null; }
+        }),
+
+    // ══════════════════════════════════════════════════════════════
+    //  MESSAGE & WORKFLOW QUEUES
+    // ══════════════════════════════════════════════════════════════
+
+    /** Message queue status (pending/processing/sent/failed) */
+    messageQueueStats: superadminGuard
+        .query(async () => {
+            const db = await getDb();
+            if (!db) return [];
+            try {
+                const [rows] = await db.execute(sql.raw(`
+                    SELECT mq.tenantId, t.name as tenantName, mq.status, COUNT(*) as cnt
+                    FROM message_queue mq
+                    JOIN tenants t ON t.id = mq.tenantId
+                    GROUP BY mq.tenantId, t.name, mq.status
+                    ORDER BY mq.tenantId
+                `)) as any;
+                return rows ?? [];
+            } catch { return []; }
+        }),
+
+    /** Workflow jobs status (pending/completed/failed) */
+    workflowJobStats: superadminGuard
+        .query(async () => {
+            const db = await getDb();
+            if (!db) return [];
+            try {
+                const [rows] = await db.execute(sql.raw(`
+                    SELECT wj.tenantId, t.name as tenantName, wj.status, COUNT(*) as cnt,
+                           SUM(CASE WHEN wj.errorMessage IS NOT NULL THEN 1 ELSE 0 END) as withErrors
+                    FROM workflow_jobs wj
+                    JOIN tenants t ON t.id = wj.tenantId
+                    GROUP BY wj.tenantId, t.name, wj.status
+                    ORDER BY wj.tenantId
+                `)) as any;
+                return rows ?? [];
+            } catch { return []; }
+        }),
+
+    // ══════════════════════════════════════════════════════════════
+    //  STORAGE USAGE
+    // ══════════════════════════════════════════════════════════════
+
+    /** Storage usage per tenant (file uploads) */
+    storageUsage: superadminGuard
+        .query(async () => {
+            const db = await getDb();
+            if (!db) return [];
+            try {
+                const [rows] = await db.execute(sql.raw(`
+                    SELECT fu.tenantId, t.name as tenantName,
+                           COUNT(*) as fileCount,
+                           COALESCE(SUM(fu.size), 0) as totalBytes
+                    FROM file_uploads fu
+                    JOIN tenants t ON t.id = fu.tenantId
+                    GROUP BY fu.tenantId, t.name
+                    ORDER BY totalBytes DESC
+                `)) as any;
+                return (rows ?? []).map((r: any) => ({
+                    ...r,
+                    totalBytes: Number(r.totalBytes),
+                    totalMB: Math.round(Number(r.totalBytes) / 1024 / 1024 * 100) / 100,
+                    fileCount: Number(r.fileCount),
+                }));
+            } catch { return []; }
+        }),
+
+    // ══════════════════════════════════════════════════════════════
+    //  USER MANAGEMENT ACROSS TENANTS
+    // ══════════════════════════════════════════════════════════════
+
+    /** Toggle user active/inactive */
+    toggleUserActive: superadminGuard
+        .input(z.object({
+            userId: z.number(),
+            isActive: z.boolean(),
+        }))
+        .mutation(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            await db.update(users)
+                .set({ isActive: input.isActive })
+                .where(eq(users.id, input.userId));
+
+            logger.warn(
+                { adminId: ctx.user!.id, targetUserId: input.userId, isActive: input.isActive },
+                "[Superadmin] User active status changed"
+            );
+
+            return { success: true, message: input.isActive ? "Usuario activado." : "Usuario desactivado." };
+        }),
+
+    /** Force password reset — sets a random password */
+    forcePasswordReset: superadminGuard
+        .input(z.object({ userId: z.number() }))
+        .mutation(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            const crypto = await import("crypto");
+            const bcrypt = await import("bcryptjs");
+            const tempPassword = crypto.randomBytes(8).toString("hex"); // 16 chars
+            const hashed = await bcrypt.hash(tempPassword, 12);
+
+            await db.update(users)
+                .set({ password: hashed } as any)
+                .where(eq(users.id, input.userId));
+
+            logger.warn(
+                { adminId: ctx.user!.id, targetUserId: input.userId },
+                "[Superadmin] Force password reset"
+            );
+
+            return {
+                success: true,
+                tempPassword,
+                message: "Contraseña reseteada. Comparte la contraseña temporal de forma segura.",
+            };
         }),
 });

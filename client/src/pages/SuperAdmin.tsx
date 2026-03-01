@@ -45,6 +45,27 @@ import {
   Code,
   FileDown,
   ClipboardCheck,
+  Activity,
+  Database,
+  HardDrive,
+  Wifi,
+  WifiOff,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  Clock,
+  TrendingUp,
+  KeyRound,
+  Timer,
+  ToggleLeft,
+  ServerCrash,
+  Inbox,
+  Workflow,
+  FolderOpen,
+  ChevronLeft,
+  ChevronRight,
+  UserX,
+  UserCheck,
 } from "lucide-react";
 import {
   Select,
@@ -78,6 +99,23 @@ function fmtDate(d: string | Date | null) {
     month: "short",
     year: "numeric",
   });
+}
+
+function fmtDateTime(d: string | Date | null) {
+  if (!d) return "—";
+  return new Date(d).toLocaleString("es-ES", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function fmtBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
 const PLAN_COLORS: Record<string, string> = {
@@ -423,10 +461,30 @@ function ImpersonateDialog({
   );
 }
 
-/* ─── Tenant Users Panel ─── */
+/* ─── Tenant Users Panel (with user management) ─── */
 function TenantUsersPanel({ tenantId }: { tenantId: number }) {
+  const { toast } = useToast();
   const tenantUsers = trpc.superadmin.listTenantUsers.useQuery({ tenantId });
   const userList = tenantUsers.data ?? [];
+
+  const toggleActive = trpc.superadmin.toggleUserActive.useMutation({
+    onSuccess: (data) => {
+      toast({ title: data.message });
+      tenantUsers.refetch();
+    },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const resetPassword = trpc.superadmin.forcePasswordReset.useMutation({
+    onSuccess: (data) => {
+      toast({
+        title: "Contraseña reseteada",
+        description: `Contraseña temporal: ${data.tempPassword}`,
+        duration: 15000,
+      });
+    },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
 
   if (tenantUsers.isLoading) {
     return (
@@ -464,6 +522,32 @@ function TenantUsersPanel({ tenantId }: { tenantId: number }) {
             <span className={`text-[10px] ${u.isActive ? "text-green-500" : "text-red-400"}`}>
               {u.isActive ? "●" : "○"}
             </span>
+            {/* Toggle active */}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-5 w-5 p-0"
+              title={u.isActive ? "Desactivar usuario" : "Activar usuario"}
+              onClick={() => toggleActive.mutate({ userId: u.id, isActive: !u.isActive })}
+              disabled={toggleActive.isPending}
+            >
+              {u.isActive ? <UserX className="w-3 h-3 text-red-400" /> : <UserCheck className="w-3 h-3 text-green-500" />}
+            </Button>
+            {/* Reset password */}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-5 w-5 p-0"
+              title="Resetear contraseña"
+              onClick={() => {
+                if (confirm(`¿Resetear contraseña de ${u.name || u.email}?`)) {
+                  resetPassword.mutate({ userId: u.id });
+                }
+              }}
+              disabled={resetPassword.isPending}
+            >
+              <KeyRound className="w-3 h-3 text-amber-500" />
+            </Button>
           </div>
         ))}
       </div>
@@ -622,12 +706,556 @@ function TenantRow({
   );
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   SYSTEM HEALTH PANEL
+   ═══════════════════════════════════════════════════════════════════ */
+function SystemHealthPanel() {
+  const health = trpc.superadmin.systemHealth.useQuery(undefined, { refetchInterval: 30000 });
+  const d = health.data;
+
+  if (health.isLoading) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+  if (!d) return <p className="text-sm text-muted-foreground text-center py-4">No se pudo obtener información del sistema.</p>;
+
+  const items = [
+    { label: "Node.js", value: d.nodeVersion, icon: Code },
+    { label: "Entorno", value: d.nodeEnv, icon: Settings2 },
+    { label: "Plataforma", value: d.platform, icon: ServerCrash },
+    { label: "Uptime", value: d.uptimeFormatted, icon: Clock },
+    { label: "Base de Datos", value: d.dbStatus, icon: Database, color: d.dbStatus === "connected" ? "text-green-500" : "text-red-500" },
+    { label: "Redis", value: d.redisStatus, icon: Database, color: d.redisStatus === "connected" ? "text-green-500" : "text-red-500" },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        {items.map((item) => (
+          <Card key={item.label} className="p-3">
+            <div className="flex items-center gap-2 mb-1">
+              <item.icon className={`w-4 h-4 ${item.color ?? "text-muted-foreground"}`} />
+              <span className="text-[10px] font-semibold text-muted-foreground uppercase">{item.label}</span>
+            </div>
+            <p className={`text-sm font-bold ${item.color ?? ""}`}>{item.value}</p>
+          </Card>
+        ))}
+      </div>
+      <Card className="p-4">
+        <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+          <HardDrive className="w-4 h-4" /> Memoria (MB)
+        </h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+          {[
+            { label: "RSS", value: d.memory.rss },
+            { label: "Heap Usado", value: d.memory.heapUsed },
+            { label: "Heap Total", value: d.memory.heapTotal },
+            { label: "External", value: d.memory.external },
+          ].map((m) => (
+            <div key={m.label}>
+              <p className="text-2xl font-bold">{m.value}</p>
+              <p className="text-xs text-muted-foreground">{m.label}</p>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   WHATSAPP HEALTH PANEL
+   ═══════════════════════════════════════════════════════════════════ */
+function WhatsAppHealthPanel() {
+  const waHealth = trpc.superadmin.whatsappHealth.useQuery();
+  const rows = waHealth.data ?? [];
+
+  if (waHealth.isLoading) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+
+  const connected = rows.filter((r: any) => r.isConnected).length;
+  const total = rows.length;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-4">
+        <Badge variant="secondary" className="gap-1 text-sm">
+          <Wifi className="w-4 h-4 text-green-500" /> {connected} conectados
+        </Badge>
+        <Badge variant="secondary" className="gap-1 text-sm">
+          <WifiOff className="w-4 h-4 text-red-500" /> {total - connected} desconectados
+        </Badge>
+      </div>
+
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-4">Sin números WhatsApp registrados.</p>
+      ) : (
+        <div className="space-y-2">
+          {rows.map((r: any) => (
+            <Card key={r.id} className="p-3">
+              <div className="flex items-center gap-3">
+                <div className={`w-2 h-2 rounded-full ${r.isConnected ? "bg-green-500" : "bg-red-500"}`} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium">{r.displayName || r.phoneNumber}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {r.tenantName} · {r.phoneNumber} · {r.status}
+                    {r.warmupDay != null && ` · Warmup día ${r.warmupDay}`}
+                  </p>
+                </div>
+                <div className="text-right text-xs">
+                  <p className="font-medium">{r.totalMessagesSent ?? 0} enviados</p>
+                  <p className="text-muted-foreground">Hoy: {r.messagesSentToday ?? 0}/{r.dailyMessageLimit ?? "∞"}</p>
+                </div>
+                <Badge variant="secondary" className={r.isConnected ? "text-green-600" : "text-red-500"}>
+                  {r.isConnected ? "Online" : "Offline"}
+                </Badge>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ACTIVITY LOGS PANEL
+   ═══════════════════════════════════════════════════════════════════ */
+function ActivityLogsPanel() {
+  const [filter, setFilter] = useState({ tenantId: undefined as number | undefined, action: "" });
+  const [page, setPage] = useState(0);
+  const limit = 30;
+
+  const logs = trpc.superadmin.activityLogs.useQuery({
+    tenantId: filter.tenantId,
+    action: filter.action || undefined,
+    limit,
+    offset: page * limit,
+  });
+
+  const data = logs.data ?? { rows: [], total: 0 };
+  const totalPages = Math.ceil(data.total / limit);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 flex-wrap">
+        <Input
+          placeholder="Filtrar por acción..."
+          value={filter.action}
+          onChange={(e) => { setFilter({ ...filter, action: e.target.value }); setPage(0); }}
+          className="h-8 w-56 text-xs"
+        />
+        <Input
+          placeholder="Tenant ID..."
+          type="number"
+          onChange={(e) => { setFilter({ ...filter, tenantId: e.target.value ? Number(e.target.value) : undefined }); setPage(0); }}
+          className="h-8 w-28 text-xs"
+        />
+        <Badge variant="secondary" className="text-xs">{data.total} registros</Badge>
+      </div>
+
+      {logs.isLoading ? (
+        <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+      ) : data.rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">Sin registros de actividad.</p>
+      ) : (
+        <div className="space-y-1">
+          {data.rows.map((log: any) => (
+            <div key={log.id} className="flex items-center gap-3 px-3 py-2 rounded bg-muted/30 text-xs">
+              <Activity className="w-3 h-3 text-muted-foreground shrink-0" />
+              <span className="text-muted-foreground w-20 shrink-0">{fmtDateTime(log.createdAt)}</span>
+              <Badge variant="outline" className="text-[10px] px-1.5 shrink-0">{log.tenantName ?? `T${log.tenantId}`}</Badge>
+              <span className="font-medium text-blue-600 dark:text-blue-400 shrink-0">{log.action}</span>
+              <span className="text-muted-foreground truncate flex-1">
+                {log.entityType ? `${log.entityType}#${log.entityId}` : ""}
+                {log.userName ? ` · ${log.userName}` : ""}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2">
+          <Button variant="ghost" size="sm" disabled={page === 0} onClick={() => setPage(page - 1)}>
+            <ChevronLeft className="w-4 h-4" />
+          </Button>
+          <span className="text-xs text-muted-foreground">Pág {page + 1} de {totalPages}</span>
+          <Button variant="ghost" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)}>
+            <ChevronRight className="w-4 h-4" />
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ACCESS LOGS PANEL (security)
+   ═══════════════════════════════════════════════════════════════════ */
+function AccessLogsPanel() {
+  const [filter, setFilter] = useState({ tenantId: undefined as number | undefined, success: undefined as boolean | undefined });
+  const [page, setPage] = useState(0);
+  const limit = 30;
+
+  const logs = trpc.superadmin.accessLogs.useQuery({
+    tenantId: filter.tenantId,
+    success: filter.success,
+    limit,
+    offset: page * limit,
+  });
+
+  const data = logs.data ?? { rows: [], total: 0 };
+  const totalPages = Math.ceil(data.total / limit);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 flex-wrap">
+        <Input
+          placeholder="Tenant ID..."
+          type="number"
+          onChange={(e) => { setFilter({ ...filter, tenantId: e.target.value ? Number(e.target.value) : undefined }); setPage(0); }}
+          className="h-8 w-28 text-xs"
+        />
+        <Select
+          value={filter.success === undefined ? "all" : filter.success ? "ok" : "fail"}
+          onValueChange={(v) => {
+            setFilter({ ...filter, success: v === "all" ? undefined : v === "ok" });
+            setPage(0);
+          }}
+        >
+          <SelectTrigger className="h-8 w-36 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos</SelectItem>
+            <SelectItem value="ok">Exitosos</SelectItem>
+            <SelectItem value="fail">Fallidos</SelectItem>
+          </SelectContent>
+        </Select>
+        <Badge variant="secondary" className="text-xs">{data.total} registros</Badge>
+      </div>
+
+      {logs.isLoading ? (
+        <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+      ) : data.rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">Sin registros de acceso.</p>
+      ) : (
+        <div className="space-y-1">
+          {data.rows.map((log: any) => (
+            <div key={log.id} className="flex items-center gap-3 px-3 py-2 rounded bg-muted/30 text-xs">
+              {log.success ? (
+                <CheckCircle2 className="w-3 h-3 text-green-500 shrink-0" />
+              ) : (
+                <XCircle className="w-3 h-3 text-red-500 shrink-0" />
+              )}
+              <span className="text-muted-foreground w-20 shrink-0">{fmtDateTime(log.createdAt)}</span>
+              <Badge variant="outline" className="text-[10px] px-1.5 shrink-0">{log.tenantName ?? `T${log.tenantId}`}</Badge>
+              <span className="font-medium shrink-0">{log.action}</span>
+              <span className="text-muted-foreground truncate flex-1">
+                {log.userName ?? ""} · {log.ipAddress ?? ""}
+                {log.errorMessage ? ` · Error: ${log.errorMessage}` : ""}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2">
+          <Button variant="ghost" size="sm" disabled={page === 0} onClick={() => setPage(page - 1)}>
+            <ChevronLeft className="w-4 h-4" />
+          </Button>
+          <span className="text-xs text-muted-foreground">Pág {page + 1} de {totalPages}</span>
+          <Button variant="ghost" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)}>
+            <ChevronRight className="w-4 h-4" />
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ANALYTICS: GROWTH, TRIALS, CHURN, ONBOARDING
+   ═══════════════════════════════════════════════════════════════════ */
+function AnalyticsPanel() {
+  const growth = trpc.superadmin.tenantGrowth.useQuery({ days: 30 });
+  const trials = trpc.superadmin.expiringTrials.useQuery({ daysAhead: 14 });
+  const inactive = trpc.superadmin.inactiveTenants.useQuery({ inactiveDays: 14 });
+  const onboarding = trpc.superadmin.onboardingFunnel.useQuery();
+
+  const growthData = growth.data ?? [];
+  const trialList = trials.data ?? [];
+  const inactiveList = inactive.data ?? [];
+  const funnel = onboarding.data;
+
+  const isLoading = growth.isLoading || trials.isLoading;
+
+  if (isLoading) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+
+  return (
+    <div className="space-y-6">
+      {/* Growth timeline */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-green-500" /> Registros últimos 30 días
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {growthData.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Sin datos de crecimiento.</p>
+          ) : (
+            <div className="flex items-end gap-1 h-24">
+              {growthData.map((d: any) => {
+                const max = Math.max(...growthData.map((g: any) => g.count), 1);
+                const height = (d.count / max) * 100;
+                return (
+                  <div
+                    key={d.date}
+                    className="flex-1 bg-green-500/80 rounded-t hover:bg-green-400 transition-colors relative group"
+                    style={{ height: `${Math.max(height, 4)}%` }}
+                    title={`${d.date}: ${d.count} registros`}
+                  >
+                    <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[9px] font-bold opacity-0 group-hover:opacity-100 transition-opacity">
+                      {d.count}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Expiring trials */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Timer className="w-4 h-4 text-amber-500" /> Trials por Vencer (14 días)
+              <Badge variant="secondary" className="ml-auto text-xs">{trialList.length}</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {trialList.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Sin trials por vencer.</p>
+            ) : (
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {trialList.map((t: any) => (
+                  <div key={t.id} className="flex items-center justify-between text-xs py-1 px-2 rounded bg-muted/30">
+                    <span className="font-medium">{t.name}</span>
+                    <div className="flex items-center gap-2">
+                      <Badge className={`text-[10px] ${PLAN_COLORS[t.plan] ?? ""}`}>{t.plan}</Badge>
+                      <span className={`font-bold ${Number(t.daysLeft) <= 3 ? "text-red-500" : "text-amber-500"}`}>
+                        {Number(t.daysLeft) <= 0 ? "¡EXPIRADO!" : `${t.daysLeft}d`}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Inactive tenants (churn risk) */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-500" /> Riesgo de Churn (14+ días sin actividad)
+              <Badge variant="secondary" className="ml-auto text-xs">{inactiveList.length}</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {inactiveList.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Sin tenants inactivos. ¡Excelente!</p>
+            ) : (
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {inactiveList.map((t: any) => (
+                  <div key={t.id} className="flex items-center justify-between text-xs py-1 px-2 rounded bg-muted/30">
+                    <span className="font-medium">{t.name}</span>
+                    <div className="flex items-center gap-2">
+                      <Badge className={`text-[10px] ${PLAN_COLORS[t.plan] ?? ""}`}>{t.plan}</Badge>
+                      <span className="text-red-500 font-bold">{t.daysSinceActivity}d inactivo</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Onboarding Funnel */}
+      {funnel && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <ClipboardCheck className="w-4 h-4 text-blue-500" /> Funnel de Onboarding
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-7 gap-3 text-center">
+              {[
+                { label: "Total", value: funnel.total, pct: 100 },
+                { label: "Empresa", value: funnel.company, pct: funnel.total ? Math.round((funnel.company / funnel.total) * 100) : 0 },
+                { label: "Equipo", value: funnel.team, pct: funnel.total ? Math.round((funnel.team / funnel.total) * 100) : 0 },
+                { label: "WhatsApp", value: funnel.whatsapp, pct: funnel.total ? Math.round((funnel.whatsapp / funnel.total) * 100) : 0 },
+                { label: "Importar", value: funnel.importStep, pct: funnel.total ? Math.round((funnel.importStep / funnel.total) * 100) : 0 },
+                { label: "1er Msg", value: funnel.firstMessage, pct: funnel.total ? Math.round((funnel.firstMessage / funnel.total) * 100) : 0 },
+                { label: "Completo", value: funnel.fullyCompleted, pct: funnel.total ? Math.round((funnel.fullyCompleted / funnel.total) * 100) : 0 },
+              ].map((s) => (
+                <div key={s.label}>
+                  <p className="text-lg font-bold">{s.value}</p>
+                  <p className="text-[10px] text-muted-foreground">{s.label}</p>
+                  <div className="w-full bg-muted rounded-full h-1.5 mt-1">
+                    <div className="bg-blue-500 h-1.5 rounded-full transition-all" style={{ width: `${s.pct}%` }} />
+                  </div>
+                  <p className="text-[9px] text-muted-foreground mt-0.5">{s.pct}%</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   QUEUES & STORAGE PANEL
+   ═══════════════════════════════════════════════════════════════════ */
+function QueuesStoragePanel() {
+  const msgQueue = trpc.superadmin.messageQueueStats.useQuery();
+  const wfJobs = trpc.superadmin.workflowJobStats.useQuery();
+  const storage = trpc.superadmin.storageUsage.useQuery();
+
+  const msgRows = msgQueue.data ?? [];
+  const wfRows = wfJobs.data ?? [];
+  const storageRows = storage.data ?? [];
+
+  const isLoading = msgQueue.isLoading || wfJobs.isLoading || storage.isLoading;
+  if (isLoading) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+
+  // Aggregate message queue by status
+  const msgByStatus = msgRows.reduce((acc: Record<string, number>, r: any) => {
+    acc[r.status] = (acc[r.status] || 0) + Number(r.cnt);
+    return acc;
+  }, {});
+
+  // Aggregate workflow jobs by status
+  const wfByStatus = wfRows.reduce((acc: Record<string, number>, r: any) => {
+    acc[r.status] = (acc[r.status] || 0) + Number(r.cnt);
+    return acc;
+  }, {});
+
+  const totalStorage = storageRows.reduce((sum: number, r: any) => sum + Number(r.totalBytes), 0);
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Message Queue */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Inbox className="w-4 h-4 text-blue-500" /> Cola de Mensajes
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              {Object.entries(msgByStatus).length === 0 ? (
+                <p className="text-xs text-muted-foreground col-span-2">Sin mensajes en cola.</p>
+              ) : (
+                Object.entries(msgByStatus).map(([status, cnt]) => (
+                  <div key={status} className="text-center p-2 rounded bg-muted/30">
+                    <p className="text-lg font-bold">{cnt}</p>
+                    <p className="text-[10px] text-muted-foreground uppercase">{status}</p>
+                  </div>
+                ))
+              )}
+            </div>
+            {/* Per-tenant breakdown */}
+            {msgRows.length > 0 && (
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {msgRows.map((r: any, i: number) => (
+                  <div key={i} className="flex items-center justify-between text-xs py-1 px-2 rounded bg-muted/20">
+                    <span>{r.tenantName}</span>
+                    <span className="font-medium">{r.status}: {Number(r.cnt)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Workflow Jobs */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Workflow className="w-4 h-4 text-violet-500" /> Workflow Jobs
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              {Object.entries(wfByStatus).length === 0 ? (
+                <p className="text-xs text-muted-foreground col-span-2">Sin workflow jobs.</p>
+              ) : (
+                Object.entries(wfByStatus).map(([status, cnt]) => (
+                  <div key={status} className="text-center p-2 rounded bg-muted/30">
+                    <p className="text-lg font-bold">{cnt}</p>
+                    <p className="text-[10px] text-muted-foreground uppercase">{status}</p>
+                  </div>
+                ))
+              )}
+            </div>
+            {wfRows.length > 0 && (
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {wfRows.map((r: any, i: number) => (
+                  <div key={i} className="flex items-center justify-between text-xs py-1 px-2 rounded bg-muted/20">
+                    <span>{r.tenantName}</span>
+                    <span className="font-medium">{r.status}: {Number(r.cnt)} {Number(r.withErrors) > 0 ? `(${r.withErrors} errores)` : ""}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Storage Usage */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <FolderOpen className="w-4 h-4 text-amber-500" /> Almacenamiento
+              <Badge variant="secondary" className="ml-auto text-xs">Total: {fmtBytes(totalStorage)}</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {storageRows.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Sin archivos almacenados.</p>
+            ) : (
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {storageRows.map((r: any) => (
+                  <div key={r.tenantId} className="flex items-center justify-between text-xs py-1 px-2 rounded bg-muted/30">
+                    <span className="font-medium">{r.tenantName}</span>
+                    <div className="text-right">
+                      <span className="font-bold">{fmtBytes(Number(r.totalBytes))}</span>
+                      <span className="text-muted-foreground ml-2">({Number(r.fileCount)} archivos)</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 /* ════════════════════════════════════════════════════════════════════════════
    MAIN PAGE
    ════════════════════════════════════════════════════════════════════════════ */
 
 export default function SuperAdmin() {
   const [search, setSearch] = useState("");
+  const [mainTab, setMainTab] = useState("overview");
 
   const whoami = trpc.superadmin.whoami.useQuery(undefined, { retry: 0 });
 
@@ -725,74 +1353,105 @@ export default function SuperAdmin() {
         </Button>
       </div>
 
-      {/* KPIs */}
+      {/* Main Tabs */}
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
         </div>
       ) : (
-        <>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <KpiCard
-              icon={Building2}
-              label="Tenants"
-              value={stats.data?.totalTenants ?? 0}
-              color="bg-violet-500"
-            />
-            <KpiCard
-              icon={Users}
-              label="Usuarios Activos"
-              value={stats.data?.totalUsers ?? 0}
-              color="bg-blue-500"
-            />
-            <KpiCard
-              icon={Target}
-              label="Leads"
-              value={stats.data?.totalLeads ?? 0}
-              color="bg-green-500"
-            />
-            <KpiCard
-              icon={MessageCircle}
-              label="Conversaciones"
-              value={stats.data?.totalConversations ?? 0}
-              color="bg-amber-500"
-            />
-            <KpiCard
-              icon={Zap}
-              label="Mensajes"
-              value={stats.data?.totalMessages ?? 0}
-              color="bg-red-500"
-            />
-            <KpiCard
-              icon={BarChart3}
-              label="MRR Estimado"
-              value={`$${monthlyRevenue}`}
-              color="bg-emerald-500"
-            />
-          </div>
+        <Tabs value={mainTab} onValueChange={setMainTab}>
+          <TabsList className="h-9 flex-wrap">
+            <TabsTrigger value="overview" className="text-xs gap-1">
+              <BarChart3 className="w-3 h-3" /> Overview
+            </TabsTrigger>
+            <TabsTrigger value="tenants" className="text-xs gap-1">
+              <Building2 className="w-3 h-3" /> Tenants
+            </TabsTrigger>
+            <TabsTrigger value="health" className="text-xs gap-1">
+              <Activity className="w-3 h-3" /> Salud
+            </TabsTrigger>
+            <TabsTrigger value="logs" className="text-xs gap-1">
+              <Eye className="w-3 h-3" /> Logs
+            </TabsTrigger>
+            <TabsTrigger value="analytics" className="text-xs gap-1">
+              <TrendingUp className="w-3 h-3" /> Analytics
+            </TabsTrigger>
+            <TabsTrigger value="queues" className="text-xs gap-1">
+              <Inbox className="w-3 h-3" /> Colas & Storage
+            </TabsTrigger>
+          </TabsList>
 
-          {/* Plan distribution row */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {(["free", "starter", "pro", "enterprise"] as const).map((plan) => (
-              <Card key={plan} className="p-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-semibold text-muted-foreground uppercase">{plan}</p>
-                    <p className="text-2xl font-bold">{planCounts[plan] ?? 0}</p>
-                    <p className="text-[10px] text-muted-foreground">
-                      ${PLAN_PRICES[plan]}/mes c/u = ${(planCounts[plan] ?? 0) * PLAN_PRICES[plan]}/mes
-                    </p>
+          {/* ─── OVERVIEW TAB ─── */}
+          <TabsContent value="overview" className="mt-4 space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              <KpiCard icon={Building2} label="Tenants" value={stats.data?.totalTenants ?? 0} color="bg-violet-500" />
+              <KpiCard icon={Users} label="Usuarios Activos" value={stats.data?.totalUsers ?? 0} color="bg-blue-500" />
+              <KpiCard icon={Target} label="Leads" value={stats.data?.totalLeads ?? 0} color="bg-green-500" />
+              <KpiCard icon={MessageCircle} label="Conversaciones" value={stats.data?.totalConversations ?? 0} color="bg-amber-500" />
+              <KpiCard icon={Zap} label="Mensajes" value={stats.data?.totalMessages ?? 0} color="bg-red-500" />
+              <KpiCard icon={BarChart3} label="MRR Estimado" value={`$${monthlyRevenue}`} color="bg-emerald-500" />
+            </div>
+
+            {/* Plan distribution */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {(["free", "starter", "pro", "enterprise"] as const).map((plan) => (
+                <Card key={plan} className="p-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase">{plan}</p>
+                      <p className="text-2xl font-bold">{planCounts[plan] ?? 0}</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        ${PLAN_PRICES[plan]}/mes c/u = ${(planCounts[plan] ?? 0) * PLAN_PRICES[plan]}/mes
+                      </p>
+                    </div>
+                    <Badge className={`text-[10px] uppercase ${PLAN_COLORS[plan]}`}>{plan}</Badge>
                   </div>
-                  <Badge className={`text-[10px] uppercase ${PLAN_COLORS[plan]}`}>{plan}</Badge>
+                </Card>
+              ))}
+            </div>
+
+            {/* Feature summary */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-green-500" />
+                  Funciones del Super Admin
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Todas las acciones quedan registradas en los logs del servidor.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                  {[
+                    { icon: ArrowUpCircle, color: "text-violet-500", title: "Cambiar Plan", desc: "Sube o baja el plan de cualquier tenant." },
+                    { icon: Flag, color: "text-blue-500", title: "Feature Flags", desc: "Activa/desactiva módulos por tenant." },
+                    { icon: LogIn, color: "text-amber-500", title: "Impersonar", desc: "Entra como cualquier usuario." },
+                    { icon: Pause, color: "text-red-500", title: "Suspender/Reactivar", desc: "Bloquea acceso sin borrar datos." },
+                    { icon: Activity, color: "text-cyan-500", title: "System Health", desc: "Monitoreo de DB, Redis, memoria." },
+                    { icon: Phone, color: "text-green-500", title: "WA Health", desc: "Estado de conexiones WhatsApp." },
+                    { icon: Eye, color: "text-indigo-500", title: "Activity & Access Logs", desc: "Auditoría completa de acciones." },
+                    { icon: TrendingUp, color: "text-emerald-500", title: "Analytics", desc: "Growth, trials, churn, onboarding." },
+                    { icon: UserX, color: "text-orange-500", title: "Gestión Usuarios", desc: "Activar/desactivar y resetear contraseñas." },
+                    { icon: Inbox, color: "text-pink-500", title: "Colas & Jobs", desc: "Monitoreo de message queue y workflows." },
+                    { icon: FolderOpen, color: "text-teal-500", title: "Storage", desc: "Uso de almacenamiento por tenant." },
+                    { icon: Timer, color: "text-yellow-500", title: "Trial Tracker", desc: "Trials por vencer y detección de churn." },
+                  ].map((f) => (
+                    <div key={f.title} className="flex items-start gap-2 p-2 rounded bg-muted/30">
+                      <f.icon className={`w-4 h-4 ${f.color} shrink-0 mt-0.5`} />
+                      <div>
+                        <p className="font-medium">{f.title}</p>
+                        <p className="text-muted-foreground">{f.desc}</p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </Card>
-            ))}
-          </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-          <Separator />
-
-          {/* Tenant list */}
-          <div>
+          {/* ─── TENANTS TAB ─── */}
+          <TabsContent value="tenants" className="mt-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold flex items-center gap-2">
                 <Building2 className="w-5 h-5" />
@@ -820,68 +1479,55 @@ export default function SuperAdmin() {
                 ))
               )}
             </div>
-          </div>
+          </TabsContent>
 
-          {/* Feature summary */}
-          <Separator />
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-green-500" />
-                Funciones del Super Admin
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Todas las acciones quedan registradas en los logs del servidor.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
-                <div className="flex items-start gap-2 p-2 rounded bg-muted/30">
-                  <ArrowUpCircle className="w-4 h-4 text-violet-500 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-medium">Cambiar Plan</p>
-                    <p className="text-muted-foreground">Sube o baja el plan de cualquier tenant (free/starter/pro/enterprise).</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2 p-2 rounded bg-muted/30">
-                  <Flag className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-medium">Feature Flags</p>
-                    <p className="text-muted-foreground">Activa/desactiva módulos por tenant: WhatsApp, IA, campañas, reportes, etc.</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2 p-2 rounded bg-muted/30">
-                  <LogIn className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-medium">Impersonar Usuario</p>
-                    <p className="text-muted-foreground">Entra como cualquier usuario para debugging o soporte.</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2 p-2 rounded bg-muted/30">
-                  <Pause className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-medium">Suspender/Reactivar</p>
-                    <p className="text-muted-foreground">Bloquea acceso al tenant sin borrar datos. Reactiva cuando quieras.</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2 p-2 rounded bg-muted/30">
-                  <Users className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-medium">Ver Usuarios</p>
-                    <p className="text-muted-foreground">Lista todos los usuarios de cada tenant con su rol y estado.</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2 p-2 rounded bg-muted/30">
-                  <BarChart3 className="w-4 h-4 text-cyan-500 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-medium">Estadísticas Globales</p>
-                    <p className="text-muted-foreground">KPIs cross-tenant: leads, mensajes, conversaciones, MRR.</p>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </>
+          {/* ─── HEALTH TAB ─── */}
+          <TabsContent value="health" className="mt-4 space-y-6">
+            <div>
+              <h2 className="text-lg font-bold flex items-center gap-2 mb-4">
+                <Activity className="w-5 h-5 text-green-500" /> Estado del Sistema
+              </h2>
+              <SystemHealthPanel />
+            </div>
+            <Separator />
+            <div>
+              <h2 className="text-lg font-bold flex items-center gap-2 mb-4">
+                <Phone className="w-5 h-5 text-green-500" /> WhatsApp Health
+              </h2>
+              <WhatsAppHealthPanel />
+            </div>
+          </TabsContent>
+
+          {/* ─── LOGS TAB ─── */}
+          <TabsContent value="logs" className="mt-4 space-y-6">
+            <Tabs defaultValue="activity">
+              <TabsList className="h-8">
+                <TabsTrigger value="activity" className="text-xs gap-1">
+                  <Activity className="w-3 h-3" /> Activity Logs
+                </TabsTrigger>
+                <TabsTrigger value="access" className="text-xs gap-1">
+                  <Lock className="w-3 h-3" /> Access Logs (Seguridad)
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="activity" className="mt-4">
+                <ActivityLogsPanel />
+              </TabsContent>
+              <TabsContent value="access" className="mt-4">
+                <AccessLogsPanel />
+              </TabsContent>
+            </Tabs>
+          </TabsContent>
+
+          {/* ─── ANALYTICS TAB ─── */}
+          <TabsContent value="analytics" className="mt-4">
+            <AnalyticsPanel />
+          </TabsContent>
+
+          {/* ─── QUEUES & STORAGE TAB ─── */}
+          <TabsContent value="queues" className="mt-4">
+            <QueuesStoragePanel />
+          </TabsContent>
+        </Tabs>
       )}
     </div>
   );
