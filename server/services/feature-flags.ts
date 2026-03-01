@@ -1,11 +1,15 @@
 import { logger } from "../_core/logger";
 import { cacheGet, cacheSet, cacheInvalidate } from "./app-cache";
+import { getDb } from "../db";
+import { featureFlags } from "../../drizzle/schema";
+import { eq, and, sql } from "drizzle-orm";
 
 /**
  * Feature Flags Service
  *
  * Tenant-level feature toggles that control which features are available.
- * Flags can be set per-tenant or globally as defaults.
+ * Flags are persisted in the `feature_flags` DB table.
+ * Falls back to GLOBAL_DEFAULTS for any flag not explicitly set.
  *
  * Usage:
  * ```ts
@@ -13,7 +17,7 @@ import { cacheGet, cacheSet, cacheInvalidate } from "./app-cache";
  * ```
  */
 
-// Default feature flags (all tenants get these unless overridden)
+// Default feature flags (all tenants get these unless overridden in DB)
 const GLOBAL_DEFAULTS: Record<string, boolean> = {
     "whatsapp_cloud_api": true,
     "facebook_messenger": true,
@@ -33,56 +37,105 @@ const GLOBAL_DEFAULTS: Record<string, boolean> = {
     "onboarding_completed": false,
 };
 
-// In-memory store for tenant-specific overrides
-// In production, this would come from a `feature_flags` DB table
-const tenantOverrides = new Map<number, Record<string, boolean>>();
+/**
+ * Ensure the feature_flags table exists (called once at startup).
+ */
+export async function ensureFeatureFlagsTable(): Promise<void> {
+    try {
+        const db = await getDb();
+        if (!db) return;
+        await db.execute(sql`
+            CREATE TABLE IF NOT EXISTS feature_flags (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                tenantId INT NOT NULL,
+                flag VARCHAR(100) NOT NULL,
+                enabled BOOLEAN DEFAULT FALSE NOT NULL,
+                updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL,
+                UNIQUE INDEX idx_ff_tenant_flag (tenantId, flag),
+                FOREIGN KEY (tenantId) REFERENCES tenants(id) ON DELETE CASCADE
+            )
+        `);
+        logger.info("[FeatureFlags] Table ensured");
+    } catch (e) {
+        logger.warn({ err: (e as any)?.message }, "[FeatureFlags] ensureTable failed (may already exist)");
+    }
+}
+
+/**
+ * Load overrides from DB for a tenant (with Redis cache).
+ */
+async function loadTenantOverrides(tenantId: number): Promise<Record<string, boolean>> {
+    const cacheKey = `flags:${tenantId}`;
+    const cached = await cacheGet<Record<string, boolean>>(cacheKey);
+    if (cached) return cached;
+
+    try {
+        const db = await getDb();
+        if (!db) return {};
+
+        const rows = await db.select({
+            flag: featureFlags.flag,
+            enabled: featureFlags.enabled,
+        }).from(featureFlags).where(eq(featureFlags.tenantId, tenantId));
+
+        const overrides: Record<string, boolean> = {};
+        for (const row of rows) {
+            overrides[row.flag] = row.enabled;
+        }
+
+        // Cache for 5 min
+        await cacheSet(cacheKey, overrides, "settings");
+        return overrides;
+    } catch (e) {
+        logger.warn({ tenantId, err: (e as any)?.message }, "[FeatureFlags] loadOverrides failed");
+        return {};
+    }
+}
 
 /**
  * Check if a feature is enabled for a specific tenant.
  */
 export async function isFeatureEnabled(flag: string, tenantId: number): Promise<boolean> {
-    // 1. Check cache
-    const cacheKey = `flags:${tenantId}`;
-    const cached = await cacheGet<Record<string, boolean>>(cacheKey);
-    if (cached && flag in cached) return cached[flag];
-
-    // 2. Check tenant overrides
-    const overrides = tenantOverrides.get(tenantId);
-    if (overrides && flag in overrides) return overrides[flag];
-
-    // 3. Fall back to global defaults
+    const overrides = await loadTenantOverrides(tenantId);
+    if (flag in overrides) return overrides[flag];
     return GLOBAL_DEFAULTS[flag] ?? false;
 }
 
 /**
- * Get all feature flags for a tenant (merged: defaults + overrides).
+ * Get all feature flags for a tenant (merged: defaults + DB overrides).
  */
 export async function getAllFlags(tenantId: number): Promise<Record<string, boolean>> {
-    const overrides = tenantOverrides.get(tenantId) ?? {};
-    const merged = { ...GLOBAL_DEFAULTS, ...overrides };
-
-    // Cache for 5 min
-    await cacheSet(`flags:${tenantId}`, merged, "settings");
-
-    return merged;
+    const overrides = await loadTenantOverrides(tenantId);
+    return { ...GLOBAL_DEFAULTS, ...overrides };
 }
 
 /**
- * Set a feature flag override for a specific tenant.
+ * Set a feature flag override for a specific tenant (persisted to DB).
  */
 export async function setFeatureFlag(
     tenantId: number,
     flag: string,
     enabled: boolean
 ): Promise<void> {
-    const current = tenantOverrides.get(tenantId) ?? {};
-    current[flag] = enabled;
-    tenantOverrides.set(tenantId, current);
+    try {
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
 
-    // Invalidate cache
-    await cacheInvalidate(`flags:${tenantId}`);
+        // Upsert: INSERT ... ON DUPLICATE KEY UPDATE
+        await db.execute(sql`
+            INSERT INTO feature_flags (tenantId, flag, enabled)
+            VALUES (${tenantId}, ${flag}, ${enabled})
+            ON DUPLICATE KEY UPDATE enabled = ${enabled}
+        `);
 
-    logger.info({ tenantId, flag, enabled }, "[FeatureFlags] Flag updated");
+        // Invalidate cache
+        await cacheInvalidate(`flags:${tenantId}`);
+
+        logger.info({ tenantId, flag, enabled }, "[FeatureFlags] Flag updated (persisted to DB)");
+    } catch (e) {
+        logger.error({ tenantId, flag, enabled, err: (e as any)?.message }, "[FeatureFlags] setFlag failed");
+        throw e;
+    }
 }
 
 /**

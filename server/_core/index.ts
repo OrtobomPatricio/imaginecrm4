@@ -357,6 +357,11 @@ async function startServer() {
     import("../services/apm").then(({ initAPM }) => {
       initAPM();
     }).catch(err => logger.error({ err: safeError(err) }, "[APM] startup failed"));
+
+    // SuperAdmin tables init (internalNotes column, platform_announcements, feature_flags)
+    import("../services/superadmin-init").then(({ ensureSuperadminTables }) => {
+      ensureSuperadminTables().catch(err => logger.error({ err: safeError(err) }, "[SuperadminInit] startup failed"));
+    });
   });
 }
 

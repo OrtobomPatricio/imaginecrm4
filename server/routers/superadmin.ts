@@ -942,14 +942,9 @@ export const superadminRouter = router({
             const db = await getDb();
             if (!db) return { notes: "" };
             try {
-                // Ensure column exists
-                await db.execute(sql.raw(
-                    `ALTER TABLE tenants ADD COLUMN internalNotes TEXT NULL`
-                )).catch(() => { /* column probably already exists */ });
-
-                const [rows] = await db.execute(sql.raw(
-                    `SELECT internalNotes FROM tenants WHERE id = ${Number(input.tenantId)}`
-                )) as any;
+                const [rows] = await db.execute(sql`
+                    SELECT internalNotes FROM tenants WHERE id = ${input.tenantId}
+                `) as any;
                 return { notes: rows?.[0]?.internalNotes ?? "" };
             } catch {
                 return { notes: "" };
@@ -966,14 +961,9 @@ export const superadminRouter = router({
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-            // Ensure column exists
-            await db.execute(sql.raw(
-                `ALTER TABLE tenants ADD COLUMN internalNotes TEXT NULL`
-            )).catch(() => { /* column probably already exists */ });
-
-            await db.execute(sql.raw(
-                `UPDATE tenants SET internalNotes = ${input.notes ? `'${input.notes.replace(/'/g, "''")}'` : 'NULL'} WHERE id = ${Number(input.tenantId)}`
-            ));
+            await db.execute(sql`
+                UPDATE tenants SET internalNotes = ${input.notes || null} WHERE id = ${input.tenantId}
+            `);
 
             logger.info(
                 { adminId: ctx.user!.id, tenantId: input.tenantId },
@@ -987,7 +977,7 @@ export const superadminRouter = router({
     //  REVENUE TIMELINE (Historical MRR estimation)
     // ══════════════════════════════════════════════════════════════
 
-    /** Estimate MRR timeline based on tenant creation dates and current plans */
+    /** Estimate MRR timeline — uses plan change history from activity_logs when available */
     revenueTimeline: superadminGuard
         .input(z.object({
             months: z.number().min(1).max(24).default(12),
@@ -997,37 +987,73 @@ export const superadminRouter = router({
             if (!db) return [];
             try {
                 // Get all tenants with their plan and creation date
-                const [rows] = await db.execute(sql.raw(`
+                const [tRows] = await db.execute(sql`
                     SELECT id, plan, createdAt, status FROM tenants ORDER BY createdAt ASC
-                `)) as any;
+                `) as any;
 
-                const allTenants = (rows ?? []) as Array<{ id: number; plan: string; createdAt: string; status: string }>;
+                const allTenants = (tRows ?? []) as Array<{ id: number; plan: string; createdAt: string; status: string }>;
                 const PLAN_PRICES: Record<string, number> = { free: 0, starter: 29, pro: 99, enterprise: 299 };
+
+                // Try to get plan change history from activity_logs
+                let planHistory: Array<{ tenantId: number; action: string; details: string; createdAt: string }> = [];
+                try {
+                    const [hRows] = await db.execute(sql`
+                        SELECT tenantId, action, details, createdAt FROM activity_logs
+                        WHERE action IN ('plan_change', 'tenant.plan_change', 'changeTenantPlan')
+                        ORDER BY createdAt ASC
+                    `) as any;
+                    planHistory = hRows ?? [];
+                } catch { /* table might not exist or no records */ }
+
+                // Build a map: tenantId -> array of {date, plan}
+                const planTimeline = new Map<number, Array<{ date: Date; plan: string }>>();
+                for (const t of allTenants) {
+                    planTimeline.set(t.id, [{ date: new Date(t.createdAt), plan: "free" }]);
+                }
+                for (const h of planHistory) {
+                    const existing = planTimeline.get(h.tenantId);
+                    if (existing) {
+                        // Try to extract plan from details JSON
+                        try {
+                            const d = typeof h.details === "string" ? JSON.parse(h.details) : h.details;
+                            const plan = d?.plan || d?.newPlan || d?.to;
+                            if (plan && PLAN_PRICES[plan] !== undefined) {
+                                existing.push({ date: new Date(h.createdAt), plan });
+                            }
+                        } catch { /* ignore unparseable */ }
+                    }
+                }
 
                 // Build monthly MRR timeline
                 const timeline: Array<{ month: string; mrr: number; tenantCount: number; paidCount: number }> = [];
                 const now = new Date();
 
                 for (let i = input.months - 1; i >= 0; i--) {
-                    const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
                     const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
-                    const monthStr = monthDate.toISOString().slice(0, 7); // YYYY-MM
+                    const monthStr = new Date(now.getFullYear(), now.getMonth() - i, 1).toISOString().slice(0, 7);
 
-                    // Tenants that existed by end of this month (and not canceled)
-                    const activeTenants = allTenants.filter(t => {
+                    let mrr = 0;
+                    let tenantCount = 0;
+                    let paidCount = 0;
+
+                    for (const t of allTenants) {
                         const created = new Date(t.createdAt);
-                        return created <= monthEnd && t.status !== "canceled";
-                    });
+                        if (created > monthEnd || t.status === "canceled") continue;
+                        tenantCount++;
 
-                    const mrr = activeTenants.reduce((sum, t) => sum + (PLAN_PRICES[t.plan] ?? 0), 0);
-                    const paidCount = activeTenants.filter(t => t.plan !== "free").length;
+                        // Find the plan active at monthEnd
+                        const changes = planTimeline.get(t.id) ?? [];
+                        let planAtMonth = t.plan; // fallback to current plan
+                        for (const c of changes) {
+                            if (c.date <= monthEnd) planAtMonth = c.plan;
+                        }
 
-                    timeline.push({
-                        month: monthStr,
-                        mrr,
-                        tenantCount: activeTenants.length,
-                        paidCount,
-                    });
+                        const price = PLAN_PRICES[planAtMonth] ?? 0;
+                        mrr += price;
+                        if (planAtMonth !== "free") paidCount++;
+                    }
+
+                    timeline.push({ month: monthStr, mrr, tenantCount, paidCount });
                 }
 
                 return timeline;
@@ -1047,20 +1073,6 @@ export const superadminRouter = router({
             const db = await getDb();
             if (!db) return [];
             try {
-                // Ensure table exists
-                await db.execute(sql.raw(`
-                    CREATE TABLE IF NOT EXISTS platform_announcements (
-                        id INT AUTO_INCREMENT PRIMARY KEY,
-                        title VARCHAR(255) NOT NULL,
-                        message TEXT NOT NULL,
-                        type ENUM('info','warning','critical','maintenance') DEFAULT 'info' NOT NULL,
-                        active BOOLEAN DEFAULT TRUE NOT NULL,
-                        createdBy INT NULL,
-                        createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-                        updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL
-                    )
-                `));
-
                 const results = await db.select().from(platformAnnouncements).orderBy(desc(platformAnnouncements.createdAt));
                 return results;
             } catch (e) {
@@ -1079,20 +1091,6 @@ export const superadminRouter = router({
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-
-            // Ensure table exists
-            await db.execute(sql.raw(`
-                CREATE TABLE IF NOT EXISTS platform_announcements (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    title VARCHAR(255) NOT NULL,
-                    message TEXT NOT NULL,
-                    type ENUM('info','warning','critical','maintenance') DEFAULT 'info' NOT NULL,
-                    active BOOLEAN DEFAULT TRUE NOT NULL,
-                    createdBy INT NULL,
-                    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-                    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL
-                )
-            `));
 
             await db.insert(platformAnnouncements).values({
                 title: input.title,
@@ -1148,8 +1146,8 @@ export const superadminRouter = router({
             return { success: true, message: "Anuncio eliminado." };
         }),
 
-    /** Get active announcements (public — for tenants dashboard) */
-    getActiveAnnouncements: superadminGuard
+    /** Get active announcements (public — accessible to all authenticated users) */
+    getActiveAnnouncements: protectedProcedure
         .query(async () => {
             const db = await getDb();
             if (!db) return [];

@@ -1186,3 +1186,19 @@ export const platformAnnouncements = mysqlTable("platform_announcements", {
 
 export type PlatformAnnouncement = typeof platformAnnouncements.$inferSelect;
 export type InsertPlatformAnnouncement = typeof platformAnnouncements.$inferInsert;
+
+/**
+ * Feature Flags — Persistent per-tenant feature toggles (replaces in-memory Map)
+ */
+export const featureFlags = mysqlTable("feature_flags", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: int("tenantId").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  flag: varchar("flag", { length: 100 }).notNull(),
+  enabled: boolean("enabled").default(false).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uniqueTenantFlag: uniqueIndex("idx_ff_tenant_flag").on(t.tenantId, t.flag),
+}));
+
+export type FeatureFlag = typeof featureFlags.$inferSelect;
+export type InsertFeatureFlag = typeof featureFlags.$inferInsert;
