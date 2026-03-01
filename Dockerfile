@@ -64,6 +64,10 @@ COPY deploy/docker-entrypoint.sh /usr/local/bin/
 RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
+# Create writable directories for runtime and give ownership to node user
+RUN mkdir -p /app/storage/uploads /app/server/sessions /app/backups && \
+    chown -R node:node /app/storage /app/server /app/backups
+
 # Run as non-root user for security
 USER node
 
