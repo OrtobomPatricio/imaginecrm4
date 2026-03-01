@@ -92,18 +92,7 @@ export async function createApp() {
 
   app.disable("x-powered-by");
 
-  // Rate Limiting (Modular)
-  app.use(rateLimitMiddleware);
-
-  // Idempotency (Modular) — await to ensure it's registered before first request
-  try {
-    const { idempotencyMiddleware } = await import("./middleware/idempotency");
-    app.use(idempotencyMiddleware);
-  } catch (e) {
-    logger.warn({ err: safeError(e) }, "idempotency middleware load failed, skipping");
-  }
-
-  // Trust Proxy Config
+  // Trust Proxy Config (must be before rate limiter so req.ip is correct)
   if (process.env.TRUST_PROXY === "1") {
     app.set("trust proxy", 1);
     logger.info({ trustProxy: true }, "trust proxy enabled");
@@ -196,6 +185,17 @@ export async function createApp() {
     });
     next();
   });
+
+  // Rate Limiting (AFTER logging so 429 responses are visible in logs)
+  app.use(rateLimitMiddleware);
+
+  // Idempotency (Modular)
+  try {
+    const { idempotencyMiddleware } = await import("./middleware/idempotency");
+    app.use(idempotencyMiddleware);
+  } catch (e) {
+    logger.warn({ err: safeError(e) }, "idempotency middleware load failed, skipping");
+  }
 
   // Body Parsing
   // Keep raw body for WhatsApp signature verification
@@ -462,21 +462,10 @@ async function bootstrapAdmin() {
       logger.info("startup: cleared tRPC rate-limit entries for admin email");
     } catch { /* rate limit module not ready yet — harmless */ }
 
-    // Clear Express-level rate limit keys in Redis
+    // Clear Express-level rate limit keys in Redis (uses the same client as the middleware)
     try {
-      const Redis = (await import("ioredis")).default;
-      if (process.env.REDIS_URL) {
-        const redis = new Redis(process.env.REDIS_URL, { maxRetriesPerRequest: 1, enableOfflineQueue: false });
-        // express-rate-limit uses "rl:" prefix by default
-        let cursor = "0";
-        do {
-          const [next, keys] = await redis.scan(cursor, "MATCH", "rl:*", "COUNT", 200);
-          cursor = next;
-          if (keys.length > 0) await redis.del(...keys);
-        } while (cursor !== "0");
-        await redis.quit();
-        logger.info("startup: cleared Express rate-limit keys in Redis");
-      }
+      const { clearAllExpressRateLimits } = await import("./middleware/rate-limit");
+      await clearAllExpressRateLimits();
     } catch { /* non-fatal */ }
   } catch (e) {
     logger.error({ err: safeError(e) }, "startup: admin bootstrap failed (non-fatal)");
