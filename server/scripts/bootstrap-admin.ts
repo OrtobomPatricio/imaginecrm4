@@ -12,7 +12,7 @@ async function main() {
     if (!db) throw new Error("DB not available");
 
     const email = String(process.env.BOOTSTRAP_ADMIN_EMAIL || "").trim().toLowerCase();
-    const pass = process.env.BOOTSTRAP_ADMIN_PASSWORD;
+    const pass = String(process.env.BOOTSTRAP_ADMIN_PASSWORD || "").trim();
     const tenantId = Number(process.env.BOOTSTRAP_ADMIN_TENANT_ID ?? "1");
     if (!email || !pass) throw new Error("Set BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD");
     if (!Number.isFinite(tenantId) || tenantId <= 0) throw new Error("BOOTSTRAP_ADMIN_TENANT_ID must be a positive number");
@@ -37,6 +37,19 @@ async function main() {
             } as any)
             .where(eq(users.id, existing[0].id));
         logger.info("admin actualizado");
+
+        // Verify password works
+        const verify = await db.select({ id: users.id, password: users.password }).from(users).where(eq(users.id, existing[0].id)).limit(1);
+        if (verify[0]?.password) {
+            const ok = await bcrypt.compare(pass, verify[0].password);
+            logger.info({ passwordVerified: ok }, "bootstrap: admin password verification");
+            if (!ok) {
+                logger.error("bootstrap: CRITICAL — password re-hash needed!");
+                const rehash = await bcrypt.hash(pass, 12);
+                await db.update(users).set({ password: rehash } as any).where(eq(users.id, existing[0].id));
+                logger.info("bootstrap: password re-hashed successfully");
+            }
+        }
     } else {
         await db.insert(users).values({
             tenantId,

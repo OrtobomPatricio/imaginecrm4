@@ -366,7 +366,7 @@ async function startServer() {
  */
 async function bootstrapAdmin() {
   const email = String(process.env.BOOTSTRAP_ADMIN_EMAIL || "").trim().toLowerCase();
-  const pass  = process.env.BOOTSTRAP_ADMIN_PASSWORD;
+  const pass  = String(process.env.BOOTSTRAP_ADMIN_PASSWORD || "").trim();
   if (!email || !pass) {
     logger.warn("startup: BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD not set — skipping admin bootstrap");
     return;
@@ -414,12 +414,47 @@ async function bootstrapAdmin() {
       logger.info({ email, tenantId }, "startup: admin user created");
     }
 
+    // Verify the password works after storing it
+    const verify = await db
+      .select({ id: users.id, password: users.password })
+      .from(users)
+      .where(and(eq(users.email, email), eq(users.tenantId, tenantId)))
+      .limit(1);
+    if (verify[0]?.password) {
+      const ok = await bcrypt.compare(pass, verify[0].password);
+      logger.info({ email, tenantId, passwordVerified: ok }, "startup: admin password verification");
+      if (!ok) {
+        logger.error({ email, tenantId }, "startup: CRITICAL — password verification failed after bootstrap! Re-hashing...");
+        const rehash = await bcrypt.hash(pass, 12);
+        await db.update(users).set({ password: rehash } as any).where(eq(users.id, verify[0].id));
+      }
+    }
+
     // Clear any rate-limit blocks accumulated for the admin email
     try {
       const { clearRateLimitByPrefix } = await import("./trpc-rate-limit");
       await clearRateLimitByPrefix(`${email}:`);
-      logger.info("startup: cleared rate-limit entries for admin email");
+      // Also clear with just email (no colon suffix) for broader matching
+      await clearRateLimitByPrefix(email);
+      logger.info("startup: cleared tRPC rate-limit entries for admin email");
     } catch { /* rate limit module not ready yet — harmless */ }
+
+    // Clear Express-level rate limit keys in Redis
+    try {
+      const Redis = (await import("ioredis")).default;
+      if (process.env.REDIS_URL) {
+        const redis = new Redis(process.env.REDIS_URL, { maxRetriesPerRequest: 1, enableOfflineQueue: false });
+        // express-rate-limit uses "rl:" prefix by default
+        let cursor = "0";
+        do {
+          const [next, keys] = await redis.scan(cursor, "MATCH", "rl:*", "COUNT", 200);
+          cursor = next;
+          if (keys.length > 0) await redis.del(...keys);
+        } while (cursor !== "0");
+        await redis.quit();
+        logger.info("startup: cleared Express rate-limit keys in Redis");
+      }
+    } catch { /* non-fatal */ }
   } catch (e) {
     logger.error({ err: safeError(e) }, "startup: admin bootstrap failed (non-fatal)");
   }

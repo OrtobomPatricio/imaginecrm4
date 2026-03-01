@@ -25,19 +25,31 @@ export default function Login() {
         window.location.href = "/";
         return;
       }
-      toast.error(data?.error || "Credenciales inválidas");
+      toast.error(data?.error || "Error de autenticación");
     },
-    onError: (e) => toast.error(e.message || "Credenciales inválidas"),
+    onError: (e) => {
+      // Show the real error, not a generic fallback
+      const msg = e.message || "";
+      if (msg.includes("rate") || msg.includes("limit") || msg.includes("Demasiados")) {
+        toast.error("Demasiados intentos. Esperá unos minutos e intentá de nuevo.");
+      } else if (msg.includes("fetch") || msg.includes("network") || msg.includes("Failed")) {
+        toast.error("Error de conexión. Verificá tu internet e intentá de nuevo.");
+      } else {
+        toast.error(msg || "Error de autenticación. Intentá de nuevo.");
+      }
+    },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.email || !formData.password) {
+    const email = formData.email.trim();
+    const password = formData.password.trim();
+    if (!email || !password) {
       toast.error("Ingresá email y contraseña");
       return;
     }
 
-    login.mutate(formData);
+    login.mutate({ email, password });
   };
 
   const handleOAuthLogin = (provider: 'google' | 'microsoft') => {

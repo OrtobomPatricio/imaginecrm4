@@ -122,6 +122,7 @@ export const authRouter = router({
             if (!db) return { success: false, error: "Database not available" };
 
             const normalizedEmail = input.email.trim().toLowerCase();
+            const trimmedPassword = input.password.trim();
 
             // Rate limiting por email e IP
             const ip = getClientIp(ctx.req);
@@ -160,7 +161,7 @@ export const authRouter = router({
 
             if (!user[0] || !user[0].password) {
                 logger.warn({ email: normalizedEmail, tenantId: tenantId ?? 1, ip, userFound: !!user[0], hasPassword: !!user[0]?.password }, "[Auth] Login failed: user not found or no password");
-                return { success: false, error: "Credenciales inválidas" };
+                return { success: false, error: "Credenciales inválidas — usuario no encontrado" };
             }
 
             // Check if user account is active
@@ -169,10 +170,14 @@ export const authRouter = router({
                 return { success: false, error: "Cuenta desactivada. Contacte al administrador." };
             }
 
-            const valid = await bcrypt.compare(input.password, user[0].password);
+            // Try with trimmed password first, then original as fallback
+            let valid = await bcrypt.compare(trimmedPassword, user[0].password);
+            if (!valid && trimmedPassword !== input.password) {
+                valid = await bcrypt.compare(input.password, user[0].password);
+            }
             if (!valid) {
-                logger.warn({ email: normalizedEmail, userId: user[0].id, ip }, "[Auth] Login failed: invalid password");
-                return { success: false, error: "Credenciales inválidas" };
+                logger.warn({ email: normalizedEmail, userId: user[0].id, ip, passwordLength: input.password.length, trimmedLength: trimmedPassword.length }, "[Auth] Login failed: invalid password");
+                return { success: false, error: "Credenciales inválidas — contraseña incorrecta" };
             }
 
             // Limpiar rate limit después de login exitoso
