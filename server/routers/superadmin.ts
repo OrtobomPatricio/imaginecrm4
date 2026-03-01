@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
-import { tenants, users, whatsappNumbers, conversations, leads, sessions, platformAnnouncements } from "../../drizzle/schema";
+import { tenants, users, whatsappNumbers, conversations, leads, sessions, platformAnnouncements, activityLogs, appSettings, license, superadminAlerts, chatMessages } from "../../drizzle/schema";
 import { eq, desc, sql, count, and, gte, lte, inArray } from "drizzle-orm";
 import { logger } from "../_core/logger";
 import { TRPCError } from "@trpc/server";
@@ -37,6 +37,28 @@ const superadminGuard = protectedProcedure.use(async ({ ctx, next }) => {
     }
     return next();
 });
+
+/** Persist superadmin action to activity_logs for audit trail */
+async function logSuperadminAction(
+    adminId: number,
+    action: string,
+    details?: Record<string, any>,
+    targetTenantId?: number,
+) {
+    try {
+        const db = await getDb();
+        if (!db) return;
+        await db.insert(activityLogs).values({
+            tenantId: targetTenantId ?? 1,
+            userId: adminId,
+            action: `superadmin.${action}`,
+            entityType: "superadmin",
+            details: details ?? null,
+        });
+    } catch (e) {
+        logger.warn({ err: (e as any)?.message, action }, "[SuperAdmin] audit log insert failed");
+    }
+}
 
 export const superadminRouter = router({
     /** Debug endpoint: returns current user role and tenantId */
@@ -155,6 +177,7 @@ export const superadminRouter = router({
                 { adminId: ctx.user!.id, targetUserId: input.targetUserId, targetTenantId: input.targetTenantId },
                 "[Superadmin] IMPERSONATION initiated"
             );
+            await logSuperadminAction(ctx.user!.id, "impersonate", { targetUserId: input.targetUserId, targetTenantId: input.targetTenantId });
 
             // Create a real session token for the target user
             const openId = (targetUser as any).openId;
@@ -210,6 +233,7 @@ export const superadminRouter = router({
                 { adminId: ctx.user!.id, tenantId: input.tenantId, reason: input.reason },
                 "[Superadmin] Tenant SUSPENDED"
             );
+            await logSuperadminAction(ctx.user!.id, "suspendTenant", { tenantId: input.tenantId, reason: input.reason }, input.tenantId);
 
             return { success: true, message: "Tenant suspendido exitosamente." };
         }),
@@ -229,6 +253,7 @@ export const superadminRouter = router({
                 { adminId: ctx.user!.id, tenantId: input.tenantId },
                 "[Superadmin] Tenant REACTIVATED"
             );
+            await logSuperadminAction(ctx.user!.id, "reactivateTenant", { tenantId: input.tenantId }, input.tenantId);
 
             return { success: true, message: "Tenant reactivado exitosamente." };
         }),
@@ -251,6 +276,7 @@ export const superadminRouter = router({
                 { adminId: ctx.user!.id, tenantId: input.tenantId, plan: input.plan },
                 "[Superadmin] Tenant plan changed"
             );
+            await logSuperadminAction(ctx.user!.id, "changeTenantPlan", { tenantId: input.tenantId, plan: input.plan }, input.tenantId);
 
             return { success: true, message: `Plan cambiado a ${input.plan}.` };
         }),
@@ -303,6 +329,7 @@ export const superadminRouter = router({
                 { adminId: ctx.user!.id, ...input },
                 "[Superadmin] Feature flag updated"
             );
+            await logSuperadminAction(ctx.user!.id, "setFeatureFlag", { tenantId: input.tenantId, flag: input.flag, enabled: input.enabled }, input.tenantId);
             return { success: true };
         }),
 
@@ -658,6 +685,7 @@ export const superadminRouter = router({
                 { adminId: ctx.user!.id, targetUserId: input.userId, isActive: input.isActive },
                 "[Superadmin] User active status changed"
             );
+            await logSuperadminAction(ctx.user!.id, "toggleUserActive", { userId: input.userId, isActive: input.isActive });
 
             return { success: true, message: input.isActive ? "Usuario activado." : "Usuario desactivado." };
         }),
@@ -783,6 +811,7 @@ export const superadminRouter = router({
                 { adminId: ctx.user!.id, targetUserId: input.userId },
                 "[Superadmin] Force password reset"
             );
+            await logSuperadminAction(ctx.user!.id, "forcePasswordReset", { userId: input.userId });
 
             return {
                 success: true,
@@ -838,6 +867,7 @@ export const superadminRouter = router({
                 { adminId: ctx.user!.id, sessionId: input.sessionId },
                 "[Superadmin] Force logout session"
             );
+            await logSuperadminAction(ctx.user!.id, "forceLogout", { sessionId: input.sessionId });
             return { success: true, message: "Sesión terminada." };
         }),
 
@@ -853,6 +883,7 @@ export const superadminRouter = router({
                 { adminId: ctx.user!.id, tenantId: input.tenantId },
                 "[Superadmin] Force logout ALL sessions for tenant"
             );
+            await logSuperadminAction(ctx.user!.id, "forceLogoutTenant", { tenantId: input.tenantId }, input.tenantId);
             return { success: true, message: `Todas las sesiones del tenant ${input.tenantId} terminadas.` };
         }),
 
@@ -882,6 +913,7 @@ export const superadminRouter = router({
                 { adminId: ctx.user!.id, tenantIds: ids, plan: input.plan },
                 "[Superadmin] BULK plan change"
             );
+            await logSuperadminAction(ctx.user!.id, "bulkChangePlan", { tenantIds: ids, plan: input.plan });
 
             return { success: true, count: ids.length, message: `Plan cambiado a ${input.plan} para ${ids.length} tenants.` };
         }),
@@ -1158,5 +1190,675 @@ export const superadminRouter = router({
                     .orderBy(desc(platformAnnouncements.createdAt));
                 return results;
             } catch { return []; }
+        }),
+
+    // ══════════════════════════════════════════════════════════════
+    //  P1: SUPERADMIN AUDIT LOG VIEWER
+    // ══════════════════════════════════════════════════════════════
+
+    /** View superadmin-specific actions (filtered from activity_logs) */
+    superadminAuditLog: superadminGuard
+        .input(z.object({
+            limit: z.number().min(1).max(200).default(50),
+            offset: z.number().default(0),
+        }))
+        .query(async ({ input }) => {
+            const db = await getDb();
+            if (!db) return { rows: [], total: 0 };
+            try {
+                const [countResult] = await db.execute(sql`
+                    SELECT COUNT(*) as cnt FROM activity_logs WHERE action LIKE 'superadmin.%'
+                `) as any;
+                const total = Number(countResult?.[0]?.cnt ?? 0);
+                const [rows] = await db.execute(sql`
+                    SELECT al.id, al.tenantId, t.name as tenantName, al.userId, u.name as userName,
+                           al.action, al.entityType, al.details, al.createdAt
+                    FROM activity_logs al
+                    LEFT JOIN tenants t ON t.id = al.tenantId
+                    LEFT JOIN users u ON u.id = al.userId
+                    WHERE al.action LIKE 'superadmin.%'
+                    ORDER BY al.createdAt DESC
+                    LIMIT ${input.limit} OFFSET ${input.offset}
+                `) as any;
+                return { rows: rows ?? [], total };
+            } catch { return { rows: [], total: 0 }; }
+        }),
+
+    // ══════════════════════════════════════════════════════════════
+    //  P2: FULL TENANT CRUD
+    // ══════════════════════════════════════════════════════════════
+
+    /** Create a new tenant */
+    createTenant: superadminGuard
+        .input(z.object({
+            name: z.string().min(1).max(200),
+            slug: z.string().min(1).max(100).regex(/^[a-z0-9\-]+$/),
+            plan: z.enum(["free", "starter", "pro", "enterprise"]).default("free"),
+            trialEndsAt: z.string().optional(),
+        }))
+        .mutation(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            // Check slug uniqueness
+            const [existing] = await db.select({ id: tenants.id })
+                .from(tenants)
+                .where(eq(tenants.slug, input.slug))
+                .limit(1);
+            if (existing) throw new TRPCError({ code: "CONFLICT", message: `El slug "${input.slug}" ya existe.` });
+
+            const [result] = await db.insert(tenants).values({
+                name: input.name,
+                slug: input.slug,
+                plan: input.plan,
+                trialEndsAt: input.trialEndsAt ? new Date(input.trialEndsAt) : null,
+            }).$returningId();
+
+            const newId = (result as any)?.id ?? (result as any)?.insertId;
+
+            // Create default appSettings row
+            try {
+                await db.insert(appSettings).values({
+                    tenantId: newId,
+                    companyName: input.name,
+                });
+            } catch { /* may already exist */ }
+
+            await logSuperadminAction(ctx.user!.id, "createTenant", { tenantId: newId, name: input.name, slug: input.slug, plan: input.plan });
+            logger.info({ adminId: ctx.user!.id, tenantId: newId }, "[Superadmin] Tenant created");
+
+            return { success: true, tenantId: newId, message: `Tenant "${input.name}" creado.` };
+        }),
+
+    /** Update tenant details */
+    updateTenant: superadminGuard
+        .input(z.object({
+            tenantId: z.number(),
+            name: z.string().min(1).max(200).optional(),
+            slug: z.string().min(1).max(100).regex(/^[a-z0-9\-]+$/).optional(),
+            stripeCustomerId: z.string().max(255).nullable().optional(),
+            trialEndsAt: z.string().nullable().optional(),
+        }))
+        .mutation(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            const updates: Record<string, any> = {};
+            if (input.name !== undefined) updates.name = input.name;
+            if (input.slug !== undefined) {
+                // Check slug uniqueness
+                const [existing] = await db.select({ id: tenants.id })
+                    .from(tenants)
+                    .where(and(eq(tenants.slug, input.slug), sql`id != ${input.tenantId}`))
+                    .limit(1);
+                if (existing) throw new TRPCError({ code: "CONFLICT", message: `El slug "${input.slug}" ya está en uso.` });
+                updates.slug = input.slug;
+            }
+            if (input.stripeCustomerId !== undefined) updates.stripeCustomerId = input.stripeCustomerId;
+            if (input.trialEndsAt !== undefined) updates.trialEndsAt = input.trialEndsAt ? new Date(input.trialEndsAt) : null;
+
+            if (Object.keys(updates).length === 0) {
+                return { success: true, message: "Sin cambios." };
+            }
+
+            await db.update(tenants).set(updates).where(eq(tenants.id, input.tenantId));
+
+            await logSuperadminAction(ctx.user!.id, "updateTenant", { tenantId: input.tenantId, updates });
+            return { success: true, message: "Tenant actualizado." };
+        }),
+
+    /** Archive (cancel) a tenant — deactivate all users & sessions */
+    archiveTenant: superadminGuard
+        .input(z.object({ tenantId: z.number() }))
+        .mutation(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            if (input.tenantId === 1) {
+                throw new TRPCError({ code: "BAD_REQUEST", message: "No se puede archivar el tenant de la plataforma." });
+            }
+
+            await db.update(tenants).set({ status: "canceled" }).where(eq(tenants.id, input.tenantId));
+            await db.update(users).set({ isActive: false }).where(eq(users.tenantId, input.tenantId));
+            await db.delete(sessions).where(eq(sessions.tenantId, input.tenantId));
+
+            await logSuperadminAction(ctx.user!.id, "archiveTenant", { tenantId: input.tenantId });
+            logger.warn({ adminId: ctx.user!.id, tenantId: input.tenantId }, "[Superadmin] Tenant ARCHIVED");
+
+            return { success: true, message: "Tenant archivado. Usuarios desactivados y sesiones eliminadas." };
+        }),
+
+    // ══════════════════════════════════════════════════════════════
+    //  P3: CUSTOM LIMITS PER TENANT
+    // ══════════════════════════════════════════════════════════════
+
+    /** Update custom limits for a tenant (upsert into license table) */
+    updateTenantLimits: superadminGuard
+        .input(z.object({
+            tenantId: z.number(),
+            maxUsers: z.number().min(1).max(10000).optional(),
+            maxWhatsappNumbers: z.number().min(1).max(1000).optional(),
+            maxMessagesPerMonth: z.number().min(100).max(10000000).optional(),
+        }))
+        .mutation(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            // Check if license row exists
+            const [existing] = await db.select({ id: license.id })
+                .from(license)
+                .where(eq(license.tenantId, input.tenantId))
+                .limit(1);
+
+            if (existing) {
+                const updates: Record<string, any> = {};
+                if (input.maxUsers !== undefined) updates.maxUsers = input.maxUsers;
+                if (input.maxWhatsappNumbers !== undefined) updates.maxWhatsappNumbers = input.maxWhatsappNumbers;
+                if (input.maxMessagesPerMonth !== undefined) updates.maxMessagesPerMonth = input.maxMessagesPerMonth;
+
+                if (Object.keys(updates).length > 0) {
+                    await db.update(license).set(updates).where(eq(license.id, existing.id));
+                }
+            } else {
+                // Create license row
+                const crypto = await import("crypto");
+                await db.insert(license).values({
+                    tenantId: input.tenantId,
+                    key: `lic_${crypto.randomBytes(16).toString("hex")}`,
+                    plan: "starter",
+                    maxUsers: input.maxUsers ?? 5,
+                    maxWhatsappNumbers: input.maxWhatsappNumbers ?? 3,
+                    maxMessagesPerMonth: input.maxMessagesPerMonth ?? 10000,
+                });
+            }
+
+            await logSuperadminAction(ctx.user!.id, "updateTenantLimits", { tenantId: input.tenantId, ...input });
+            return { success: true, message: "Límites actualizados." };
+        }),
+
+    // ══════════════════════════════════════════════════════════════
+    //  P4: TRIAL / SUBSCRIPTION MANAGEMENT
+    // ══════════════════════════════════════════════════════════════
+
+    /** Set or extend trial end date */
+    setTrialDate: superadminGuard
+        .input(z.object({
+            tenantId: z.number(),
+            trialEndsAt: z.string().nullable(),
+        }))
+        .mutation(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            await db.update(tenants)
+                .set({ trialEndsAt: input.trialEndsAt ? new Date(input.trialEndsAt) : null })
+                .where(eq(tenants.id, input.tenantId));
+
+            await logSuperadminAction(ctx.user!.id, "setTrialDate", { tenantId: input.tenantId, trialEndsAt: input.trialEndsAt });
+            return { success: true, message: input.trialEndsAt ? `Trial extendido hasta ${input.trialEndsAt}.` : "Trial removido." };
+        }),
+
+    // ══════════════════════════════════════════════════════════════
+    //  P5: DATA EXPORT
+    // ══════════════════════════════════════════════════════════════
+
+    /** Export all tenants with enriched data */
+    exportTenants: superadminGuard
+        .query(async ({ ctx }) => {
+            const db = await getDb();
+            if (!db) return [];
+            try {
+                const [rows] = await db.execute(sql`
+                    SELECT t.id, t.name, t.slug, t.plan, t.status, t.stripeCustomerId,
+                           t.trialEndsAt, t.createdAt,
+                           COUNT(DISTINCT u.id) as userCount,
+                           COUNT(DISTINCT l.id) as leadCount,
+                           COUNT(DISTINCT wn.id) as waNumberCount
+                    FROM tenants t
+                    LEFT JOIN users u ON u.tenantId = t.id AND u.isActive = 1
+                    LEFT JOIN leads l ON l.tenantId = t.id AND l.deletedAt IS NULL
+                    LEFT JOIN whatsapp_numbers wn ON wn.tenantId = t.id
+                    GROUP BY t.id
+                    ORDER BY t.createdAt DESC
+                `) as any;
+
+                await logSuperadminAction(ctx.user!.id, "exportTenants", { count: (rows ?? []).length });
+                return rows ?? [];
+            } catch { return []; }
+        }),
+
+    /** Export all users cross-tenant */
+    exportAllUsers: superadminGuard
+        .input(z.object({
+            tenantId: z.number().optional(),
+            limit: z.number().min(1).max(10000).default(5000),
+        }))
+        .query(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) return [];
+            try {
+                let query = sql`
+                    SELECT u.id, u.tenantId, t.name as tenantName, u.name, u.email,
+                           u.role, u.isActive, u.lastSignedIn, u.createdAt
+                    FROM users u
+                    LEFT JOIN tenants t ON t.id = u.tenantId
+                `;
+                if (input.tenantId) {
+                    query = sql`${query} WHERE u.tenantId = ${input.tenantId}`;
+                }
+                query = sql`${query} ORDER BY u.createdAt DESC LIMIT ${input.limit}`;
+
+                const [rows] = await db.execute(query) as any;
+                await logSuperadminAction(ctx.user!.id, "exportAllUsers", { count: (rows ?? []).length });
+                return rows ?? [];
+            } catch { return []; }
+        }),
+
+    /** Export platform metrics snapshot */
+    exportMetrics: superadminGuard
+        .query(async ({ ctx }) => {
+            const db = await getDb();
+            if (!db) return [];
+            try {
+                const PLAN_PRICES: Record<string, number> = { free: 0, starter: 29, pro: 99, enterprise: 299 };
+                const [rows] = await db.execute(sql`
+                    SELECT t.id, t.name, t.slug, t.plan, t.status,
+                           COUNT(DISTINCT u.id) as users,
+                           COUNT(DISTINCT l.id) as leads,
+                           COUNT(DISTINCT wn.id) as waNumbers,
+                           COALESCE(SUM(DISTINCT fu.size), 0) as storageBytes
+                    FROM tenants t
+                    LEFT JOIN users u ON u.tenantId = t.id AND u.isActive = 1
+                    LEFT JOIN leads l ON l.tenantId = t.id AND l.deletedAt IS NULL
+                    LEFT JOIN whatsapp_numbers wn ON wn.tenantId = t.id
+                    LEFT JOIN file_uploads fu ON fu.tenantId = t.id
+                    GROUP BY t.id
+                    ORDER BY t.id
+                `) as any;
+
+                const enriched = (rows ?? []).map((r: any) => ({
+                    ...r,
+                    mrr: PLAN_PRICES[r.plan] ?? 0,
+                    storageMB: Math.round(Number(r.storageBytes ?? 0) / 1024 / 1024 * 100) / 100,
+                }));
+
+                await logSuperadminAction(ctx.user!.id, "exportMetrics", { count: enriched.length });
+                return enriched;
+            } catch { return []; }
+        }),
+
+    // ══════════════════════════════════════════════════════════════
+    //  P6: CROSS-TENANT USER MANAGEMENT
+    // ══════════════════════════════════════════════════════════════
+
+    /** List all users across all tenants (paginated, searchable) */
+    listAllUsers: superadminGuard
+        .input(z.object({
+            search: z.string().max(100).optional(),
+            tenantId: z.number().optional(),
+            role: z.enum(["owner", "admin", "supervisor", "agent", "viewer"]).optional(),
+            isActive: z.boolean().optional(),
+            limit: z.number().min(1).max(200).default(50),
+            offset: z.number().default(0),
+        }))
+        .query(async ({ input }) => {
+            const db = await getDb();
+            if (!db) return { rows: [], total: 0 };
+            try {
+                let where = "1=1";
+                if (input.tenantId) where += ` AND u.tenantId = ${Number(input.tenantId)}`;
+                if (input.role) {
+                    const safeRole = input.role.replace(/[^a-zA-Z]/g, "");
+                    where += ` AND u.role = '${safeRole}'`;
+                }
+                if (input.isActive !== undefined) where += ` AND u.isActive = ${input.isActive ? 1 : 0}`;
+                if (input.search) {
+                    const safeSearch = input.search.replace(/['"\\%_]/g, "");
+                    where += ` AND (u.name LIKE '%${safeSearch}%' OR u.email LIKE '%${safeSearch}%')`;
+                }
+
+                const [countResult] = await db.execute(sql.raw(
+                    `SELECT COUNT(*) as cnt FROM users u WHERE ${where}`
+                )) as any;
+                const total = Number(countResult?.[0]?.cnt ?? 0);
+
+                const [rows] = await db.execute(sql.raw(`
+                    SELECT u.id, u.tenantId, t.name as tenantName, u.name, u.email,
+                           u.role, u.isActive, u.lastSignedIn, u.createdAt
+                    FROM users u
+                    LEFT JOIN tenants t ON t.id = u.tenantId
+                    WHERE ${where}
+                    ORDER BY u.lastSignedIn DESC
+                    LIMIT ${input.limit} OFFSET ${input.offset}
+                `)) as any;
+
+                return { rows: rows ?? [], total };
+            } catch { return { rows: [], total: 0 }; }
+        }),
+
+    /** Change a user's role */
+    changeUserRole: superadminGuard
+        .input(z.object({
+            userId: z.number(),
+            role: z.enum(["owner", "admin", "supervisor", "agent", "viewer"]),
+        }))
+        .mutation(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            // Don't allow demoting the only owner of a tenant
+            if (input.role !== "owner") {
+                const [targetUser] = await db.select({ tenantId: users.tenantId, role: users.role })
+                    .from(users).where(eq(users.id, input.userId)).limit(1);
+                if (targetUser && targetUser.role === "owner") {
+                    const ownerCount = await db.select({ cnt: count() })
+                        .from(users)
+                        .where(and(eq(users.tenantId, targetUser.tenantId), eq(users.role, "owner"), eq(users.isActive, true)));
+                    if (Number(ownerCount[0]?.cnt ?? 0) <= 1) {
+                        throw new TRPCError({ code: "BAD_REQUEST", message: "No se puede cambiar el rol del único owner del tenant." });
+                    }
+                }
+            }
+
+            await db.update(users).set({ role: input.role }).where(eq(users.id, input.userId));
+
+            await logSuperadminAction(ctx.user!.id, "changeUserRole", { userId: input.userId, role: input.role });
+            return { success: true, message: `Rol cambiado a ${input.role}.` };
+        }),
+
+    /** Delete a user permanently */
+    deleteUser: superadminGuard
+        .input(z.object({ userId: z.number() }))
+        .mutation(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            // Don't allow deleting the only owner
+            const [targetUser] = await db.select({ tenantId: users.tenantId, role: users.role })
+                .from(users).where(eq(users.id, input.userId)).limit(1);
+            if (!targetUser) throw new TRPCError({ code: "NOT_FOUND", message: "Usuario no encontrado." });
+
+            if (targetUser.role === "owner") {
+                const ownerCount = await db.select({ cnt: count() })
+                    .from(users)
+                    .where(and(eq(users.tenantId, targetUser.tenantId), eq(users.role, "owner"), eq(users.isActive, true)));
+                if (Number(ownerCount[0]?.cnt ?? 0) <= 1) {
+                    throw new TRPCError({ code: "BAD_REQUEST", message: "No se puede eliminar el único owner del tenant." });
+                }
+            }
+
+            // Delete sessions first, then user
+            await db.delete(sessions).where(eq(sessions.userId, input.userId));
+            await db.delete(users).where(eq(users.id, input.userId));
+
+            await logSuperadminAction(ctx.user!.id, "deleteUser", { userId: input.userId, tenantId: targetUser.tenantId });
+            return { success: true, message: "Usuario eliminado." };
+        }),
+
+    // ══════════════════════════════════════════════════════════════
+    //  P7: GLOBAL SEARCH CROSS-TENANT
+    // ══════════════════════════════════════════════════════════════
+
+    /** Search leads, conversations, and messages across all tenants */
+    globalSearch: superadminGuard
+        .input(z.object({
+            query: z.string().min(2).max(100),
+            entities: z.array(z.enum(["leads", "conversations", "messages"])).min(1).default(["leads", "conversations"]),
+            limit: z.number().min(1).max(50).default(20),
+        }))
+        .query(async ({ input }) => {
+            const db = await getDb();
+            if (!db) return { leads: [], conversations: [], messages: [] };
+
+            const safeQ = input.query.replace(/['"\\%_]/g, "");
+            const result: { leads: any[]; conversations: any[]; messages: any[] } = { leads: [], conversations: [], messages: [] };
+
+            try {
+                if (input.entities.includes("leads")) {
+                    const [rows] = await db.execute(sql.raw(`
+                        SELECT l.id, l.tenantId, t.name as tenantName, l.name, l.phone, l.email, l.status, l.createdAt
+                        FROM leads l
+                        JOIN tenants t ON t.id = l.tenantId
+                        WHERE l.deletedAt IS NULL
+                          AND (l.name LIKE '%${safeQ}%' OR l.phone LIKE '%${safeQ}%' OR l.email LIKE '%${safeQ}%')
+                        ORDER BY l.createdAt DESC
+                        LIMIT ${input.limit}
+                    `)) as any;
+                    result.leads = rows ?? [];
+                }
+            } catch { /* table may not exist */ }
+
+            try {
+                if (input.entities.includes("conversations")) {
+                    const [rows] = await db.execute(sql.raw(`
+                        SELECT c.id, c.tenantId, t.name as tenantName, c.contactName, c.contactPhone,
+                               c.status, c.lastMessageAt, c.createdAt
+                        FROM conversations c
+                        JOIN tenants t ON t.id = c.tenantId
+                        WHERE c.contactName LIKE '%${safeQ}%' OR c.contactPhone LIKE '%${safeQ}%'
+                        ORDER BY c.lastMessageAt DESC
+                        LIMIT ${input.limit}
+                    `)) as any;
+                    result.conversations = rows ?? [];
+                }
+            } catch { /* table may not exist */ }
+
+            try {
+                if (input.entities.includes("messages")) {
+                    const [rows] = await db.execute(sql.raw(`
+                        SELECT cm.id, cm.tenantId, t.name as tenantName, cm.conversationId,
+                               SUBSTRING(cm.content, 1, 200) as content, cm.sender, cm.createdAt
+                        FROM chat_messages cm
+                        JOIN tenants t ON t.id = cm.tenantId
+                        WHERE cm.content LIKE '%${safeQ}%'
+                        ORDER BY cm.createdAt DESC
+                        LIMIT ${input.limit}
+                    `)) as any;
+                    result.messages = rows ?? [];
+                }
+            } catch { /* table may not exist */ }
+
+            return result;
+        }),
+
+    // ══════════════════════════════════════════════════════════════
+    //  P8: PLATFORM CONFIGURATION
+    // ══════════════════════════════════════════════════════════════
+
+    /** Get platform-level configuration (tenant ID = 1) */
+    getPlatformConfig: superadminGuard
+        .query(async () => {
+            const db = await getDb();
+            if (!db) return null;
+            try {
+                const [row] = await db.select()
+                    .from(appSettings)
+                    .where(eq(appSettings.tenantId, 1))
+                    .limit(1);
+                return row ?? null;
+            } catch { return null; }
+        }),
+
+    /** Update platform-level configuration sections */
+    updatePlatformConfig: superadminGuard
+        .input(z.object({
+            smtpConfig: z.any().optional(),
+            metaConfig: z.any().optional(),
+            aiConfig: z.any().optional(),
+            storageConfig: z.any().optional(),
+            securityConfig: z.any().optional(),
+            companyName: z.string().max(120).optional(),
+            timezone: z.string().max(60).optional(),
+            language: z.string().max(10).optional(),
+            currency: z.string().max(10).optional(),
+        }))
+        .mutation(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            const updates: Record<string, any> = {};
+            if (input.smtpConfig !== undefined) updates.smtpConfig = input.smtpConfig;
+            if (input.metaConfig !== undefined) updates.metaConfig = input.metaConfig;
+            if (input.aiConfig !== undefined) updates.aiConfig = input.aiConfig;
+            if (input.storageConfig !== undefined) updates.storageConfig = input.storageConfig;
+            if (input.securityConfig !== undefined) updates.securityConfig = input.securityConfig;
+            if (input.companyName !== undefined) updates.companyName = input.companyName;
+            if (input.timezone !== undefined) updates.timezone = input.timezone;
+            if (input.language !== undefined) updates.language = input.language;
+            if (input.currency !== undefined) updates.currency = input.currency;
+
+            if (Object.keys(updates).length === 0) {
+                return { success: true, message: "Sin cambios." };
+            }
+
+            await db.update(appSettings).set(updates).where(eq(appSettings.tenantId, 1));
+
+            await logSuperadminAction(ctx.user!.id, "updatePlatformConfig", { sections: Object.keys(updates) });
+            return { success: true, message: "Configuración de plataforma actualizada." };
+        }),
+
+    // ══════════════════════════════════════════════════════════════
+    //  P9: SUPERADMIN ALERTS SYSTEM
+    // ══════════════════════════════════════════════════════════════
+
+    /** List superadmin alerts */
+    listAlerts: superadminGuard
+        .input(z.object({
+            type: z.enum(["trial_expiring", "quota_exceeded", "new_tenant", "error", "churn_risk", "security"]).optional(),
+            severity: z.enum(["info", "warning", "critical"]).optional(),
+            isRead: z.boolean().optional(),
+            limit: z.number().min(1).max(200).default(50),
+            offset: z.number().default(0),
+        }))
+        .query(async ({ input }) => {
+            const db = await getDb();
+            if (!db) return { rows: [], total: 0, unreadCount: 0 };
+            try {
+                let where = "1=1";
+                if (input.type) where += ` AND type = '${input.type.replace(/[^a-z_]/g, "")}'`;
+                if (input.severity) where += ` AND severity = '${input.severity.replace(/[^a-z]/g, "")}'`;
+                if (input.isRead !== undefined) where += ` AND isRead = ${input.isRead ? 1 : 0}`;
+
+                const [countResult] = await db.execute(sql.raw(
+                    `SELECT COUNT(*) as cnt FROM superadmin_alerts WHERE ${where}`
+                )) as any;
+                const total = Number(countResult?.[0]?.cnt ?? 0);
+
+                const [unreadResult] = await db.execute(sql`
+                    SELECT COUNT(*) as cnt FROM superadmin_alerts WHERE isRead = 0
+                `) as any;
+                const unreadCount = Number(unreadResult?.[0]?.cnt ?? 0);
+
+                const [rows] = await db.execute(sql.raw(`
+                    SELECT sa.*, t.name as tenantName
+                    FROM superadmin_alerts sa
+                    LEFT JOIN tenants t ON t.id = sa.tenantId
+                    WHERE ${where}
+                    ORDER BY sa.createdAt DESC
+                    LIMIT ${input.limit} OFFSET ${input.offset}
+                `)) as any;
+
+                return { rows: rows ?? [], total, unreadCount };
+            } catch { return { rows: [], total: 0, unreadCount: 0 }; }
+        }),
+
+    /** Mark alert(s) as read */
+    markAlertRead: superadminGuard
+        .input(z.object({
+            alertId: z.number().optional(),
+            all: z.boolean().optional(),
+        }))
+        .mutation(async ({ input }) => {
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            if (input.all) {
+                await db.update(superadminAlerts).set({ isRead: true }).where(eq(superadminAlerts.isRead, false));
+            } else if (input.alertId) {
+                await db.update(superadminAlerts).set({ isRead: true }).where(eq(superadminAlerts.id, input.alertId));
+            }
+
+            return { success: true, message: "Alertas marcadas como leídas." };
+        }),
+
+    /** Generate alerts manually (check trials, quotas, churn) */
+    generateAlerts: superadminGuard
+        .mutation(async ({ ctx }) => {
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            let generated = 0;
+
+            // 1. Trials expiring in next 3 days
+            try {
+                const [rows] = await db.execute(sql`
+                    SELECT id, name, trialEndsAt, DATEDIFF(trialEndsAt, NOW()) as daysLeft
+                    FROM tenants
+                    WHERE trialEndsAt IS NOT NULL
+                      AND trialEndsAt <= DATE_ADD(NOW(), INTERVAL 3 DAY)
+                      AND trialEndsAt >= NOW()
+                      AND id NOT IN (SELECT DISTINCT COALESCE(tenantId, 0) FROM superadmin_alerts WHERE type = 'trial_expiring' AND createdAt >= DATE_SUB(NOW(), INTERVAL 1 DAY))
+                `) as any;
+                for (const r of (rows ?? []) as any[]) {
+                    await db.insert(superadminAlerts).values({
+                        type: "trial_expiring",
+                        severity: Number(r.daysLeft) <= 1 ? "critical" : "warning",
+                        title: `Trial expira: ${r.name}`,
+                        message: `El tenant "${r.name}" (ID: ${r.id}) tiene su trial expirando en ${r.daysLeft} día(s).`,
+                        tenantId: Number(r.id),
+                    });
+                    generated++;
+                }
+            } catch { /* table may not exist */ }
+
+            // 2. Inactive tenants (14+ days) — churn risk
+            try {
+                const [rows] = await db.execute(sql`
+                    SELECT t.id, t.name,
+                           DATEDIFF(NOW(), COALESCE(MAX(u.lastSignedIn), t.createdAt)) as daysSince
+                    FROM tenants t
+                    LEFT JOIN users u ON u.tenantId = t.id
+                    WHERE t.status = 'active' AND t.id != 1
+                    GROUP BY t.id
+                    HAVING daysSince >= 14
+                       AND t.id NOT IN (SELECT DISTINCT COALESCE(tenantId, 0) FROM superadmin_alerts WHERE type = 'churn_risk' AND createdAt >= DATE_SUB(NOW(), INTERVAL 7 DAY))
+                `) as any;
+                for (const r of (rows ?? []) as any[]) {
+                    await db.insert(superadminAlerts).values({
+                        type: "churn_risk",
+                        severity: Number(r.daysSince) >= 30 ? "critical" : "warning",
+                        title: `Riesgo de churn: ${r.name}`,
+                        message: `El tenant "${r.name}" lleva ${r.daysSince} días sin actividad.`,
+                        tenantId: Number(r.id),
+                    });
+                    generated++;
+                }
+            } catch { /* table may not exist */ }
+
+            await logSuperadminAction(ctx.user!.id, "generateAlerts", { generated });
+            return { success: true, generated, message: `${generated} alertas generadas.` };
+        }),
+
+    // ══════════════════════════════════════════════════════════════
+    //  P10: ENHANCED REAL-TIME METRICS (improved polling)
+    // ══════════════════════════════════════════════════════════════
+
+    /** Fast KPI snapshot for real-time polling (lightweight query) */
+    liveKpis: superadminGuard
+        .query(async () => {
+            const db = await getDb();
+            if (!db) return null;
+            try {
+                const [rows] = await db.execute(sql`
+                    SELECT
+                        (SELECT COUNT(*) FROM tenants WHERE status = 'active') as activeTenants,
+                        (SELECT COUNT(*) FROM users WHERE isActive = 1) as activeUsers,
+                        (SELECT COUNT(*) FROM sessions WHERE expiresAt > NOW()) as activeSessions,
+                        (SELECT COUNT(*) FROM chat_messages WHERE createdAt >= DATE_SUB(NOW(), INTERVAL 1 HOUR)) as messagesLastHour,
+                        (SELECT COUNT(*) FROM leads WHERE createdAt >= DATE_SUB(NOW(), INTERVAL 24 HOUR) AND deletedAt IS NULL) as leadsToday,
+                        (SELECT COUNT(*) FROM conversations WHERE createdAt >= DATE_SUB(NOW(), INTERVAL 24 HOUR)) as conversationsToday
+                `) as any;
+                return rows?.[0] ?? null;
+            } catch { return null; }
         }),
 });

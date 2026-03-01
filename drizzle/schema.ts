@@ -1202,3 +1202,21 @@ export const featureFlags = mysqlTable("feature_flags", {
 
 export type FeatureFlag = typeof featureFlags.$inferSelect;
 export type InsertFeatureFlag = typeof featureFlags.$inferInsert;
+
+/**
+ * SuperAdmin Alerts — Inbound notifications for platform administrators
+ */
+export const superadminAlerts = mysqlTable("superadmin_alerts", {
+  id: int("id").autoincrement().primaryKey(),
+  type: mysqlEnum("type", ["trial_expiring", "quota_exceeded", "new_tenant", "error", "churn_risk", "security"]).notNull(),
+  severity: mysqlEnum("severity", ["info", "warning", "critical"]).default("warning").notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  message: text("message").notNull(),
+  tenantId: int("tenantId"),
+  metadata: json("metadata"),
+  isRead: boolean("isRead").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type SuperadminAlert = typeof superadminAlerts.$inferSelect;
+export type InsertSuperadminAlert = typeof superadminAlerts.$inferInsert;

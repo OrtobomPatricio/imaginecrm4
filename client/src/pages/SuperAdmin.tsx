@@ -75,6 +75,17 @@ import {
   LogOut,
   CheckSquare,
   Square,
+  Bell,
+  BellRing,
+  Archive,
+  Edit,
+  SearchCode,
+  Sliders,
+  Save,
+  MailIcon,
+  ServerIcon,
+  ShieldQuestion,
+  UserMinus,
 } from "lucide-react";
 import {
   Select,
@@ -641,6 +652,14 @@ function TenantRow({
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const archive = trpc.superadmin.archiveTenant.useMutation({
+    onSuccess: () => {
+      toast({ title: "Tenant archivado" });
+      refetch();
+    },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
   const isSuspended = tenant.status === "suspended";
   const isPlatform = tenant.id === 1;
 
@@ -751,6 +770,9 @@ function TenantRow({
 
             <TabsContent value="actions" className="mt-0">
               <div className="flex items-center gap-2 flex-wrap">
+                <EditTenantDialog tenant={tenant} onSuccess={refetch} />
+                <EditLimitsDialog tenantId={tenant.id} onSuccess={refetch} />
+
                 <ChangePlanDialog
                   tenant={{ id: tenant.id, name: tenant.name, plan: tenant.plan }}
                   onSuccess={refetch}
@@ -788,6 +810,23 @@ function TenantRow({
                       Suspender
                     </Button>
                   )
+                )}
+
+                {!isPlatform && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs gap-1 text-red-600 hover:text-red-700"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (confirm(`¿ARCHIVAR "${tenant.name}"? Se desactivarán todos sus usuarios y se cancelará la suscripción.`)) {
+                        archive.mutate({ tenantId: tenant.id });
+                      }
+                    }}
+                    disabled={archive.isPending}
+                  >
+                    {archive.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Archive className="w-3 h-3" />} Archivar
+                  </Button>
                 )}
               </div>
             </TabsContent>
@@ -1951,6 +1990,646 @@ function BulkOperationsPanel({ tenants: tenantList, refetch }: { tenants: any[];
   );
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   CREATE TENANT DIALOG
+   ═══════════════════════════════════════════════════════════════════ */
+function CreateTenantDialog({ onSuccess }: { onSuccess: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [plan, setPlan] = useState<string>("free");
+  const [trialDate, setTrialDate] = useState("");
+  const { toast } = useToast();
+
+  const create = trpc.superadmin.createTenant.useMutation({
+    onSuccess: (d) => {
+      toast({ title: d.message });
+      setOpen(false);
+      setName(""); setSlug(""); setPlan("free"); setTrialDate("");
+      onSuccess();
+    },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" className="h-8 text-xs gap-1">
+          <Plus className="w-3 h-3" /> Nuevo Tenant
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Crear Tenant</DialogTitle>
+          <DialogDescription>Crea una nueva organización en la plataforma.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <Input placeholder="Nombre de empresa" value={name} onChange={(e) => { setName(e.target.value); if (!slug) setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-")); }} className="h-9 text-sm" />
+          <Input placeholder="slug (solo letras, números, guiones)" value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9\-]/g, ""))} className="h-9 text-sm" />
+          <Select value={plan} onValueChange={setPlan}>
+            <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="free">Free</SelectItem>
+              <SelectItem value="starter">Starter</SelectItem>
+              <SelectItem value="pro">Pro</SelectItem>
+              <SelectItem value="enterprise">Enterprise</SelectItem>
+            </SelectContent>
+          </Select>
+          <div>
+            <Label className="text-xs text-muted-foreground">Trial hasta (opcional)</Label>
+            <Input type="date" value={trialDate} onChange={(e) => setTrialDate(e.target.value)} className="h-9 text-sm" />
+          </div>
+        </div>
+        <DialogFooter>
+          <DialogClose asChild><Button variant="ghost">Cancelar</Button></DialogClose>
+          <Button onClick={() => create.mutate({ name, slug, plan: plan as any, trialEndsAt: trialDate || undefined })} disabled={!name || !slug || create.isPending}>
+            {create.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null} Crear
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   EDIT TENANT DIALOG
+   ═══════════════════════════════════════════════════════════════════ */
+function EditTenantDialog({ tenant, onSuccess }: { tenant: any; onSuccess: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(tenant.name);
+  const [slug, setSlug] = useState(tenant.slug);
+  const [stripeId, setStripeId] = useState(tenant.stripeCustomerId ?? "");
+  const [trialDate, setTrialDate] = useState(tenant.trialEndsAt ? new Date(tenant.trialEndsAt).toISOString().slice(0, 10) : "");
+  const { toast } = useToast();
+
+  const update = trpc.superadmin.updateTenant.useMutation({
+    onSuccess: () => { toast({ title: "Tenant actualizado" }); setOpen(false); onSuccess(); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="h-7 text-xs gap-1"><Edit className="w-3 h-3" /> Editar</Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Editar Tenant — {tenant.name}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div><Label className="text-xs">Nombre</Label><Input value={name} onChange={(e) => setName(e.target.value)} className="h-9 text-sm" /></div>
+          <div><Label className="text-xs">Slug</Label><Input value={slug} onChange={(e) => setSlug(e.target.value)} className="h-9 text-sm" /></div>
+          <div><Label className="text-xs">Stripe Customer ID</Label><Input value={stripeId} onChange={(e) => setStripeId(e.target.value)} className="h-9 text-sm" placeholder="cus_..." /></div>
+          <div><Label className="text-xs">Trial hasta</Label><Input type="date" value={trialDate} onChange={(e) => setTrialDate(e.target.value)} className="h-9 text-sm" /></div>
+        </div>
+        <DialogFooter>
+          <DialogClose asChild><Button variant="ghost">Cancelar</Button></DialogClose>
+          <Button onClick={() => update.mutate({ tenantId: tenant.id, name, slug, stripeCustomerId: stripeId || null, trialEndsAt: trialDate || null })} disabled={update.isPending}>
+            {update.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null} Guardar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   EDIT LIMITS DIALOG
+   ═══════════════════════════════════════════════════════════════════ */
+function EditLimitsDialog({ tenantId, onSuccess }: { tenantId: number; onSuccess: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [maxUsers, setMaxUsers] = useState("");
+  const [maxWa, setMaxWa] = useState("");
+  const [maxMsg, setMaxMsg] = useState("");
+  const { toast } = useToast();
+
+  const update = trpc.superadmin.updateTenantLimits.useMutation({
+    onSuccess: () => { toast({ title: "Límites actualizados" }); setOpen(false); onSuccess(); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="h-7 text-xs gap-1"><Sliders className="w-3 h-3" /> Límites</Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-xs">
+        <DialogHeader><DialogTitle>Editar Límites</DialogTitle><DialogDescription>Deja vacío para mantener valor actual.</DialogDescription></DialogHeader>
+        <div className="space-y-3">
+          <div><Label className="text-xs">Max Usuarios</Label><Input type="number" value={maxUsers} onChange={(e) => setMaxUsers(e.target.value)} className="h-9 text-sm" placeholder="ej: 10" /></div>
+          <div><Label className="text-xs">Max Números WA</Label><Input type="number" value={maxWa} onChange={(e) => setMaxWa(e.target.value)} className="h-9 text-sm" placeholder="ej: 5" /></div>
+          <div><Label className="text-xs">Max Mensajes/Mes</Label><Input type="number" value={maxMsg} onChange={(e) => setMaxMsg(e.target.value)} className="h-9 text-sm" placeholder="ej: 50000" /></div>
+        </div>
+        <DialogFooter>
+          <DialogClose asChild><Button variant="ghost">Cancelar</Button></DialogClose>
+          <Button onClick={() => update.mutate({
+            tenantId,
+            ...(maxUsers ? { maxUsers: Number(maxUsers) } : {}),
+            ...(maxWa ? { maxWhatsappNumbers: Number(maxWa) } : {}),
+            ...(maxMsg ? { maxMessagesPerMonth: Number(maxMsg) } : {}),
+          })} disabled={update.isPending}>
+            {update.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null} Guardar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ALL USERS PANEL (Cross-Tenant)
+   ═══════════════════════════════════════════════════════════════════ */
+function AllUsersPanel() {
+  const { toast } = useToast();
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState<string>("all");
+  const [page, setPage] = useState(0);
+  const limit = 50;
+
+  const usersQuery = trpc.superadmin.listAllUsers.useQuery({
+    search: search || undefined,
+    role: roleFilter !== "all" ? roleFilter as any : undefined,
+    limit,
+    offset: page * limit,
+  });
+
+  const toggleActive = trpc.superadmin.toggleUserActive.useMutation({
+    onSuccess: (d) => { toast({ title: d.message }); usersQuery.refetch(); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const changeRole = trpc.superadmin.changeUserRole.useMutation({
+    onSuccess: (d) => { toast({ title: d.message }); usersQuery.refetch(); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteUser = trpc.superadmin.deleteUser.useMutation({
+    onSuccess: (d) => { toast({ title: d.message }); usersQuery.refetch(); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const resetPw = trpc.superadmin.forcePasswordReset.useMutation({
+    onSuccess: (d) => { toast({ title: "Contraseña reseteada", description: `Temporal: ${d.tempPassword}`, duration: 15000 }); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const rows = usersQuery.data?.rows ?? [];
+  const total = usersQuery.data?.total ?? 0;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold flex items-center gap-2"><Users className="w-5 h-5" /> Usuarios ({total})</h2>
+        <Button variant="outline" size="sm" className="h-8 text-xs gap-1" onClick={async () => {
+          try {
+            const res = await (trpc as any).superadmin.exportAllUsers.query({ limit: 5000 });
+            downloadCSV(res ?? [], `users_${Date.now()}.csv`);
+          } catch (e: any) { console.error(e); }
+        }}>
+          <FileDown className="w-3 h-3" /> Exportar CSV
+        </Button>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Buscar por nombre o email..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} className="pl-9 h-9" />
+        </div>
+        <Select value={roleFilter} onValueChange={(v) => { setRoleFilter(v); setPage(0); }}>
+          <SelectTrigger className="h-9 w-32 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos los roles</SelectItem>
+            <SelectItem value="owner">Owner</SelectItem>
+            <SelectItem value="admin">Admin</SelectItem>
+            <SelectItem value="supervisor">Supervisor</SelectItem>
+            <SelectItem value="agent">Agent</SelectItem>
+            <SelectItem value="viewer">Viewer</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {usersQuery.isLoading ? (
+        <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">Sin usuarios encontrados.</p>
+      ) : (
+        <div className="space-y-1">
+          {rows.map((u: any) => (
+            <div key={u.id} className="flex items-center gap-3 px-3 py-2 rounded text-xs bg-muted/30 hover:bg-muted/50">
+              <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold shrink-0">
+                {(u.name || u.email || "?").charAt(0).toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium truncate">{u.name || "Sin nombre"}</p>
+                <p className="text-[10px] text-muted-foreground truncate">{u.email} · {u.tenantName ?? `T${u.tenantId}`}</p>
+              </div>
+              <Select value={u.role} onValueChange={(r) => changeRole.mutate({ userId: u.id, role: r as any })}>
+                <SelectTrigger className="h-6 w-24 text-[10px]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {["owner", "admin", "supervisor", "agent", "viewer"].map(r => <SelectItem key={r} value={r} className="text-xs">{r}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <span className={`text-[10px] ${u.isActive ? "text-green-500" : "text-red-400"}`}>{u.isActive ? "Activo" : "Inactivo"}</span>
+              <Button variant="ghost" size="sm" className="h-5 w-5 p-0" title={u.isActive ? "Desactivar" : "Activar"} onClick={() => toggleActive.mutate({ userId: u.id, isActive: !u.isActive })}>
+                {u.isActive ? <UserX className="w-3 h-3 text-red-400" /> : <UserCheck className="w-3 h-3 text-green-500" />}
+              </Button>
+              <Button variant="ghost" size="sm" className="h-5 w-5 p-0" title="Resetear contraseña" onClick={() => confirm(`¿Resetear contraseña de ${u.name || u.email}?`) && resetPw.mutate({ userId: u.id })}>
+                <KeyRound className="w-3 h-3 text-amber-500" />
+              </Button>
+              <Button variant="ghost" size="sm" className="h-5 w-5 p-0" title="Eliminar usuario" onClick={() => confirm(`¿ELIMINAR permanentemente "${u.name || u.email}"?`) && deleteUser.mutate({ userId: u.id })}>
+                <Trash2 className="w-3 h-3 text-red-500" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {total > limit && (
+        <div className="flex items-center justify-center gap-2">
+          <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}><ChevronLeft className="w-4 h-4" /></Button>
+          <span className="text-xs text-muted-foreground">Página {page + 1} de {Math.ceil(total / limit)}</span>
+          <Button variant="outline" size="sm" disabled={(page + 1) * limit >= total} onClick={() => setPage(p => p + 1)}><ChevronRight className="w-4 h-4" /></Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   GLOBAL SEARCH PANEL
+   ═══════════════════════════════════════════════════════════════════ */
+function GlobalSearchPanel() {
+  const [query, setQuery] = useState("");
+  const [entities, setEntities] = useState<string[]>(["leads", "conversations"]);
+  const { toast } = useToast();
+
+  const searchResult = trpc.superadmin.globalSearch.useQuery(
+    { query, entities: entities as any[], limit: 20 },
+    { enabled: query.length >= 2 }
+  );
+
+  const data = searchResult.data ?? { leads: [], conversations: [], messages: [] };
+  const totalResults = data.leads.length + data.conversations.length + data.messages.length;
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-bold flex items-center gap-2"><SearchCode className="w-5 h-5" /> Búsqueda Global Cross-Tenant</h2>
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Buscar leads, conversaciones, mensajes..." value={query} onChange={(e) => setQuery(e.target.value)} className="pl-9 h-9" />
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          {(["leads", "conversations", "messages"] as const).map((e) => (
+            <label key={e} className="flex items-center gap-1 cursor-pointer">
+              <input type="checkbox" checked={entities.includes(e)} onChange={() => {
+                setEntities(prev => prev.includes(e) ? prev.filter(x => x !== e) : [...prev, e]);
+              }} className="rounded" />
+              {e === "leads" ? "Leads" : e === "conversations" ? "Conversaciones" : "Mensajes"}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {query.length < 2 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">Ingresa al menos 2 caracteres para buscar.</p>
+      ) : searchResult.isLoading ? (
+        <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+      ) : totalResults === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">Sin resultados para "{query}".</p>
+      ) : (
+        <div className="space-y-4">
+          {data.leads.length > 0 && (
+            <Card className="p-4">
+              <h3 className="text-sm font-semibold flex items-center gap-2 mb-3"><Target className="w-4 h-4 text-green-500" /> Leads ({data.leads.length})</h3>
+              <div className="space-y-1">
+                {data.leads.map((l: any) => (
+                  <div key={l.id} className="flex items-center gap-2 text-xs px-2 py-1.5 rounded bg-muted/30">
+                    <span className="font-medium flex-1 truncate">{l.name || l.phone || l.email}</span>
+                    <span className="text-muted-foreground truncate">{l.email}</span>
+                    <Badge variant="secondary" className="text-[10px]">{l.tenantName}</Badge>
+                    <Badge className={`text-[10px] ${STATUS_COLORS[l.status] ?? ""}`}>{l.status}</Badge>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
+          {data.conversations.length > 0 && (
+            <Card className="p-4">
+              <h3 className="text-sm font-semibold flex items-center gap-2 mb-3"><MessageCircle className="w-4 h-4 text-amber-500" /> Conversaciones ({data.conversations.length})</h3>
+              <div className="space-y-1">
+                {data.conversations.map((c: any) => (
+                  <div key={c.id} className="flex items-center gap-2 text-xs px-2 py-1.5 rounded bg-muted/30">
+                    <span className="font-medium flex-1 truncate">{c.contactName || c.contactPhone}</span>
+                    <span className="text-muted-foreground">{c.contactPhone}</span>
+                    <Badge variant="secondary" className="text-[10px]">{c.tenantName}</Badge>
+                    <span className="text-[10px] text-muted-foreground">{fmtDateTime(c.lastMessageAt)}</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
+          {data.messages.length > 0 && (
+            <Card className="p-4">
+              <h3 className="text-sm font-semibold flex items-center gap-2 mb-3"><MessageCircle className="w-4 h-4 text-blue-500" /> Mensajes ({data.messages.length})</h3>
+              <div className="space-y-1">
+                {data.messages.map((m: any) => (
+                  <div key={m.id} className="text-xs px-2 py-1.5 rounded bg-muted/30">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="text-[10px]">{m.tenantName}</Badge>
+                      <span className="text-muted-foreground">{m.sender}</span>
+                      <span className="text-[10px] text-muted-foreground ml-auto">{fmtDateTime(m.createdAt)}</span>
+                    </div>
+                    <p className="mt-1 text-muted-foreground truncate">{m.content}</p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   PLATFORM CONFIG PANEL
+   ═══════════════════════════════════════════════════════════════════ */
+function PlatformConfigPanel() {
+  const { toast } = useToast();
+  const config = trpc.superadmin.getPlatformConfig.useQuery();
+  const update = trpc.superadmin.updatePlatformConfig.useMutation({
+    onSuccess: () => { toast({ title: "Configuración guardada" }); config.refetch(); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const [companyName, setCompanyName] = useState("");
+  const [timezone, setTimezone] = useState("");
+  const [language, setLanguage] = useState("");
+  const [currency, setCurrency] = useState("");
+  const [smtpHost, setSmtpHost] = useState("");
+  const [smtpPort, setSmtpPort] = useState("");
+  const [smtpUser, setSmtpUser] = useState("");
+  const [smtpFrom, setSmtpFrom] = useState("");
+  const [metaAppId, setMetaAppId] = useState("");
+  const [metaVerifyToken, setMetaVerifyToken] = useState("");
+  const [aiProvider, setAiProvider] = useState("");
+  const [aiModel, setAiModel] = useState("");
+
+  // Load config into state
+  const c = config.data;
+  useState(() => {
+    if (!c) return;
+    setCompanyName(c.companyName ?? "");
+    setTimezone(c.timezone ?? "");
+    setLanguage(c.language ?? "");
+    setCurrency(c.currency ?? "");
+    const smtp = c.smtpConfig as any;
+    if (smtp) { setSmtpHost(smtp.host ?? ""); setSmtpPort(String(smtp.port ?? "")); setSmtpUser(smtp.user ?? ""); setSmtpFrom(smtp.from ?? ""); }
+    const meta = c.metaConfig as any;
+    if (meta) { setMetaAppId(meta.appId ?? ""); setMetaVerifyToken(meta.verifyToken ?? ""); }
+    const ai = c.aiConfig as any;
+    if (ai) { setAiProvider(ai.provider ?? ""); setAiModel(ai.model ?? ""); }
+  });
+
+  if (config.isLoading) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+  if (!c) return <p className="text-sm text-muted-foreground text-center py-8">No se pudo cargar la configuración de plataforma.</p>;
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-lg font-bold flex items-center gap-2"><Settings2 className="w-5 h-5" /> Configuración de Plataforma</h2>
+
+      {/* General */}
+      <Card className="p-4 space-y-3">
+        <h3 className="text-sm font-semibold flex items-center gap-2"><Globe className="w-4 h-4" /> General</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div><Label className="text-xs">Nombre</Label><Input value={companyName || c.companyName} onChange={(e) => setCompanyName(e.target.value)} className="h-9 text-sm" /></div>
+          <div><Label className="text-xs">Timezone</Label><Input value={timezone || c.timezone} onChange={(e) => setTimezone(e.target.value)} className="h-9 text-sm" /></div>
+          <div><Label className="text-xs">Idioma</Label><Input value={language || c.language} onChange={(e) => setLanguage(e.target.value)} className="h-9 text-sm" /></div>
+          <div><Label className="text-xs">Moneda</Label><Input value={currency || c.currency} onChange={(e) => setCurrency(e.target.value)} className="h-9 text-sm" /></div>
+        </div>
+        <Button size="sm" className="h-8 text-xs gap-1" onClick={() => update.mutate({ companyName: companyName || undefined, timezone: timezone || undefined, language: language || undefined, currency: currency || undefined })} disabled={update.isPending}>
+          <Save className="w-3 h-3" /> Guardar General
+        </Button>
+      </Card>
+
+      {/* SMTP */}
+      <Card className="p-4 space-y-3">
+        <h3 className="text-sm font-semibold flex items-center gap-2"><MailIcon className="w-4 h-4" /> SMTP (Email)</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div><Label className="text-xs">Host</Label><Input value={smtpHost || ((c.smtpConfig as any)?.host ?? "")} onChange={(e) => setSmtpHost(e.target.value)} className="h-9 text-sm" placeholder="smtp.gmail.com" /></div>
+          <div><Label className="text-xs">Port</Label><Input value={smtpPort || String((c.smtpConfig as any)?.port ?? "")} onChange={(e) => setSmtpPort(e.target.value)} className="h-9 text-sm" placeholder="587" /></div>
+          <div><Label className="text-xs">User</Label><Input value={smtpUser || ((c.smtpConfig as any)?.user ?? "")} onChange={(e) => setSmtpUser(e.target.value)} className="h-9 text-sm" /></div>
+          <div><Label className="text-xs">From</Label><Input value={smtpFrom || ((c.smtpConfig as any)?.from ?? "")} onChange={(e) => setSmtpFrom(e.target.value)} className="h-9 text-sm" placeholder="noreply@example.com" /></div>
+        </div>
+        <Button size="sm" className="h-8 text-xs gap-1" onClick={() => update.mutate({
+          smtpConfig: { host: smtpHost, port: Number(smtpPort) || 587, secure: false, user: smtpUser, from: smtpFrom },
+        })} disabled={update.isPending}>
+          <Save className="w-3 h-3" /> Guardar SMTP
+        </Button>
+      </Card>
+
+      {/* Meta/WhatsApp */}
+      <Card className="p-4 space-y-3">
+        <h3 className="text-sm font-semibold flex items-center gap-2"><Phone className="w-4 h-4" /> Meta / WhatsApp API</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div><Label className="text-xs">App ID</Label><Input value={metaAppId || ((c.metaConfig as any)?.appId ?? "")} onChange={(e) => setMetaAppId(e.target.value)} className="h-9 text-sm" /></div>
+          <div><Label className="text-xs">Verify Token</Label><Input value={metaVerifyToken || ((c.metaConfig as any)?.verifyToken ?? "")} onChange={(e) => setMetaVerifyToken(e.target.value)} className="h-9 text-sm" /></div>
+        </div>
+        <Button size="sm" className="h-8 text-xs gap-1" onClick={() => update.mutate({
+          metaConfig: { appId: metaAppId, verifyToken: metaVerifyToken },
+        })} disabled={update.isPending}><Save className="w-3 h-3" /> Guardar Meta</Button>
+      </Card>
+
+      {/* AI */}
+      <Card className="p-4 space-y-3">
+        <h3 className="text-sm font-semibold flex items-center gap-2"><Bot className="w-4 h-4" /> AI Configuration</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div><Label className="text-xs">Provider</Label><Input value={aiProvider || ((c.aiConfig as any)?.provider ?? "")} onChange={(e) => setAiProvider(e.target.value)} className="h-9 text-sm" placeholder="openai / anthropic" /></div>
+          <div><Label className="text-xs">Model</Label><Input value={aiModel || ((c.aiConfig as any)?.model ?? "")} onChange={(e) => setAiModel(e.target.value)} className="h-9 text-sm" placeholder="gpt-4o-mini" /></div>
+        </div>
+        <Button size="sm" className="h-8 text-xs gap-1" onClick={() => update.mutate({
+          aiConfig: { provider: aiProvider as any, model: aiModel },
+        })} disabled={update.isPending}><Save className="w-3 h-3" /> Guardar AI</Button>
+      </Card>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ALERTS PANEL
+   ═══════════════════════════════════════════════════════════════════ */
+function AlertsPanel() {
+  const { toast } = useToast();
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [page, setPage] = useState(0);
+  const limit = 50;
+
+  const alerts = trpc.superadmin.listAlerts.useQuery({
+    type: typeFilter !== "all" ? typeFilter as any : undefined,
+    limit,
+    offset: page * limit,
+  }, { refetchInterval: 30000 });
+
+  const markRead = trpc.superadmin.markAlertRead.useMutation({
+    onSuccess: () => { alerts.refetch(); },
+  });
+
+  const generate = trpc.superadmin.generateAlerts.useMutation({
+    onSuccess: (d) => { toast({ title: d.message }); alerts.refetch(); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const rows = alerts.data?.rows ?? [];
+  const total = alerts.data?.total ?? 0;
+  const unread = alerts.data?.unreadCount ?? 0;
+
+  const SEVERITY_COLORS: Record<string, string> = {
+    info: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
+    warning: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300",
+    critical: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300",
+  };
+
+  const TYPE_LABELS: Record<string, string> = {
+    trial_expiring: "Trial Expira",
+    quota_exceeded: "Cuota Excedida",
+    new_tenant: "Nuevo Tenant",
+    error: "Error",
+    churn_risk: "Riesgo Churn",
+    security: "Seguridad",
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold flex items-center gap-2">
+          <Bell className="w-5 h-5" /> Alertas
+          {unread > 0 && <Badge variant="destructive" className="text-xs">{unread} sin leer</Badge>}
+        </h2>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="h-8 text-xs gap-1" onClick={() => generate.mutate()} disabled={generate.isPending}>
+            {generate.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+            Generar Alertas
+          </Button>
+          {unread > 0 && (
+            <Button variant="outline" size="sm" className="h-8 text-xs gap-1" onClick={() => markRead.mutate({ all: true })}>
+              <CheckCircle2 className="w-3 h-3" /> Marcar todas leídas
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v); setPage(0); }}>
+        <SelectTrigger className="h-9 w-48 text-xs"><SelectValue placeholder="Filtrar por tipo" /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">Todos los tipos</SelectItem>
+          <SelectItem value="trial_expiring">Trial Expira</SelectItem>
+          <SelectItem value="quota_exceeded">Cuota Excedida</SelectItem>
+          <SelectItem value="new_tenant">Nuevo Tenant</SelectItem>
+          <SelectItem value="churn_risk">Riesgo Churn</SelectItem>
+          <SelectItem value="error">Error</SelectItem>
+          <SelectItem value="security">Seguridad</SelectItem>
+        </SelectContent>
+      </Select>
+
+      {alerts.isLoading ? (
+        <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">Sin alertas. Pulsa "Generar Alertas" para escanear trials y churn.</p>
+      ) : (
+        <div className="space-y-2">
+          {rows.map((a: any) => (
+            <Card key={a.id} className={`p-3 ${a.isRead ? "opacity-60" : ""}`}>
+              <div className="flex items-start gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Badge className={`text-[10px] uppercase ${SEVERITY_COLORS[a.severity] ?? ""}`}>{a.severity}</Badge>
+                    <Badge variant="outline" className="text-[10px]">{TYPE_LABELS[a.type] ?? a.type}</Badge>
+                    <span className="text-sm font-semibold">{a.title}</span>
+                    {a.tenantName && <span className="text-[10px] text-muted-foreground">· {a.tenantName}</span>}
+                  </div>
+                  <p className="text-xs text-muted-foreground">{a.message}</p>
+                  <p className="text-[10px] text-muted-foreground mt-1">{fmtDateTime(a.createdAt)}</p>
+                </div>
+                {!a.isRead && (
+                  <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => markRead.mutate({ alertId: a.id })}>
+                    Leída
+                  </Button>
+                )}
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {total > limit && (
+        <div className="flex items-center justify-center gap-2">
+          <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}><ChevronLeft className="w-4 h-4" /></Button>
+          <span className="text-xs text-muted-foreground">Página {page + 1} de {Math.ceil(total / limit)}</span>
+          <Button variant="outline" size="sm" disabled={(page + 1) * limit >= total} onClick={() => setPage(p => p + 1)}><ChevronRight className="w-4 h-4" /></Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   SUPERADMIN AUDIT LOG PANEL
+   ═══════════════════════════════════════════════════════════════════ */
+function SuperadminAuditPanel() {
+  const [page, setPage] = useState(0);
+  const limit = 50;
+
+  const audit = trpc.superadmin.superadminAuditLog.useQuery({
+    limit,
+    offset: page * limit,
+  });
+
+  const rows = audit.data?.rows ?? [];
+  const total = audit.data?.total ?? 0;
+
+  return (
+    <div className="space-y-4">
+      <h3 className="text-sm font-semibold flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-violet-500" /> Acciones del SuperAdmin ({total})</h3>
+
+      {audit.isLoading ? (
+        <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">Sin acciones registradas aún.</p>
+      ) : (
+        <div className="space-y-1">
+          {rows.map((r: any) => (
+            <div key={r.id} className="flex items-center gap-2 text-xs px-3 py-2 rounded bg-muted/30">
+              <Shield className="w-3 h-3 text-violet-500 shrink-0" />
+              <span className="font-mono text-[10px] text-violet-600 dark:text-violet-400">{r.action}</span>
+              <span className="text-muted-foreground flex-1 truncate">
+                {r.userName ?? `User#${r.userId}`} {r.tenantName ? `· ${r.tenantName}` : ""}
+              </span>
+              <span className="text-[10px] text-muted-foreground whitespace-nowrap">{fmtDateTime(r.createdAt)}</span>
+              {r.details && (
+                <span className="text-[10px] text-muted-foreground max-w-[200px] truncate" title={JSON.stringify(r.details)}>
+                  {JSON.stringify(r.details).slice(0, 60)}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {total > limit && (
+        <div className="flex items-center justify-center gap-2">
+          <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}><ChevronLeft className="w-4 h-4" /></Button>
+          <span className="text-xs text-muted-foreground">Página {page + 1} de {Math.ceil(total / limit)}</span>
+          <Button variant="outline" size="sm" disabled={(page + 1) * limit >= total} onClick={() => setPage(p => p + 1)}><ChevronRight className="w-4 h-4" /></Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ════════════════════════════════════════════════════════════════════════════
    MAIN PAGE
    ════════════════════════════════════════════════════════════════════════════ */
@@ -2090,6 +2769,21 @@ export default function SuperAdmin() {
             <TabsTrigger value="bulk" className="text-xs gap-1">
               <Layers className="w-3 h-3" /> Operaciones Masivas
             </TabsTrigger>
+            <TabsTrigger value="users-global" className="text-xs gap-1">
+              <Users className="w-3 h-3" /> Usuarios
+            </TabsTrigger>
+            <TabsTrigger value="search" className="text-xs gap-1">
+              <SearchCode className="w-3 h-3" /> Búsqueda
+            </TabsTrigger>
+            <TabsTrigger value="config" className="text-xs gap-1">
+              <Sliders className="w-3 h-3" /> Configuración
+            </TabsTrigger>
+            <TabsTrigger value="alerts" className="text-xs gap-1">
+              <Bell className="w-3 h-3" /> Alertas
+            </TabsTrigger>
+            <TabsTrigger value="audit" className="text-xs gap-1">
+              <ShieldCheck className="w-3 h-3" /> Auditoría
+            </TabsTrigger>
           </TabsList>
 
           {/* ─── OVERVIEW TAB ─── */}
@@ -2173,14 +2867,25 @@ export default function SuperAdmin() {
                 <Building2 className="w-5 h-5" />
                 Tenants ({filteredTenants.length})
               </h2>
-              <div className="relative w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar tenant..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-9 h-9"
-                />
+              <div className="flex items-center gap-2">
+                <CreateTenantDialog onSuccess={() => tenantList.refetch()} />
+                <Button variant="outline" size="sm" className="h-8 text-xs gap-1" onClick={async () => {
+                  try {
+                    const rows = await (trpc as any).superadmin.exportTenants.query();
+                    downloadCSV(rows ?? [], `tenants_${Date.now()}.csv`);
+                  } catch (e: any) { console.error(e); }
+                }}>
+                  <FileDown className="w-3 h-3" /> Exportar CSV
+                </Button>
+                <div className="relative w-52">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Buscar tenant..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="pl-9 h-9"
+                  />
+                </div>
               </div>
             </div>
 
@@ -2263,6 +2968,31 @@ export default function SuperAdmin() {
               <Layers className="w-5 h-5 text-violet-500" /> Operaciones Masivas
             </h2>
             <BulkOperationsPanel tenants={tenantList.data ?? []} refetch={() => tenantList.refetch()} />
+          </TabsContent>
+
+          {/* ─── ALL USERS TAB ─── */}
+          <TabsContent value="users-global" className="mt-4">
+            <AllUsersPanel />
+          </TabsContent>
+
+          {/* ─── GLOBAL SEARCH TAB ─── */}
+          <TabsContent value="search" className="mt-4">
+            <GlobalSearchPanel />
+          </TabsContent>
+
+          {/* ─── PLATFORM CONFIG TAB ─── */}
+          <TabsContent value="config" className="mt-4">
+            <PlatformConfigPanel />
+          </TabsContent>
+
+          {/* ─── ALERTS TAB ─── */}
+          <TabsContent value="alerts" className="mt-4">
+            <AlertsPanel />
+          </TabsContent>
+
+          {/* ─── SUPERADMIN AUDIT LOG TAB ─── */}
+          <TabsContent value="audit" className="mt-4">
+            <SuperadminAuditPanel />
           </TabsContent>
         </Tabs>
       )}

@@ -62,4 +62,24 @@ export async function ensureSuperadminTables(): Promise<void> {
     } catch (e) {
         logger.error({ err: (e as any)?.message }, "[SuperadminInit] Failed to create feature_flags table");
     }
+
+    // 4. Ensure superadmin_alerts table
+    try {
+        await db.execute(sql.raw(`
+            CREATE TABLE IF NOT EXISTS superadmin_alerts (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                type ENUM('trial_expiring','quota_exceeded','new_tenant','error','churn_risk','security') NOT NULL,
+                severity ENUM('info','warning','critical') DEFAULT 'warning' NOT NULL,
+                title VARCHAR(255) NOT NULL,
+                message TEXT NOT NULL,
+                tenantId INT NULL,
+                metadata JSON NULL,
+                isRead BOOLEAN DEFAULT FALSE NOT NULL,
+                createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+            )
+        `));
+        logger.info("[SuperadminInit] superadmin_alerts table ensured");
+    } catch (e) {
+        logger.error({ err: (e as any)?.message }, "[SuperadminInit] Failed to create superadmin_alerts table");
+    }
 }
