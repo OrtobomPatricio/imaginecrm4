@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { logger } from "../_core/logger";
 
 /** Simple in-memory email queue with retry logic.
@@ -34,7 +35,7 @@ const RETRY_DELAY_MS = 5000;
  */
 export function enqueueEmail(to: string, subject: string, html: string, maxAttempts = 3): string {
     const job: EmailJob = {
-        id: `email-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id: `email-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
         to,
         subject,
         html,

@@ -12,10 +12,10 @@ export function validateProductionSecrets() {
         "",
     ];
 
-    // Check JWT_SECRET
+    // Check COOKIE_SECRET / JWT_SECRET (cookieSecret = COOKIE_SECRET ?? JWT_SECRET)
     if (INSECURE_DEFAULTS.includes(ENV.cookieSecret)) {
         throw new Error(
-            "🔴 PRODUCTION SECURITY ERROR: JWT_SECRET must be set to a secure value. Cannot use default 'dev-secret-change-me'"
+            "🔴 PRODUCTION SECURITY ERROR: COOKIE_SECRET (or JWT_SECRET) must be set to a secure value. Cannot use default 'dev-secret-change-me'"
         );
     }
 

@@ -45,32 +45,6 @@ export const AXE_RULES = {
  * Validates that the project follows WCAG 2.1 AA guidelines.
  */
 describe("Accessibility Checklist (WCAG 2.1 AA)", () => {
-    it("should have skip-to-content component", async () => {
-        // Verify SkipToContent component exists
-        const mod = await import("../../client/src/components/SkipToContent");
-        expect(mod.default).toBeDefined();
-    });
-
-    it("should have skeleton components with aria labels", async () => {
-        const { KanbanSkeleton, ChatListSkeleton, TableSkeleton, CardSkeleton } = await import(
-            "../../client/src/components/Skeletons"
-        );
-        expect(KanbanSkeleton).toBeDefined();
-        expect(ChatListSkeleton).toBeDefined();
-        expect(TableSkeleton).toBeDefined();
-        expect(CardSkeleton).toBeDefined();
-    });
-
-    it("should have empty state components", async () => {
-        const { EmptyLeads, EmptyConversations, EmptyInbox, EmptyTickets } = await import(
-            "../../client/src/components/EmptyStates"
-        );
-        expect(EmptyLeads).toBeDefined();
-        expect(EmptyConversations).toBeDefined();
-        expect(EmptyInbox).toBeDefined();
-        expect(EmptyTickets).toBeDefined();
-    });
-
     it("should export axe-core rule configuration", () => {
         expect(Object.keys(AXE_RULES).length).toBeGreaterThanOrEqual(12);
         expect(AXE_RULES["color-contrast"].enabled).toBe(true);

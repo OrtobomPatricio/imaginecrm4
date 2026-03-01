@@ -21,6 +21,7 @@
   },
   "include": [
     "client/src",
+    "shared",
     "vite.config.ts",
     "api/**/*"
   ],

@@ -64,6 +64,9 @@ COPY deploy/docker-entrypoint.sh /usr/local/bin/
 RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
+# Run as non-root user for security
+USER node
+
 # Run health check to support orchestrated deployments (Docker Swarm/K8s)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
   CMD curl -f http://localhost:3000/readyz || exit 1

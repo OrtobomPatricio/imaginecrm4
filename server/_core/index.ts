@@ -1,5 +1,6 @@
 import "dotenv/config";
 import * as Sentry from "@sentry/node";
+import crypto from "crypto";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
@@ -175,7 +176,7 @@ export async function createApp() {
 
   // Request ID
   app.use((req, res, next) => {
-    const id = `${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+    const id = crypto.randomUUID();
     (req as any).requestId = id;
     res.setHeader("X-Request-Id", id);
     next();
