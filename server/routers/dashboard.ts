@@ -6,85 +6,93 @@ import { permissionProcedure, router } from "../_core/trpc";
 
 export const dashboardRouter = router({
     getStats: permissionProcedure("dashboard.view").query(async ({ ctx }) => {
-        const db = await getDb();
-        if (!db) {
-            return {
-                totalLeads: 0,
-                totalNumbers: 0,
-                activeNumbers: 0,
-                warmingUpNumbers: 0,
-                blockedNumbers: 0,
-                messagesToday: 0,
-                conversionRate: 0,
-                warmupNumbers: [],
-                countriesDistribution: [],
-                recentLeads: [],
-            };
-        }
-
-        // Get lead counts
-        const leadCount = await db.select({ count: count() }).from(leads).where(eq(leads.tenantId, ctx.tenantId));
-        const totalLeads = leadCount[0]?.count ?? 0;
-
-        // Get number stats
-        const numberStats = await db.select({
-            status: whatsappNumbers.status,
-            count: count(),
-        }).from(whatsappNumbers).where(eq(whatsappNumbers.tenantId, ctx.tenantId)).groupBy(whatsappNumbers.status);
-
-        const totalNumbers = numberStats.reduce((acc, s) => acc + s.count, 0);
-        const activeNumbers = numberStats.find(s => s.status === 'active')?.count ?? 0;
-        const warmingUpNumbers = numberStats.find(s => s.status === 'warming_up')?.count ?? 0;
-        const blockedNumbers = numberStats.find(s => s.status === 'blocked')?.count ?? 0;
-
-        // Get messages sent today
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const messagesTodayResult = await db.select({
-            total: sql<number>`SUM(${whatsappNumbers.messagesSentToday})`,
-        }).from(whatsappNumbers).where(eq(whatsappNumbers.tenantId, ctx.tenantId));
-        const messagesToday = messagesTodayResult[0]?.total ?? 0;
-
-        // Get conversion rate
-        const wonLeads = await db.select({ count: count() })
-            .from(leads)
-            .where(and(eq(leads.tenantId, ctx.tenantId), eq(leads.status, 'won')));
-        const conversionRate = totalLeads > 0
-            ? Math.round((wonLeads[0]?.count ?? 0) / totalLeads * 100)
-            : 0;
-
-        // Get warmup numbers
-        const warmupNumbersList = await db.select()
-            .from(whatsappNumbers)
-            .where(and(eq(whatsappNumbers.tenantId, ctx.tenantId), eq(whatsappNumbers.status, 'warming_up')))
-            .orderBy(desc(whatsappNumbers.warmupDay))
-            .limit(5);
-
-        // Get countries distribution
-        const countriesDistribution = await db.select({
-            country: whatsappNumbers.country,
-            count: count(),
-        }).from(whatsappNumbers).where(eq(whatsappNumbers.tenantId, ctx.tenantId)).groupBy(whatsappNumbers.country);
-
-        // Get recent leads
-        const recentLeads = await db.select()
-            .from(leads)
-            .where(eq(leads.tenantId, ctx.tenantId))
-            .orderBy(desc(leads.createdAt))
-            .limit(5);
-
-        return {
-            totalLeads,
-            totalNumbers,
-            activeNumbers,
-            warmingUpNumbers,
-            blockedNumbers,
-            messagesToday,
-            conversionRate,
-            warmupNumbers: warmupNumbersList,
-            countriesDistribution,
-            recentLeads,
+        const emptyStats = {
+            totalLeads: 0,
+            totalNumbers: 0,
+            activeNumbers: 0,
+            warmingUpNumbers: 0,
+            blockedNumbers: 0,
+            messagesToday: 0,
+            conversionRate: 0,
+            warmupNumbers: [] as any[],
+            countriesDistribution: [] as any[],
+            recentLeads: [] as any[],
         };
+
+        const db = await getDb();
+        if (!db) return emptyStats;
+
+        try {
+            // Get lead counts
+            const leadCount = await db.select({ count: count() }).from(leads).where(eq(leads.tenantId, ctx.tenantId));
+            const totalLeads = leadCount[0]?.count ?? 0;
+
+            // Get conversion rate
+            const wonLeads = await db.select({ count: count() })
+                .from(leads)
+                .where(and(eq(leads.tenantId, ctx.tenantId), eq(leads.status, 'won')));
+            const conversionRate = totalLeads > 0
+                ? Math.round((wonLeads[0]?.count ?? 0) / totalLeads * 100)
+                : 0;
+
+            // Get recent leads
+            const recentLeads = await db.select()
+                .from(leads)
+                .where(eq(leads.tenantId, ctx.tenantId))
+                .orderBy(desc(leads.createdAt))
+                .limit(5);
+
+            // WhatsApp number stats — table may not exist yet
+            let totalNumbers = 0, activeNumbers = 0, warmingUpNumbers = 0, blockedNumbers = 0;
+            let messagesToday = 0;
+            let warmupNumbersList: any[] = [];
+            let countriesDistribution: any[] = [];
+
+            try {
+                const numberStats = await db.select({
+                    status: whatsappNumbers.status,
+                    count: count(),
+                }).from(whatsappNumbers).where(eq(whatsappNumbers.tenantId, ctx.tenantId)).groupBy(whatsappNumbers.status);
+
+                totalNumbers = numberStats.reduce((acc, s) => acc + s.count, 0);
+                activeNumbers = numberStats.find(s => s.status === 'active')?.count ?? 0;
+                warmingUpNumbers = numberStats.find(s => s.status === 'warming_up')?.count ?? 0;
+                blockedNumbers = numberStats.find(s => s.status === 'blocked')?.count ?? 0;
+
+                const messagesTodayResult = await db.select({
+                    total: sql<number>`SUM(${whatsappNumbers.messagesSentToday})`,
+                }).from(whatsappNumbers).where(eq(whatsappNumbers.tenantId, ctx.tenantId));
+                messagesToday = messagesTodayResult[0]?.total ?? 0;
+
+                warmupNumbersList = await db.select()
+                    .from(whatsappNumbers)
+                    .where(and(eq(whatsappNumbers.tenantId, ctx.tenantId), eq(whatsappNumbers.status, 'warming_up')))
+                    .orderBy(desc(whatsappNumbers.warmupDay))
+                    .limit(5);
+
+                countriesDistribution = await db.select({
+                    country: whatsappNumbers.country,
+                    count: count(),
+                }).from(whatsappNumbers).where(eq(whatsappNumbers.tenantId, ctx.tenantId)).groupBy(whatsappNumbers.country);
+            } catch {
+                // whatsapp_numbers table missing — return zeros
+            }
+
+            return {
+                totalLeads,
+                totalNumbers,
+                activeNumbers,
+                warmingUpNumbers,
+                blockedNumbers,
+                messagesToday,
+                conversionRate,
+                warmupNumbers: warmupNumbersList,
+                countriesDistribution,
+                recentLeads,
+            };
+        } catch {
+            return emptyStats;
+        }
     }),
 
     getPipelineFunnel: permissionProcedure("dashboard.view")

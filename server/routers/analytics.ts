@@ -424,46 +424,51 @@ export const analyticsRouter = router({
         .input(z.object({ period: periodSchema }))
         .query(async ({ ctx, input }) => {
             const db = (await getDb())!;
+            if (!db) return [];
             const { tenantId } = ctx.user;
             const { from, to } = getDateRange(input.period);
 
-            const rows = await db
-                .select({
-                    campaignId: campaigns.id,
-                    campaignName: campaigns.name,
-                    status: campaigns.status,
-                    total: sql<number>`COUNT(${campaignRecipients.id})`.as("total"),
-                    sent: sql<number>`SUM(CASE WHEN ${campaignRecipients.status} = 'sent' THEN 1 ELSE 0 END)`.as("sent"),
-                    delivered: sql<number>`SUM(CASE WHEN ${campaignRecipients.status} = 'delivered' THEN 1 ELSE 0 END)`.as("delivered"),
-                    read: sql<number>`SUM(CASE WHEN ${campaignRecipients.status} = 'read' THEN 1 ELSE 0 END)`.as("read"),
-                    failed: sql<number>`SUM(CASE WHEN ${campaignRecipients.status} = 'failed' THEN 1 ELSE 0 END)`.as("failed"),
-                })
-                .from(campaigns)
-                .leftJoin(campaignRecipients, eq(campaignRecipients.campaignId, campaigns.id))
-                .where(and(
-                    eq(campaigns.tenantId, tenantId),
-                    gte(campaigns.createdAt, from),
-                    lte(campaigns.createdAt, to)
-                ))
-                .groupBy(campaigns.id, campaigns.name, campaigns.status)
-                .orderBy(desc(campaigns.createdAt));
+            try {
+                const rows = await db
+                    .select({
+                        campaignId: campaigns.id,
+                        campaignName: campaigns.name,
+                        status: campaigns.status,
+                        total: sql<number>`COUNT(${campaignRecipients.id})`.as("total"),
+                        sent: sql<number>`SUM(CASE WHEN ${campaignRecipients.status} = 'sent' THEN 1 ELSE 0 END)`.as("sent"),
+                        delivered: sql<number>`SUM(CASE WHEN ${campaignRecipients.status} = 'delivered' THEN 1 ELSE 0 END)`.as("delivered"),
+                        read: sql<number>`SUM(CASE WHEN ${campaignRecipients.status} = 'read' THEN 1 ELSE 0 END)`.as("read"),
+                        failed: sql<number>`SUM(CASE WHEN ${campaignRecipients.status} = 'failed' THEN 1 ELSE 0 END)`.as("failed"),
+                    })
+                    .from(campaigns)
+                    .leftJoin(campaignRecipients, eq(campaignRecipients.campaignId, campaigns.id))
+                    .where(and(
+                        eq(campaigns.tenantId, tenantId),
+                        gte(campaigns.createdAt, from),
+                        lte(campaigns.createdAt, to)
+                    ))
+                    .groupBy(campaigns.id, campaigns.name, campaigns.status)
+                    .orderBy(desc(campaigns.createdAt));
 
-            return rows.map(row => ({
-                campaignId: row.campaignId,
-                campaignName: row.campaignName,
-                status: row.status,
-                total: Number(row.total ?? 0),
-                sent: Number(row.sent ?? 0),
-                delivered: Number(row.delivered ?? 0),
-                read: Number(row.read ?? 0),
-                failed: Number(row.failed ?? 0),
-                deliveryRate: Number(row.total ?? 0) > 0
-                    ? Math.round((Number(row.delivered ?? 0) / Number(row.total ?? 0)) * 100)
-                    : 0,
-                readRate: Number(row.delivered ?? 0) > 0
-                    ? Math.round((Number(row.read ?? 0) / Number(row.delivered ?? 0)) * 100)
-                    : 0,
-            }));
+                return rows.map(row => ({
+                    campaignId: row.campaignId,
+                    campaignName: row.campaignName,
+                    status: row.status,
+                    total: Number(row.total ?? 0),
+                    sent: Number(row.sent ?? 0),
+                    delivered: Number(row.delivered ?? 0),
+                    read: Number(row.read ?? 0),
+                    failed: Number(row.failed ?? 0),
+                    deliveryRate: Number(row.total ?? 0) > 0
+                        ? Math.round((Number(row.delivered ?? 0) / Number(row.total ?? 0)) * 100)
+                        : 0,
+                    readRate: Number(row.delivered ?? 0) > 0
+                        ? Math.round((Number(row.read ?? 0) / Number(row.delivered ?? 0)) * 100)
+                        : 0,
+                }));
+            } catch {
+                return []; // campaigns/campaign_recipients tables may not exist
+            }
         }),
 
     /**

@@ -8,7 +8,7 @@ export const internalChatRouter = router({
     send: protectedProcedure
         .input(z.object({
             content: z.string().min(1),
-            recipientId: z.number().optional().nullable(), // Null = General
+            recipientId: z.number().optional().nullable(),
             attachments: z.array(z.object({
                 type: z.enum(['image', 'video', 'file']),
                 url: z.string(),
@@ -19,15 +19,21 @@ export const internalChatRouter = router({
             const db = await getDb();
             if (!db || !ctx.user) throw new Error("Database not available");
 
-            await db.insert(internalMessages).values({
-                tenantId: ctx.tenantId,
-                senderId: ctx.user.id,
-                recipientId: input.recipientId ?? null,
-                content: input.content,
-                attachments: input.attachments,
-            });
-
-            return { success: true };
+            try {
+                await db.insert(internalMessages).values({
+                    tenantId: ctx.tenantId,
+                    senderId: ctx.user.id,
+                    recipientId: input.recipientId ?? null,
+                    content: input.content,
+                    attachments: input.attachments,
+                });
+                return { success: true };
+            } catch (e: any) {
+                if (e?.message?.includes("doesn't exist")) {
+                    throw new Error("El chat interno no está disponible todavía. La tabla internal_messages no existe.");
+                }
+                throw e;
+            }
         }),
 
     getHistory: protectedProcedure
@@ -38,45 +44,47 @@ export const internalChatRouter = router({
             const db = await getDb();
             if (!db || !ctx.user) return [];
 
-            if (!input.recipientId) {
-                // General channel: fetch all messages where recipientId is null
-                const msgs = await db.select({
-                    id: internalMessages.id,
-                    content: internalMessages.content,
-                    attachments: internalMessages.attachments,
-                    createdAt: internalMessages.createdAt,
-                    senderId: internalMessages.senderId,
-                    senderName: users.name,
-                })
-                    .from(internalMessages)
-                    .leftJoin(users, eq(internalMessages.senderId, users.id))
-                    .where(and(eq(internalMessages.tenantId, ctx.tenantId), sql`${internalMessages.recipientId} IS NULL`))
-                    .orderBy(asc(internalMessages.createdAt))
-                    .limit(100);
+            try {
+                if (!input.recipientId) {
+                    const msgs = await db.select({
+                        id: internalMessages.id,
+                        content: internalMessages.content,
+                        attachments: internalMessages.attachments,
+                        createdAt: internalMessages.createdAt,
+                        senderId: internalMessages.senderId,
+                        senderName: users.name,
+                    })
+                        .from(internalMessages)
+                        .leftJoin(users, eq(internalMessages.senderId, users.id))
+                        .where(and(eq(internalMessages.tenantId, ctx.tenantId), sql`${internalMessages.recipientId} IS NULL`))
+                        .orderBy(asc(internalMessages.createdAt))
+                        .limit(100);
 
-                return msgs;
-            } else {
-                // Direct Message: fetch messages between me and recipient (both directions)
-                const msgs = await db.select({
-                    id: internalMessages.id,
-                    content: internalMessages.content,
-                    attachments: internalMessages.attachments,
-                    createdAt: internalMessages.createdAt,
-                    senderId: internalMessages.senderId,
-                    senderName: users.name,
-                })
-                    .from(internalMessages)
-                    .leftJoin(users, eq(internalMessages.senderId, users.id))
-                    .where(
-                        and(
-                            eq(internalMessages.tenantId, ctx.tenantId),
-                            sql`(${internalMessages.senderId} = ${ctx.user.id} AND ${internalMessages.recipientId} = ${input.recipientId}) OR (${internalMessages.senderId} = ${input.recipientId} AND ${internalMessages.recipientId} = ${ctx.user.id})`
+                    return msgs;
+                } else {
+                    const msgs = await db.select({
+                        id: internalMessages.id,
+                        content: internalMessages.content,
+                        attachments: internalMessages.attachments,
+                        createdAt: internalMessages.createdAt,
+                        senderId: internalMessages.senderId,
+                        senderName: users.name,
+                    })
+                        .from(internalMessages)
+                        .leftJoin(users, eq(internalMessages.senderId, users.id))
+                        .where(
+                            and(
+                                eq(internalMessages.tenantId, ctx.tenantId),
+                                sql`(${internalMessages.senderId} = ${ctx.user.id} AND ${internalMessages.recipientId} = ${input.recipientId}) OR (${internalMessages.senderId} = ${input.recipientId} AND ${internalMessages.recipientId} = ${ctx.user.id})`
+                            )
                         )
-                    )
-                    .orderBy(asc(internalMessages.createdAt))
-                    .limit(100);
+                        .orderBy(asc(internalMessages.createdAt))
+                        .limit(100);
 
-                return msgs;
+                    return msgs;
+                }
+            } catch {
+                return []; // internal_messages table may not exist
             }
         }),
 
@@ -90,24 +98,22 @@ export const internalChatRouter = router({
             if (!db || !ctx.user) return { success: false };
 
             if (!input.senderId) {
-                // Mark general channel messages as read? 
-                // Actually, for General channel, it's harder to track "read" per user without a separate table "MessageReadStatus".
-                // For now, we will only track Direct Message read status.
-                // If we want to track General, we need a many-to-many table (User <-> Message).
-                // Let's skip General channel read status for now to keep schema simple, or just client-side local storage.
                 return { success: true };
             } else {
-                // Mark all messages FROM senderId TO me as read
-                await db.update(internalMessages)
-                    .set({ isRead: true })
-                    .where(
-                        and(
-                            eq(internalMessages.tenantId, ctx.tenantId),
-                            eq(internalMessages.senderId, input.senderId),
-                            eq(internalMessages.recipientId, ctx.user.id),
-                            eq(internalMessages.isRead, false)
-                        )
-                    );
+                try {
+                    await db.update(internalMessages)
+                        .set({ isRead: true })
+                        .where(
+                            and(
+                                eq(internalMessages.tenantId, ctx.tenantId),
+                                eq(internalMessages.senderId, input.senderId),
+                                eq(internalMessages.recipientId, ctx.user.id),
+                                eq(internalMessages.isRead, false)
+                            )
+                        );
+                } catch {
+                    // internal_messages table may not exist
+                }
             }
             return { success: true };
         }),
@@ -116,38 +122,45 @@ export const internalChatRouter = router({
         const db = await getDb();
         if (!db || !ctx.user) return [];
 
-        const allUsers = await db.select({
-            id: users.id,
-            name: users.name,
-            role: users.role,
-            isActive: users.isActive
-        }).from(users).where(and(eq(users.tenantId, ctx.tenantId), eq(users.isActive, true)));
+        try {
+            const allUsers = await db.select({
+                id: users.id,
+                name: users.name,
+                role: users.role,
+                isActive: users.isActive
+            }).from(users).where(and(eq(users.tenantId, ctx.tenantId), eq(users.isActive, true)));
 
-        // Get unread counts for each user
-        // We can do this efficiently with a groupBy query
-        const unreadCounts = await db.select({
-            senderId: internalMessages.senderId,
-            count: sql<number>`count(*)`
-        })
-            .from(internalMessages)
-            .where(
-                and(
-                    eq(internalMessages.tenantId, ctx.tenantId),
-                    eq(internalMessages.recipientId, ctx.user.id), // Sent to me
-                    eq(internalMessages.isRead, false) // Not read
-                )
-            )
-            .groupBy(internalMessages.senderId);
+            // Get unread counts — internal_messages table may not exist yet
+            let unreadMap = new Map<number, number>();
+            try {
+                const unreadCounts = await db.select({
+                    senderId: internalMessages.senderId,
+                    count: sql<number>`count(*)`
+                })
+                    .from(internalMessages)
+                    .where(
+                        and(
+                            eq(internalMessages.tenantId, ctx.tenantId),
+                            eq(internalMessages.recipientId, ctx.user.id),
+                            eq(internalMessages.isRead, false)
+                        )
+                    )
+                    .groupBy(internalMessages.senderId);
 
-        const unreadMap = new Map<number, number>();
-        unreadCounts.forEach(r => unreadMap.set(r.senderId, Number(r.count)));
+                unreadCounts.forEach(r => unreadMap.set(r.senderId, Number(r.count)));
+            } catch {
+                // internal_messages table missing — all unread = 0
+            }
 
-        return allUsers
-            .filter(u => u.id !== ctx.user?.id)
-            .map(u => ({
-                ...u,
-                unreadCount: unreadMap.get(u.id) || 0
-            }))
-            .sort((a, b) => (b.unreadCount - a.unreadCount)); // Sort by unread first
+            return allUsers
+                .filter(u => u.id !== ctx.user?.id)
+                .map(u => ({
+                    ...u,
+                    unreadCount: unreadMap.get(u.id) || 0
+                }))
+                .sort((a, b) => (b.unreadCount - a.unreadCount));
+        } catch {
+            return [];
+        }
     }),
 });

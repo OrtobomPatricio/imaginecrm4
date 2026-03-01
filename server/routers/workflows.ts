@@ -8,7 +8,11 @@ export const workflowsRouter = router({
     list: permissionProcedure("campaigns.view").query(async ({ ctx }) => {
         const db = await getDb();
         if (!db) return [];
-        return db.select().from(workflows).where(eq(workflows.tenantId, ctx.tenantId)).orderBy(desc(workflows.createdAt));
+        try {
+            return await db.select().from(workflows).where(eq(workflows.tenantId, ctx.tenantId)).orderBy(desc(workflows.createdAt));
+        } catch {
+            return []; // workflows table may not exist
+        }
     }),
 
     get: permissionProcedure("campaigns.view")
@@ -16,9 +20,16 @@ export const workflowsRouter = router({
         .query(async ({ input, ctx }) => {
             const db = await getDb();
             if (!db) throw new Error("Database not available");
-            const result = await db.select().from(workflows).where(and(eq(workflows.tenantId, ctx.tenantId), eq(workflows.id, input.id))).limit(1);
-            if (!result[0]) throw new Error("Workflow not found");
-            return result[0];
+            try {
+                const result = await db.select().from(workflows).where(and(eq(workflows.tenantId, ctx.tenantId), eq(workflows.id, input.id))).limit(1);
+                if (!result[0]) throw new Error("Workflow not found");
+                return result[0];
+            } catch (e: any) {
+                if (e?.message?.includes("doesn't exist")) {
+                    throw new Error("La tabla de workflows no existe todav\u00eda.");
+                }
+                throw e;
+            }
         }),
 
     create: permissionProcedure("campaigns.manage")

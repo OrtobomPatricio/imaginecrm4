@@ -8,7 +8,11 @@ export const campaignsRouter = router({
     list: permissionProcedure("campaigns.view").query(async ({ ctx }) => {
         const db = await getDb();
         if (!db) return [];
-        return db.select().from(campaigns).where(eq(campaigns.tenantId, ctx.tenantId)).orderBy(desc(campaigns.createdAt));
+        try {
+            return await db.select().from(campaigns).where(eq(campaigns.tenantId, ctx.tenantId)).orderBy(desc(campaigns.createdAt));
+        } catch {
+            return []; // campaigns table may not exist
+        }
     }),
 
     create: permissionProcedure("campaigns.manage")
@@ -126,12 +130,16 @@ export const campaignsRouter = router({
             const db = await getDb();
             if (!db) return null;
 
-            const result = await db.select()
-                .from(campaigns)
-                .where(and(eq(campaigns.tenantId, ctx.tenantId), eq(campaigns.id, input.id)))
-                .limit(1);
+            try {
+                const result = await db.select()
+                    .from(campaigns)
+                    .where(and(eq(campaigns.tenantId, ctx.tenantId), eq(campaigns.id, input.id)))
+                    .limit(1);
 
-            return result[0] ?? null;
+                return result[0] ?? null;
+            } catch {
+                return null; // campaigns table may not exist
+            }
         }),
 
     delete: permissionProcedure("campaigns.manage")

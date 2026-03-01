@@ -14,19 +14,23 @@ export const whatsappConnectionsRouter = router({
             const db = await getDb();
             if (!db) return null;
 
-            const result = await db.select()
-                .from(whatsappConnections)
-                .where(and(eq(whatsappConnections.tenantId, ctx.tenantId), eq(whatsappConnections.whatsappNumberId, input.whatsappNumberId)))
-                .limit(1);
+            try {
+                const result = await db.select()
+                    .from(whatsappConnections)
+                    .where(and(eq(whatsappConnections.tenantId, ctx.tenantId), eq(whatsappConnections.whatsappNumberId, input.whatsappNumberId)))
+                    .limit(1);
 
-            const row = result[0] ?? null;
-            if (!row) return null;
+                const row = result[0] ?? null;
+                if (!row) return null;
 
-            return {
-                ...row,
-                accessToken: row.accessToken ? maskSecret(row.accessToken) : null,
-                hasAccessToken: Boolean(row.accessToken),
-            } as any;
+                return {
+                    ...row,
+                    accessToken: row.accessToken ? maskSecret(row.accessToken) : null,
+                    hasAccessToken: Boolean(row.accessToken),
+                } as any;
+            } catch {
+                return null; // whatsapp_connections table may not exist
+            }
         }),
 
     getApiConnections: permissionProcedure("monitoring.view")
@@ -34,13 +38,17 @@ export const whatsappConnectionsRouter = router({
             const db = await getDb();
             if (!db) return [];
 
-            return db.select()
-                .from(whatsappConnections)
-                .where(and(
-                    eq(whatsappConnections.tenantId, ctx.tenantId),
-                    eq(whatsappConnections.isConnected, true),
-                    eq(whatsappConnections.connectionType, 'api')
-                ));
+            try {
+                return await db.select()
+                    .from(whatsappConnections)
+                    .where(and(
+                        eq(whatsappConnections.tenantId, ctx.tenantId),
+                        eq(whatsappConnections.isConnected, true),
+                        eq(whatsappConnections.connectionType, 'api')
+                    ));
+            } catch {
+                return []; // whatsapp_connections table may not exist
+            }
         }),
 
     setupApi: permissionProcedure("monitoring.manage")

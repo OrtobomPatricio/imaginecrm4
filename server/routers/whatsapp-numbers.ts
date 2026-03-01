@@ -10,10 +10,14 @@ export const whatsappNumbersRouter = router({
         const db = await getDb();
         if (!db) return [];
 
-        return db.select()
-            .from(whatsappNumbers)
-            .where(eq(whatsappNumbers.tenantId, ctx.tenantId))
-            .orderBy(desc(whatsappNumbers.createdAt));
+        try {
+            return await db.select()
+                .from(whatsappNumbers)
+                .where(eq(whatsappNumbers.tenantId, ctx.tenantId))
+                .orderBy(desc(whatsappNumbers.createdAt));
+        } catch {
+            return []; // whatsapp_numbers table may not exist
+        }
     }),
 
     getById: permissionProcedure("monitoring.view")
@@ -22,23 +26,27 @@ export const whatsappNumbersRouter = router({
             const db = await getDb();
             if (!db) return null;
 
-            const result = await db.select({
-                number: whatsappNumbers,
-                connection: whatsappConnections,
-            })
-                .from(whatsappNumbers)
-                .leftJoin(whatsappConnections, eq(whatsappNumbers.id, whatsappConnections.whatsappNumberId))
-                .where(and(eq(whatsappNumbers.tenantId, ctx.tenantId), eq(whatsappNumbers.id, input.id)))
-                .limit(1);
+            try {
+                const result = await db.select({
+                    number: whatsappNumbers,
+                    connection: whatsappConnections,
+                })
+                    .from(whatsappNumbers)
+                    .leftJoin(whatsappConnections, eq(whatsappNumbers.id, whatsappConnections.whatsappNumberId))
+                    .where(and(eq(whatsappNumbers.tenantId, ctx.tenantId), eq(whatsappNumbers.id, input.id)))
+                    .limit(1);
 
-            const row = result[0];
-            if (!row) return null;
+                const row = result[0];
+                if (!row) return null;
 
-            return {
-                ...row.number,
-                accessToken: row.connection?.accessToken ? maskSecret(row.connection.accessToken) : null,
-                hasAccessToken: Boolean(row.connection?.accessToken),
-            } as any;
+                return {
+                    ...row.number,
+                    accessToken: row.connection?.accessToken ? maskSecret(row.connection.accessToken) : null,
+                    hasAccessToken: Boolean(row.connection?.accessToken),
+                } as any;
+            } catch {
+                return null; // tables may not exist
+            }
         }),
 
     create: permissionProcedure("monitoring.manage")
@@ -110,30 +118,31 @@ export const whatsappNumbersRouter = router({
         }),
 
     getStats: permissionProcedure("monitoring.view").query(async ({ ctx }) => {
+        const emptyStats = { total: 0, byStatus: [] as any[], byCountry: [] as any[] };
         const db = await getDb();
-        if (!db) return {
-            total: 0,
-            byStatus: [],
-            byCountry: [],
-        };
+        if (!db) return emptyStats;
 
-        const total = await db.select({ count: count() }).from(whatsappNumbers).where(eq(whatsappNumbers.tenantId, ctx.tenantId));
+        try {
+            const total = await db.select({ count: count() }).from(whatsappNumbers).where(eq(whatsappNumbers.tenantId, ctx.tenantId));
 
-        const byStatus = await db.select({
-            status: whatsappNumbers.status,
-            count: count(),
-        }).from(whatsappNumbers).where(eq(whatsappNumbers.tenantId, ctx.tenantId)).groupBy(whatsappNumbers.status);
+            const byStatus = await db.select({
+                status: whatsappNumbers.status,
+                count: count(),
+            }).from(whatsappNumbers).where(eq(whatsappNumbers.tenantId, ctx.tenantId)).groupBy(whatsappNumbers.status);
 
-        const byCountry = await db.select({
-            country: whatsappNumbers.country,
-            count: count(),
-        }).from(whatsappNumbers).where(eq(whatsappNumbers.tenantId, ctx.tenantId)).groupBy(whatsappNumbers.country);
+            const byCountry = await db.select({
+                country: whatsappNumbers.country,
+                count: count(),
+            }).from(whatsappNumbers).where(eq(whatsappNumbers.tenantId, ctx.tenantId)).groupBy(whatsappNumbers.country);
 
-        return {
-            total: total[0]?.count ?? 0,
-            byStatus,
-            byCountry,
-        };
+            return {
+                total: total[0]?.count ?? 0,
+                byStatus,
+                byCountry,
+            };
+        } catch {
+            return emptyStats; // whatsapp_numbers table may not exist
+        }
     }),
 
     updateCredentials: permissionProcedure("monitoring.manage")
