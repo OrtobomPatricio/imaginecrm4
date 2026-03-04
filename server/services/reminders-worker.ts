@@ -288,11 +288,11 @@ export function startRemindersWorker(): void {
     logger.info(`[RemindersWorker] Starting - checking every ${CHECK_INTERVAL_MS / 1000} seconds`);
     
     // Run immediately
-    processDueReminders().catch(console.error);
+    processDueReminders().catch((err) => logger.error({ err }, "[RemindersWorker] initial tick failed"));
     
     // Schedule periodic checks
     intervalId = setInterval(() => {
-        processDueReminders().catch(console.error);
+        processDueReminders().catch((err) => logger.error({ err }, "[RemindersWorker] tick failed"));
     }, CHECK_INTERVAL_MS);
     
     intervalId.unref();

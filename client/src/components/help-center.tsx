@@ -21,7 +21,7 @@ const HELP_TOPICS = [
     title: "Gestión de Leads",
     items: [
       { id: "create-lead", title: "Crear un Nuevo Lead", type: "article", content: "Puedes crear leads manualmente o importarlos desde CSV." },
-      { id: "kanban", title: "Cómo usar el Kanban", type: "video", url: "#", duration: "3:45" },
+      { id: "kanban", title: "Cómo usar el Kanban", type: "video", url: "https://www.youtube.com/results?search_query=CRM+kanban+tutorial", duration: "3:45" },
       { id: "status", title: "Estados y Pipelines", type: "article", content: "Personaliza tus embudos de venta y etapas." },
     ]
   },
@@ -31,7 +31,7 @@ const HELP_TOPICS = [
     items: [
       { id: "connect", title: "Conectar Número (QR)", type: "article", content: "Escanea el código QR en la sección de Canales para conectar tu número." },
       { id: "templates", title: "Plantillas de Mensaje", type: "article", content: "Las plantillas deben ser aprobadas por Meta antes de usarse." },
-      { id: "inbox", title: "Bandeja de Entrada Unificada", type: "video", url: "#", duration: "5:10" },
+      { id: "inbox", title: "Bandeja de Entrada Unificada", type: "video", url: "https://www.youtube.com/results?search_query=CRM+inbox+unificada+whatsapp", duration: "5:10" },
     ]
   },
   {
@@ -158,7 +158,11 @@ export function HelpCenter({ open, onOpenChange }: { open?: boolean; onOpenChang
           </div>
         </div>
         <div className="pt-6 mt-2 border-t text-center space-y-2">
-          <Button variant="outline" className="w-full gap-2">
+          <Button
+            variant="outline"
+            className="w-full gap-2"
+            onClick={() => window.open("mailto:soporte@imaginelab.io?subject=Soporte%20CRM", "_blank")}
+          >
             Contactar Soporte Técnico
             <ExternalLink className="h-4 w-4" />
           </Button>

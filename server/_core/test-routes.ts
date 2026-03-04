@@ -27,6 +27,9 @@ export function registerTestRoutes(app: Express) {
       const db = await getDb();
       if (!db) return res.status(500).json({ error: "Database not available" });
 
+      // Use the authenticated user's tenant (never hardcode)
+      const tenantId = ((req as any).user as any)?.tenantId ?? 1;
+
       // 1) Ensure WhatsApp Number exists
       const body = (req.body ?? {}) as any;
       const phoneNumber = String(body.phoneNumber ?? "595900000000").replace(/\D/g, "");
@@ -40,7 +43,7 @@ export function registerTestRoutes(app: Express) {
 
       let whatsappNumberId = existingNum[0]?.id;
       if (!whatsappNumberId) {
-        const ins = await db.insert(whatsappNumbers).values({ tenantId: 1, 
+        const ins = await db.insert(whatsappNumbers).values({ tenantId,
           phoneNumber,
           displayName,
           country: "Paraguay",
@@ -64,7 +67,7 @@ export function registerTestRoutes(app: Express) {
           .set({ connectionType: "api", isConnected: true, phoneNumberId })
           .where(eq(whatsappConnections.whatsappNumberId, whatsappNumberId));
       } else {
-        await db.insert(whatsappConnections).values({ tenantId: 1, 
+        await db.insert(whatsappConnections).values({ tenantId,
           whatsappNumberId,
           connectionType: "api",
           isConnected: true,
@@ -76,7 +79,7 @@ export function registerTestRoutes(app: Express) {
       const q = await db.select().from(supportQueues).limit(1);
       let queueId = q[0]?.id;
       if (!queueId) {
-        const ins = await db.insert(supportQueues).values({ tenantId: 1, 
+        const ins = await db.insert(supportQueues).values({ tenantId,
           name: "Default",
           color: "#22c55e",
           greetingMessage: "Hola 👋 ¿En qué puedo ayudarte?",
@@ -101,6 +104,7 @@ export function registerTestRoutes(app: Express) {
       const whatsappNumberId = Number(body.whatsappNumberId ?? 0) || undefined;
       const queueId = Number(body.queueId ?? 0) || undefined;
 
+      const tenantId = ((req as any).user as any)?.tenantId ?? 1;
       const contactPhoneRaw = String(body.contactPhone ?? "595971000000");
       const contactPhone = normalizeContactPhone(contactPhoneRaw);
       const contactName = body.contactName ? String(body.contactName) : "E2E Lead";
@@ -121,7 +125,7 @@ export function registerTestRoutes(app: Express) {
 
       let conversationId = existing[0]?.id as number | undefined;
       if (!conversationId) {
-        const ins = await db.insert(conversations).values({ tenantId: 1, 
+        const ins = await db.insert(conversations).values({ tenantId,
           channel: "whatsapp",
           whatsappNumberId: whatsappNumberId ?? null,
           whatsappConnectionType: "qr",
@@ -141,7 +145,7 @@ export function registerTestRoutes(app: Express) {
           .where(eq(conversations.id, conversationId));
       }
 
-      await db.insert(chatMessages).values({ tenantId: 1, 
+      await db.insert(chatMessages).values({ tenantId,
         conversationId,
         whatsappNumberId: whatsappNumberId ?? null,
         whatsappConnectionType: "qr",

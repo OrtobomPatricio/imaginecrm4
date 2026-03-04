@@ -41,12 +41,8 @@ export default function Step5FirstMessage() {
         setSendError("");
 
         if (!phone.trim()) {
-            // Demo mode — simulate the message
-            setTimeout(() => {
-                setSending(false);
-                setSent(true);
-                toast({ title: "¡Mensaje de Prueba!", description: "Ingresa un número real para enviar por WhatsApp." });
-            }, 1000);
+            setSending(false);
+            setSendError("Ingresa un número de teléfono para enviar un mensaje real por WhatsApp.");
             return;
         }
 
@@ -90,7 +86,7 @@ export default function Step5FirstMessage() {
                     onChange={(e) => setPhone(e.target.value)}
                     className="h-10 font-mono"
                 />
-                <p className="text-[10px] text-slate-400">Ingresa tu número para recibir el mensaje de prueba. Déjalo vacío para solo simular.</p>
+                <p className="text-[10px] text-slate-400">Ingresa tu número para recibir el mensaje de prueba por WhatsApp.</p>
             </div>
 
             <div className="bg-slate-50 dark:bg-slate-900 border rounded-2xl overflow-hidden shadow-sm">
@@ -137,7 +133,7 @@ export default function Step5FirstMessage() {
                         disabled={sending || sent || !message.trim()}
                     >
                         {sending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-                        {sending ? "Enviando..." : sent ? "Mensaje Enviado" : phone ? "Enviar por WhatsApp" : "Enviar Prueba (Demo)"}
+                        {sending ? "Enviando..." : sent ? "Mensaje Enviado" : "Enviar por WhatsApp"}
                         {!sending && !sent && <Send className="w-4 h-4 ml-2" />}
                         {sent && <CheckCircle2 className="w-4 h-4 ml-2" />}
                     </Button>

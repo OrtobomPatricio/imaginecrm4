@@ -93,7 +93,7 @@ export function ChatThread({ conversationId, showHelpdeskControls = false }: Pro
   const sendQueueRef = useRef<SendQueueItem[]>([]);
   const isProcessingQueueRef = useRef(false);
 
-  // Typing indicator (simulated client-side for now)
+  // Typing indicator (real-time via WebSocket — Baileys presence + agent events)
   const [isContactTyping, setIsContactTyping] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [typingTimeout, setTypingTimeout] = useState<NodeJS.Timeout | null>(null);

@@ -88,11 +88,11 @@ export function startTicketStatusWorker(): void {
     logger.info(`[TicketStatusWorker] Starting - checking every ${CHECK_INTERVAL_MS / 60000} minutes, threshold: ${INACTIVITY_THRESHOLD_HOURS} hours`);
     
     // Run immediately on start
-    checkStaleTickets().catch(console.error);
+    checkStaleTickets().catch((err) => logger.error({ err }, "[TicketStatusWorker] initial tick failed"));
     
     // Schedule periodic checks
     intervalId = setInterval(() => {
-        checkStaleTickets().catch(console.error);
+        checkStaleTickets().catch((err) => logger.error({ err }, "[TicketStatusWorker] tick failed"));
     }, CHECK_INTERVAL_MS);
     
     // Unref so it doesn't keep process alive
