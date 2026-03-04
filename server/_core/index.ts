@@ -11,6 +11,7 @@ import { registerOAuthRoutes } from "./oauth";
 import { registerDevBypass } from "./dev-bypass";
 import { registerNativeOAuth } from "./native-oauth";
 import { registerWhatsAppWebhookRoutes } from "../whatsapp/webhook";
+import { registerEmbeddedSignupRoutes } from "../whatsapp/embedded-signup";
 import { registerMetaRoutes } from "../meta-routes";
 import { registerStripeWebhookRoutes } from "../routers/stripe-webhook";
 import { appRouter } from "../routers";
@@ -230,6 +231,7 @@ export async function createApp() {
   registerNativeOAuth(app);
   registerOAuthRoutes(app);
   registerWhatsAppWebhookRoutes(app);
+  registerEmbeddedSignupRoutes(app);
   registerMetaRoutes(app);
   registerStripeWebhookRoutes(app);
   registerTestRoutes(app);

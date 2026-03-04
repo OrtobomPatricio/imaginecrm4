@@ -144,6 +144,8 @@ export const appSettings = mysqlTable("app_settings", {
     appId?: string;
     appSecret?: string;
     verifyToken?: string;
+    /** Embedded Signup config_id from Meta Dashboard */
+    embeddedSignupConfigId?: string;
   }>(),
 
   // Chat Distribution Configuration
@@ -711,6 +713,10 @@ export const whatsappConnections = mysqlTable("whatsapp_connections", {
   accessToken: text("accessToken"),
   phoneNumberId: varchar("phoneNumberId", { length: 50 }),
   businessAccountId: varchar("businessAccountId", { length: 50 }),
+  /** WABA ID returned by Embedded Signup or Graph API */
+  wabaId: varchar("wabaId", { length: 50 }),
+  /** How this connection was created: 'manual' | 'oauth' | 'embedded_signup' */
+  setupSource: varchar("setupSource", { length: 30 }).default("manual"),
   qrCode: text("qrCode"),
   qrExpiresAt: timestamp("qrExpiresAt"),
   sessionData: text("sessionData"),

@@ -29,7 +29,7 @@ import { SecurityTabContent } from "@/components/SecurityTabContent";
 import { Forbidden } from "@/components/Forbidden";
 
 import { usePermissions } from "@/_core/hooks/usePermissions";
-import { AlertCircle, Plus, Trash2 } from "lucide-react";
+import { AlertCircle, Plus, Trash2, MessageCircle } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 
 import { SalesConfigEditor } from "@/components/SalesConfigEditor";
@@ -39,6 +39,7 @@ import { DashboardConfigEditor } from "@/components/DashboardConfigEditor";
 import { AddUserDialog } from "@/components/AddUserDialog";
 import { AddWhatsAppDialog } from "@/components/AddWhatsAppDialog";
 import { WhatsAppConnectionsList } from "@/components/WhatsAppConnectionsList";
+import { EmbeddedSignupButton } from "@/components/EmbeddedSignupButton";
 import { AddEmailDialog } from "@/components/AddEmailDialog";
 import { EmailConnectionsList } from "@/components/EmailConnectionsList";
 import { BackupRestoreSection, ActivityLogsViewer } from "@/components/SecurityComponents";
@@ -91,6 +92,7 @@ export default function Settings() {
 
 function SettingsContent() {
   const { role } = usePermissions();
+  const utils = trpc.useUtils();
 
   const settingsQuery = trpc.settings.get.useQuery(undefined, {
     retry: false,
@@ -686,7 +688,30 @@ function SettingsContent() {
                 <AddWhatsAppDialog />
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-6">
+              {/* Embedded Signup — recommended method */}
+              <div className="border border-dashed border-green-300 dark:border-green-700 rounded-xl p-4 bg-green-50/50 dark:bg-green-900/10">
+                <div className="flex items-start gap-3 mb-3">
+                  <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
+                    <MessageCircle className="w-5 h-5 text-green-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-sm">Conexión Rápida (Recomendado)</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Conecta tu WhatsApp Business en segundos con la integración oficial de Meta.
+                      Compatible con modo coexistencia para usuarios que ya usan la app de WhatsApp Business.
+                    </p>
+                  </div>
+                </div>
+                <EmbeddedSignupButton
+                  onSuccess={() => {
+                    // Invalidate the WhatsApp connections list
+                    utils.whatsapp.list.invalidate();
+                  }}
+                />
+              </div>
+
+              {/* Existing connections list */}
               <WhatsAppConnectionsList />
             </CardContent>
           </Card>

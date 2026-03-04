@@ -234,6 +234,8 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
     await ensureColumn("quick_answers", "attachments", "`attachments` JSON NULL", "quick_answers.attachments column");
     await ensureColumn("message_queue", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "message_queue.tenantId column");
     await ensureColumn("whatsapp_connections", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "whatsapp_connections.tenantId column");
+    await ensureColumn("whatsapp_connections", "wabaId", "`wabaId` VARCHAR(50) NULL", "whatsapp_connections.wabaId column");
+    await ensureColumn("whatsapp_connections", "setupSource", "`setupSource` VARCHAR(30) NULL DEFAULT 'manual'", "whatsapp_connections.setupSource column");
     await ensureColumn("facebook_pages", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "facebook_pages.tenantId column");
     await ensureColumn("access_logs", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "access_logs.tenantId column");
     await ensureColumn("smtp_connections", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "smtp_connections.tenantId column");

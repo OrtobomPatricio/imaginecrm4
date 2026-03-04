@@ -1,39 +1,25 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { trpc } from "@/lib/trpc";
 import { useOnboarding } from "@/hooks/useOnboarding";
 import {
     QrCode,
-    Cloud,
+    MessageCircle,
     CheckCircle2,
-    AlertCircle,
-    Loader2,
-    ExternalLink,
-    RefreshCw
+    Info,
 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { EmbeddedSignupButton } from "@/components/EmbeddedSignupButton";
+import { WhatsAppConnectionsList } from "@/components/WhatsAppConnectionsList";
 
 /**
  * Step 3: Connect WhatsApp
+ * - Tab 1: Embedded Signup (Cloud API — recommended)
+ * - Tab 2: QR (Baileys — existing flow)
  */
 
 export default function Step3ConnectWhatsApp() {
     const { nextStep, skipStep } = useOnboarding();
-    const { toast } = useToast();
     const [connected, setConnected] = useState(false);
-    const [isTesting, setIsTesting] = useState(false);
-
-    // Mock connection testing for onboarding flow demo
-    const testConnection = () => {
-        setIsTesting(true);
-        setTimeout(() => {
-            setIsTesting(false);
-            setConnected(true);
-            toast({ title: "¡Conectado!", description: "WhatsApp se ha vinculado correctamente." });
-        }, 2000);
-    };
 
     return (
         <div className="space-y-6">
@@ -42,76 +28,61 @@ export default function Step3ConnectWhatsApp() {
                 <p className="text-slate-500 text-sm">Vital para recibir mensajes y leads automáticamente.</p>
             </div>
 
-            <Tabs defaultValue="qr" className="w-full">
+            <Tabs defaultValue="cloud" className="w-full">
                 <TabsList className="grid w-full grid-cols-2 h-12 mb-8 bg-slate-100 dark:bg-slate-800 p-1">
+                    <TabsTrigger value="cloud" className="flex items-center gap-2">
+                        <MessageCircle className="w-4 h-4" />
+                        Cloud API (Recomendado)
+                    </TabsTrigger>
                     <TabsTrigger value="qr" className="flex items-center gap-2">
                         <QrCode className="w-4 h-4" />
                         Escaneo QR
                     </TabsTrigger>
-                    <TabsTrigger value="cloud" className="flex items-center gap-2">
-                        <Cloud className="w-4 h-4" />
-                        Cloud API (Oficial)
-                    </TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="qr" className="space-y-4">
-                    <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-8 bg-white dark:bg-slate-900">
-                        {connected ? (
-                            <div className="text-center space-y-4">
-                                <div className="p-4 bg-green-100 dark:bg-green-900/20 rounded-full inline-block">
-                                    <CheckCircle2 className="w-12 h-12 text-green-600" />
-                                </div>
-                                <div>
-                                    <h3 className="font-bold text-lg">Sesión Activa</h3>
-                                    <p className="text-slate-500 text-sm">Tu número está listo para operar.</p>
-                                </div>
+                <TabsContent value="cloud" className="space-y-4">
+                    {connected ? (
+                        <div className="flex flex-col items-center justify-center border-2 border-green-200 dark:border-green-800 rounded-xl p-8 bg-green-50/50 dark:bg-green-900/10">
+                            <div className="p-4 bg-green-100 dark:bg-green-900/20 rounded-full inline-block mb-4">
+                                <CheckCircle2 className="w-12 h-12 text-green-600" />
                             </div>
-                        ) : (
-                            <div className="text-center space-y-6">
-                                <div className="w-48 h-48 bg-slate-50 dark:bg-slate-800 border flex items-center justify-center relative overflow-hidden group">
-                                    <QrCode className="w-32 h-32 text-slate-300" />
-                                    {isTesting && (
-                                        <div className="absolute inset-0 bg-white/80 dark:bg-black/80 flex items-center justify-center">
-                                            <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-                                        </div>
-                                    )}
-                                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/40 transition-opacity">
-                                        <Button variant="secondary" size="sm" onClick={testConnection}>
-                                            <RefreshCw className="w-4 h-4 mr-2" />
-                                            Generar QR
-                                        </Button>
+                            <h3 className="font-bold text-lg">¡WhatsApp Conectado!</h3>
+                            <p className="text-slate-500 text-sm mt-1">Tu número está listo para operar con la Cloud API oficial de Meta.</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            <div className="bg-blue-50 dark:bg-blue-900/10 p-4 rounded-xl border border-blue-100 dark:border-blue-800">
+                                <div className="flex items-start gap-3">
+                                    <Info className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                                    <div>
+                                        <h3 className="font-semibold text-sm text-blue-800 dark:text-blue-400">Integración Oficial de Meta</h3>
+                                        <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                                            Conecta en segundos con la integración oficial. Compatible con empresas que ya usan la app de WhatsApp Business (modo coexistencia).
+                                        </p>
                                     </div>
                                 </div>
-                                <div className="space-y-2">
-                                    <Badge variant="outline" className="text-amber-600 border-amber-200">Esperando conexión</Badge>
-                                    <p className="text-xs text-slate-400 max-w-xs mx-auto">
-                                        Escanea este código desde la sección "Dispositivos vinculados" en tu app de WhatsApp.
-                                    </p>
-                                </div>
-                                <Button variant="outline" onClick={testConnection}>
-                                    Simular Conexión (Demo)
-                                </Button>
                             </div>
-                        )}
-                    </div>
+                            <EmbeddedSignupButton
+                                onSuccess={() => setConnected(true)}
+                                onError={() => {}}
+                            />
+                        </div>
+                    )}
                 </TabsContent>
 
-                <TabsContent value="cloud" className="space-y-4">
-                    <div className="bg-blue-50 dark:bg-blue-900/10 p-6 rounded-xl border border-blue-100 dark:border-blue-800">
-                        <h3 className="font-bold text-blue-800 dark:text-blue-400 mb-2 flex items-center gap-2">
-                            <AlertCircle className="w-4 h-4" />
-                            Requiere Cuenta de Meta Business
-                        </h3>
-                        <p className="text-sm text-blue-700 dark:text-blue-300 mb-4">
-                            La Cloud API es la opción recomendada para empresas con alto tráfico. Ofrece mayor estabilidad pero requiere configuración técnica.
-                        </p>
-                        <Button variant="outline" className="w-full border-blue-300 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/20" asChild>
-                            <a href="https://developers.facebook.com/" target="_blank" rel="noreferrer">
-                                Guía de Configuración
-                                <ExternalLink className="w-4 h-4 ml-2" />
-                            </a>
-                        </Button>
+                <TabsContent value="qr" className="space-y-4">
+                    <div className="bg-amber-50 dark:bg-amber-900/10 p-4 rounded-xl border border-amber-100 dark:border-amber-800 mb-4">
+                        <div className="flex items-start gap-3">
+                            <Info className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                            <div>
+                                <h3 className="font-semibold text-sm text-amber-800 dark:text-amber-400">Conexión por QR (No Oficial)</h3>
+                                <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                                    Usa WhatsApp Web para conectarte rápidamente. No requiere cuenta de Meta Business pero tiene limitaciones.
+                                </p>
+                            </div>
+                        </div>
                     </div>
+                    <WhatsAppConnectionsList />
                 </TabsContent>
             </Tabs>
 
