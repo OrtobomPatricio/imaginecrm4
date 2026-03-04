@@ -29,6 +29,10 @@ export default function SetupAccount() {
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+        if (password.length < 8) {
+            toast.error("La contraseña debe tener al menos 8 caracteres");
+            return;
+        }
         if (password !== confirm) {
             toast.error("Las contraseñas no coinciden");
             return;
@@ -85,8 +89,9 @@ export default function SetupAccount() {
                                 onChange={(e) => setPassword(e.target.value)}
                                 placeholder="••••••••"
                                 required
-                                minLength={6}
+                                minLength={8}
                             />
+                            <p className="text-xs text-muted-foreground">Mínimo 8 caracteres</p>
                         </div>
 
                         <div className="space-y-2">
@@ -98,7 +103,7 @@ export default function SetupAccount() {
                                 onChange={(e) => setConfirm(e.target.value)}
                                 placeholder="••••••••"
                                 required
-                                minLength={6}
+                                minLength={8}
                             />
                         </div>
 
