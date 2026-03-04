@@ -6,6 +6,7 @@ import { permissionProcedure, protectedProcedure, router } from "../_core/trpc";
 import { dispatchIntegrationEvent } from "../_core/integrationDispatch";
 import { leadsToCSV, parseCSV, importLeadsFromCSV } from "../services/backup";
 import { COMMISSION_RATES } from "../../shared/const";
+import { logger } from "../_core/logger";
 
 import { parsePhoneNumber, isValidPhoneNumber } from 'libphonenumber-js';
 
@@ -186,13 +187,11 @@ export const leadsRouter = router({
                 }
 
                 if (defaultWhatsappNumberId) {
-                    // We run side-effects OUTSIDE transaction usually, or fire-and-forget inside.
-                    // Dispatching event is safe here as it's likely async/detached or non-blocking logic.
-                    void dispatchIntegrationEvent({
+                    dispatchIntegrationEvent({
                         whatsappNumberId: defaultWhatsappNumberId,
                         event: "lead_created",
                         data: { id: newLeadId, ...input, assignedToId: ctx.user?.id },
-                    });
+                    }).catch(err => logger.error(err, "[Leads] dispatchIntegrationEvent failed for lead_created"));
                 }
 
                 return { id: newLeadId, success: true };
@@ -280,11 +279,11 @@ export const leadsRouter = router({
                 const updated = await tx.select({ whatsappNumberId: leads.whatsappNumberId }).from(leads).where(and(eq(leads.tenantId, ctx.tenantId), eq(leads.id, id), sql`${leads.deletedAt} IS NULL`)).limit(1);
                 const waId = updated[0]?.whatsappNumberId as number | null | undefined;
                 if (waId) {
-                    void dispatchIntegrationEvent({
+                    dispatchIntegrationEvent({
                         whatsappNumberId: waId,
                         event: "lead_updated",
                         data: { id, ...data, updatedById: ctx.user?.id },
-                    });
+                    }).catch(err => logger.error(err, "[Leads] dispatchIntegrationEvent failed for lead_updated"));
                 }
 
                 return { success: true };
@@ -315,11 +314,11 @@ export const leadsRouter = router({
                 const updated = await tx.select({ whatsappNumberId: leads.whatsappNumberId }).from(leads).where(and(eq(leads.tenantId, ctx.tenantId), eq(leads.id, input.id), sql`${leads.deletedAt} IS NULL`)).limit(1);
                 const whatsappNumberId = updated[0]?.whatsappNumberId;
                 if (whatsappNumberId) {
-                    void dispatchIntegrationEvent({
+                    dispatchIntegrationEvent({
                         whatsappNumberId,
                         event: "lead_updated",
                         data: { id: input.id, pipelineStageId: input.pipelineStageId },
-                    });
+                    }).catch(err => logger.error(err, "[Leads] dispatchIntegrationEvent failed for lead_updated (status)"));
                 }
 
                 return { success: true };

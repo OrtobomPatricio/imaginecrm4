@@ -1,8 +1,9 @@
 import { z } from "zod";
-import { eq, desc, and, count } from "drizzle-orm";
+import { eq, desc, and, count, sql } from "drizzle-orm";
 import { campaigns, leads, campaignRecipients } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { permissionProcedure, router } from "../_core/trpc";
+import { logger } from "../_core/logger";
 
 export const campaignsRouter = router({
     list: permissionProcedure("campaigns.view").query(async ({ ctx }) => {
@@ -62,66 +63,72 @@ export const campaignsRouter = router({
             const db = await getDb();
             if (!db) throw new Error("DB error");
 
-            const campaign = await db.select().from(campaigns).where(and(eq(campaigns.tenantId, ctx.tenantId), eq(campaigns.id, input.campaignId))).limit(1);
-            if (!campaign[0]) throw new Error("Campaign not found");
+            return await db.transaction(async (tx) => {
+                // Lock the campaign row to prevent concurrent launches
+                const [campaign] = await tx.select().from(campaigns)
+                    .where(and(eq(campaigns.tenantId, ctx.tenantId), eq(campaigns.id, input.campaignId)))
+                    .for("update")
+                    .limit(1);
+                if (!campaign) throw new Error("Campaign not found");
 
-            // IDEMPOTENCY: Check campaign status first
-            if (campaign[0].status === "scheduled" || campaign[0].status === "running") {
-                return {
-                    success: true,
-                    recipientsCount: campaign[0].totalRecipients,
-                    alreadyLaunched: true
-                };
-            }
+                // Idempotency: already launched
+                if (campaign.status === "scheduled" || campaign.status === "running") {
+                    return {
+                        success: true,
+                        recipientsCount: campaign.totalRecipients,
+                        alreadyLaunched: true,
+                    };
+                }
 
-            // Ensure campaign is in draft state
-            if (campaign[0].status !== "draft") {
-                throw new Error(`Cannot launch campaign with status: ${campaign[0].status}`);
-            }
+                if (campaign.status !== "draft") {
+                    throw new Error(`Cannot launch campaign with status: ${campaign.status}`);
+                }
 
-            const config = campaign[0].audienceConfig as any;
+                const config = campaign.audienceConfig as any;
 
-            // Fetch audience
-            const conditions: any[] = [eq(leads.tenantId, ctx.tenantId)];
-            if (config?.pipelineStageId) {
-                conditions.push(eq(leads.pipelineStageId, config.pipelineStageId));
-            }
-            const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+                const conditions: any[] = [eq(leads.tenantId, ctx.tenantId)];
+                if (config?.pipelineStageId) {
+                    conditions.push(eq(leads.pipelineStageId, config.pipelineStageId));
+                }
+                const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-            const audience = await db.select().from(leads).where(whereClause).limit(10000);
+                const audience = await tx.select().from(leads).where(whereClause).limit(10000);
 
-            if (audience.length === 0) {
-                throw new Error("No recipients found for campaign");
-            }
+                if (audience.length === 0) {
+                    throw new Error("No recipients found for campaign");
+                }
 
-            // Create recipients with duplicate handling
-            let insertedCount = 0;
-            for (const lead of audience) {
-                try {
-                    await db.insert(campaignRecipients).values({
-                        tenantId: ctx.tenantId,
-                        campaignId: input.campaignId,
-                        leadId: lead.id,
-                        status: "pending",
-                    });
-                    insertedCount++;
-                } catch (err: any) {
-                    // Ignore duplicate errors (unique constraint violation)
-                    if (err.code !== 'ER_DUP_ENTRY' && !err.message?.includes('Duplicate')) {
-                        throw err;
+                let insertedCount = 0;
+                let duplicatesIgnored = 0;
+                for (const lead of audience) {
+                    try {
+                        await tx.insert(campaignRecipients).values({
+                            tenantId: ctx.tenantId,
+                            campaignId: input.campaignId,
+                            leadId: lead.id,
+                            status: "pending",
+                        });
+                        insertedCount++;
+                    } catch (err: any) {
+                        if (err.code !== 'ER_DUP_ENTRY' && !err.message?.includes('Duplicate')) {
+                            throw err;
+                        }
+                        duplicatesIgnored++;
                     }
                 }
-            }
 
-            await db.update(campaigns).set({
-                status: "scheduled", // Or running immediately
-                totalRecipients: audience.length,
-                startedAt: new Date(),
-            }).where(and(eq(campaigns.tenantId, ctx.tenantId), eq(campaigns.id, input.campaignId)));
+                await tx.update(campaigns).set({
+                    status: "scheduled",
+                    totalRecipients: insertedCount,
+                    startedAt: new Date(),
+                }).where(and(eq(campaigns.tenantId, ctx.tenantId), eq(campaigns.id, input.campaignId)));
 
-            // Sending is handled by campaign-worker.ts cron (processes "scheduled" campaigns every minute)
+                if (duplicatesIgnored > 0) {
+                    logger.warn({ campaignId: input.campaignId, duplicatesIgnored }, "[Campaigns] Duplicates ignored during launch");
+                }
 
-            return { success: true, recipientsCount: audience.length, inserted: insertedCount };
+                return { success: true, recipientsCount: audience.length, inserted: insertedCount, duplicatesIgnored };
+            });
         }),
 
     getById: permissionProcedure("campaigns.view")
