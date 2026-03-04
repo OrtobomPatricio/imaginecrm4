@@ -39,7 +39,7 @@ const requireUser = t.middleware(async opts => {
   }
 
   // If user is disabled, treat as logged out
-  if ((ctx.user as any).isActive === false) {
+  if (ctx.user.isActive === false) {
     throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
   }
 
@@ -221,12 +221,12 @@ export const permissionProcedure = (permission: string) =>
       }
 
       // Disabled user cannot access anything
-      if ((ctx.user as any).isActive === false) {
+      if (ctx.user.isActive === false) {
         throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
       }
 
-      const baseRole = (ctx.user as any).role ?? "agent";
-      const customRole = (ctx.user as any).customRole as string | undefined;
+      const baseRole = ctx.user.role ?? "agent";
+      const customRole = ctx.user.customRole ?? undefined;
 
       // Permission check logged at debug level only (no console.log in production)
 
@@ -259,7 +259,7 @@ export const adminProcedure = t.procedure.use(
   t.middleware(async opts => {
     const { ctx, next } = opts;
 
-    if (!ctx.user || (ctx.user.role !== 'admin' && (ctx.user as any).role !== 'owner')) {
+    if (!ctx.user || !['admin', 'owner'].includes(ctx.user.role)) {
       throw new TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
     }
 

@@ -253,8 +253,8 @@ class SDKServer {
         try {
           const database = await getDb();
           if (database) {
-            // Check if we're using mock database
-            const isMockDb = (database as any)?._isMock || (process.env.DATABASE_URL || '').includes('.sqlite') || (process.env.DATABASE_URL || '').startsWith('file:');
+            // Check if we're using mock database (exposed by db-mock.ts)
+            const isMockDb = (database as any)?._isMock === true;
             if (!isMockDb) {
               const session = await database.select().from(sessions).where(eq(sessions.sessionToken, jti)).limit(1);
               if (!session[0]) {

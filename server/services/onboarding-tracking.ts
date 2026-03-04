@@ -59,7 +59,7 @@ export async function getOrCreateOnboardingProgress(tenantId: number) {
             lastStep: "company"
         });
     } catch (error) {
-        logger.error("[MockDB] Failed to insert onboarding record:", error);
+        logger.error({ err: error }, "[Onboarding] Failed to insert onboarding_progress record");
     }
 
     try {
@@ -114,7 +114,7 @@ export async function updateOnboardingStep(
         if (isOnboardingSchemaIssue(error)) {
             logger.warn({ tenantId, err: error }, "[Onboarding] onboarding_progress table/schema missing; skipping step persistence");
         } else {
-            logger.warn("[MockDB] Warning: Could not update onboarding progress in mock DB");
+            logger.error({ tenantId, err: error }, "[Onboarding] Failed to update onboarding_progress");
         }
     }
 

@@ -540,13 +540,11 @@ function TenantUsersPanel({ tenantId }: { tenantId: number }) {
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const [revealedPassword, setRevealedPassword] = useState<string | null>(null);
   const resetPassword = trpc.superadmin.forcePasswordReset.useMutation({
     onSuccess: (data) => {
-      toast({
-        title: "Contraseña reseteada",
-        description: `Contraseña temporal: ${data.tempPassword}`,
-        duration: 15000,
-      });
+      setRevealedPassword(data.tempPassword);
+      toast({ title: "Contraseña reseteada", description: "Copia la contraseña del campo seguro.", duration: 5000 });
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -616,6 +614,17 @@ function TenantUsersPanel({ tenantId }: { tenantId: number }) {
           </div>
         ))}
       </div>
+      {revealedPassword && (
+        <div className="mt-2 flex items-center gap-2 p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-md">
+          <code className="text-xs font-mono flex-1 select-all break-all">{revealedPassword}</code>
+          <Button variant="ghost" size="sm" className="h-6 text-xs shrink-0" onClick={() => { navigator.clipboard.writeText(revealedPassword); toast({ title: "Copiada" }); }}>
+            Copiar
+          </Button>
+          <Button variant="ghost" size="sm" className="h-6 text-xs shrink-0" onClick={() => setRevealedPassword(null)}>
+            ✕
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -2226,7 +2235,7 @@ function AllUsersPanel() {
   });
 
   const resetPw = trpc.superadmin.forcePasswordReset.useMutation({
-    onSuccess: (d) => { toast({ title: "Contraseña reseteada", description: `Temporal: ${d.tempPassword}`, duration: 15000 }); },
+    onSuccess: (d) => { navigator.clipboard.writeText(d.tempPassword).catch(() => {}); toast({ title: "Contraseña reseteada y copiada al portapapeles", duration: 5000 }); },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
