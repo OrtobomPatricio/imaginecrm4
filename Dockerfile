@@ -8,12 +8,9 @@ RUN corepack enable && corepack prepare pnpm@10.4.1 --activate
 
 FROM base AS deps
 COPY package.json pnpm-lock.yaml ./
-COPY patches ./patches
 # Install dependencies including dev dependencies (needed for build)
-RUN apt-get update && apt-get install -y --no-install-recommends patch git ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
 RUN pnpm install --frozen-lockfile
-# Apply patches if any
-RUN patch -d node_modules/wouter -p1 < patches/wouter@3.7.1.patch || echo "Patch applied or unnecessary"
 
 FROM deps AS build
 COPY . .
