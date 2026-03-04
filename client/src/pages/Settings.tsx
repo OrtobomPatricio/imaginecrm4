@@ -30,7 +30,7 @@ import { SecurityTabContent } from "@/components/SecurityTabContent";
 import { Forbidden } from "@/components/Forbidden";
 
 import { usePermissions } from "@/_core/hooks/usePermissions";
-import { AlertCircle, Plus, Trash2, MessageCircle } from "lucide-react";
+import { AlertCircle, Plus, Trash2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 
 import { SalesConfigEditor } from "@/components/SalesConfigEditor";
@@ -38,15 +38,10 @@ import { SLAConfigEditor } from "@/components/SLAConfigEditor";
 import { StorageConfigEditor } from "@/components/StorageConfigEditor";
 import { DashboardConfigEditor } from "@/components/DashboardConfigEditor";
 import { AddUserDialog } from "@/components/AddUserDialog";
-import { AddWhatsAppDialog } from "@/components/AddWhatsAppDialog";
-import { WhatsAppConnectionsList } from "@/components/WhatsAppConnectionsList";
-import { EmbeddedSignupButton } from "@/components/EmbeddedSignupButton";
-import { AddEmailDialog } from "@/components/AddEmailDialog";
-import { EmailConnectionsList } from "@/components/EmailConnectionsList";
+
 import { ActivityLogsViewer } from "@/components/SecurityComponents";
 import { CustomFieldsManager } from "@/components/CustomFieldsManager";
-import { AddFacebookDialog } from "@/components/AddFacebookDialog";
-import { FacebookPagesList } from "@/components/FacebookPagesList";
+
 import { SecurityConfigEditor } from "@/components/SecurityConfigEditor";
 import { BillingSettings } from "@/components/settings/BillingSettings";
 
@@ -93,7 +88,7 @@ export default function Settings() {
 
 function SettingsContent() {
   const { role } = usePermissions();
-  const utils = trpc.useUtils();
+
 
   const settingsQuery = trpc.settings.get.useQuery(undefined, {
     retry: false,
@@ -172,11 +167,7 @@ function SettingsContent() {
       mode: "manual" as "manual" | "round_robin" | "all_agents",
       excludeAgentIds: [] as number[],
     },
-    metaConfig: {
-      appId: "",
-      appSecret: "",
-      verifyToken: "imagine_crm_verify",
-    }
+
   });
 
   const initialMatrix = useMemo(() => {
@@ -218,11 +209,7 @@ function SettingsContent() {
         mode: "manual",
         excludeAgentIds: [],
       },
-      metaConfig: (settingsQuery.data as any).metaConfig ?? {
-        appId: "",
-        appSecret: "", // Masked from backend
-        verifyToken: "imagine_crm_verify"
-      },
+
     });
 
 
@@ -245,7 +232,7 @@ function SettingsContent() {
         mode: form.chatDistributionConfig.mode as "manual" | "round_robin" | "all_agents",
         excludeAgentIds: form.chatDistributionConfig.excludeAgentIds,
       },
-      metaConfig: form.metaConfig,
+
     });
   };
 
@@ -257,19 +244,18 @@ function SettingsContent() {
   useEffect(() => {
     const params = new URLSearchParams(search);
     const tab = params.get("tab");
-    if (tab && ["general", "team", "dashboard", "distribution", "security", "sla", "storage", "customFields", "sales", "billing"].includes(tab)) {
+    if (tab && ["general", "team", "dashboard", "security", "sla", "storage", "customFields", "sales", "billing"].includes(tab)) {
       setActiveTab(tab);
     }
 
     // Handle OAuth Toasts
     if (params.get("success") === "meta_connected") {
       toast.success("WhatsApp conectado correctamente");
-      // Clean URL
-      window.history.replaceState(null, "", window.location.pathname + "?tab=distribution");
+      window.history.replaceState(null, "", "/integrations");
     }
     if (params.get("error")) {
       toast.error("Error conectando con Meta: " + params.get("error"));
-      window.history.replaceState(null, "", window.location.pathname + "?tab=distribution");
+      window.history.replaceState(null, "", "/integrations");
     }
   }, [search]);
 
@@ -296,11 +282,10 @@ function SettingsContent() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full h-auto grid-cols-2 md:grid-cols-4 lg:grid-cols-10 gap-y-2">
+        <TabsList className="grid w-full h-auto grid-cols-2 md:grid-cols-3 lg:grid-cols-9 gap-y-2">
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="team">Equipo</TabsTrigger>
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
-          <TabsTrigger value="distribution">Conexiones</TabsTrigger>
           <TabsTrigger value="sales">Ventas</TabsTrigger>
           <TabsTrigger value="security">Seguridad</TabsTrigger>
           <TabsTrigger value="storage">Almacenamiento</TabsTrigger>
@@ -665,118 +650,6 @@ function SettingsContent() {
           />
         </TabsContent>
 
-
-        <TabsContent value="distribution">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Conexiones de WhatsApp</CardTitle>
-                  <CardDescription>Administra tus cuentas de WhatsApp Business conectadas.</CardDescription>
-                </div>
-                <AddWhatsAppDialog />
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Embedded Signup — recommended method */}
-              <div className="border border-dashed border-green-300 dark:border-green-700 rounded-xl p-4 bg-green-50/50 dark:bg-green-900/10">
-                <div className="flex items-start gap-3 mb-3">
-                  <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
-                    <MessageCircle className="w-5 h-5 text-green-600" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-sm">Conexión Rápida (Recomendado)</h3>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Conecta tu WhatsApp Business en segundos con la integración oficial de Meta.
-                      Compatible con modo coexistencia para usuarios que ya usan la app de WhatsApp Business.
-                    </p>
-                  </div>
-                </div>
-                <EmbeddedSignupButton
-                  onSuccess={() => {
-                    // Invalidate the WhatsApp connections list
-                    utils.whatsapp.list.invalidate();
-                  }}
-                  onError={(msg) => console.warn("[EmbeddedSignup] Error:", msg)}
-                />
-              </div>
-
-              {/* Existing connections list */}
-              <WhatsAppConnectionsList />
-            </CardContent>
-          </Card>
-
-          <Card className="mt-4">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Conexiones de Email (SMTP)</CardTitle>
-                  <CardDescription>Configura cuentas de email para enviar invitaciones y notificaciones.</CardDescription>
-                </div>
-                <AddEmailDialog />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <EmailConnectionsList />
-            </CardContent>
-          </Card>
-
-          <Card className="mt-4">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Facebook Pages</CardTitle>
-                  <CardDescription>Gestiona conexiones con páginas de Facebook</CardDescription>
-                </div>
-                <AddFacebookDialog />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <FacebookPagesList />
-            </CardContent>
-          </Card>
-
-          <Card className="mt-4">
-            <CardHeader>
-              <CardTitle>Configuración de Meta Platform</CardTitle>
-              <CardDescription>Credenciales de la app de Meta para Embedded Signup y verificación de webhooks.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="grid gap-2">
-                  <Label>App ID</Label>
-                  <Input
-                    value={form.metaConfig.appId}
-                    onChange={e => setForm(p => ({ ...p, metaConfig: { ...p.metaConfig, appId: e.target.value } }))}
-                    placeholder="123456789..."
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label>App Secret</Label>
-                  <Input
-                    type="password"
-                    value={form.metaConfig.appSecret}
-                    onChange={e => setForm(p => ({ ...p, metaConfig: { ...p.metaConfig, appSecret: e.target.value } }))}
-                    placeholder="Guardado ••••"
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Verify Token</Label>
-                  <Input
-                    value={form.metaConfig.verifyToken}
-                    onChange={e => setForm(p => ({ ...p, metaConfig: { ...p.metaConfig, verifyToken: e.target.value } }))}
-                    placeholder="imagine_crm_verify"
-                  />
-                </div>
-              </div>
-              <div className="flex justify-end">
-                <Button onClick={saveGeneral} disabled={updateGeneral.isPending}>
-                  {updateGeneral.isPending ? "Guardando..." : "Guardar"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
 
         <TabsContent value="sales" className="space-y-4">
           <SalesConfigEditor
