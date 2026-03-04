@@ -79,7 +79,11 @@ export const settingsRouter = router({
                 metaConfigUpdate = {
                     ...prevMeta,
                     ...(input.metaConfig.appId !== undefined ? { appId: input.metaConfig.appId } : {}),
-                    ...(input.metaConfig.verifyToken !== undefined ? { verifyToken: input.metaConfig.verifyToken } : {}),
+                    ...(input.metaConfig.verifyToken !== undefined
+                        ? { verifyToken: input.metaConfig.verifyToken && input.metaConfig.verifyToken.trim()
+                            ? encryptSecret(input.metaConfig.verifyToken.trim())
+                            : input.metaConfig.verifyToken }
+                        : {}),
                     // Only update secret if provided
                     ...(input.metaConfig.appSecret && input.metaConfig.appSecret.trim() ? { appSecret: encryptSecret(input.metaConfig.appSecret.trim()) } : {}),
                 };

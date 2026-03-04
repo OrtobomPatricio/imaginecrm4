@@ -1716,7 +1716,9 @@ export const superadminRouter = router({
                     .from(appSettings)
                     .where(eq(appSettings.tenantId, 1))
                     .limit(1);
-                return row ?? null;
+                if (!row) return null;
+                const { sanitizeAppSettings } = await import("../_core/security-helpers");
+                return sanitizeAppSettings(row);
             } catch { return null; }
         }),
 
@@ -1766,10 +1768,27 @@ export const superadminRouter = router({
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
             const updates: Record<string, any> = {};
-            if (input.smtpConfig !== undefined) updates.smtpConfig = input.smtpConfig;
-            if (input.metaConfig !== undefined) updates.metaConfig = input.metaConfig;
-            if (input.aiConfig !== undefined) updates.aiConfig = input.aiConfig;
-            if (input.storageConfig !== undefined) updates.storageConfig = input.storageConfig;
+            if (input.smtpConfig !== undefined) {
+                const sc = { ...input.smtpConfig };
+                if (sc.pass && sc.pass.trim()) sc.pass = encryptSecret(sc.pass.trim());
+                updates.smtpConfig = sc;
+            }
+            if (input.metaConfig !== undefined) {
+                const mc = { ...input.metaConfig };
+                if (mc.appSecret && mc.appSecret.trim()) mc.appSecret = encryptSecret(mc.appSecret.trim());
+                updates.metaConfig = mc;
+            }
+            if (input.aiConfig !== undefined) {
+                const ac = { ...input.aiConfig };
+                if (ac.apiKey && ac.apiKey.trim()) ac.apiKey = encryptSecret(ac.apiKey.trim());
+                updates.aiConfig = ac;
+            }
+            if (input.storageConfig !== undefined) {
+                const stc = { ...input.storageConfig };
+                if (stc.accessKey && stc.accessKey.trim()) stc.accessKey = encryptSecret(stc.accessKey.trim());
+                if (stc.secretKey && stc.secretKey.trim()) stc.secretKey = encryptSecret(stc.secretKey.trim());
+                updates.storageConfig = stc;
+            }
             if (input.securityConfig !== undefined) updates.securityConfig = input.securityConfig;
             if (input.companyName !== undefined) updates.companyName = input.companyName;
             if (input.timezone !== undefined) updates.timezone = input.timezone;

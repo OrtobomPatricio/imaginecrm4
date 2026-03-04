@@ -35,21 +35,29 @@ export function sanitizeAppSettings(settings: any) {
 
     if (s.storageConfig) {
         const secretKey = s.storageConfig.secretKey;
+        const accessKey = s.storageConfig.accessKey;
         s.storageConfig = {
             ...s.storageConfig,
             secretKey: null,
             hasSecretKey: !!secretKey,
             secretKeyMasked: maskSecret(secretKey),
+            accessKey: null,
+            hasAccessKey: !!accessKey,
+            accessKeyMasked: maskSecret(accessKey),
         };
     }
 
     if (s.metaConfig) {
         const appSecret = s.metaConfig.appSecret;
+        const verifyToken = s.metaConfig.verifyToken;
         s.metaConfig = {
             ...s.metaConfig,
             appSecret: null,
             hasAppSecret: !!appSecret,
             appSecretMasked: maskSecret(appSecret),
+            verifyToken: null,
+            hasVerifyToken: !!verifyToken,
+            verifyTokenMasked: maskSecret(verifyToken),
         };
     }
 
