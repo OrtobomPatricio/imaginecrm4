@@ -2,6 +2,13 @@ import crypto from "node:crypto";
 import { logger } from "../_core/logger";
 
 /**
+ * ⚠️  STATUS: NOT INTEGRATED — This service is implemented and tested but
+ * NOT wired into the authentication flow. To enable 2FA you need:
+ *   1. Add `totpSecret` (encrypted) column to users table
+ *   2. Create tRPC procedures: setupTotp, verifyTotpSetup, disableTotp
+ *   3. Add TOTP verification step in loginWithCredentials
+ *   4. Generate recovery codes for lost-device scenarios
+ *
  * TOTP (Time-based One-Time Password) 2FA Service
  * Based on RFC 6238. Uses HMAC-SHA1 with 30-second time windows.
  *
