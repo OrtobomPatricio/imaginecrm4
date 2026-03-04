@@ -73,6 +73,19 @@ function parseCustomId(customId?: string): { tenantId: number; plan: string } | 
     return { tenantId, plan };
 }
 
+// Simple in-memory deduplication for webhook event IDs (PayPal can redeliver)
+// All operations below are idempotent SETs, so duplicates are safe but wasteful.
+const processedEventIds = new Map<string, number>();
+const DEDUP_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const DEDUP_MAX_SIZE = 500;
+
+function pruneProcessedEvents(): void {
+    const now = Date.now();
+    for (const [id, ts] of processedEventIds) {
+        if (now - ts > DEDUP_TTL_MS) processedEventIds.delete(id);
+    }
+}
+
 export function registerPayPalWebhookRoutes(app: Express): void {
     app.post("/api/webhooks/paypal", async (req: Request, res: Response) => {
         const webhookId = process.env.PAYPAL_WEBHOOK_ID;
@@ -91,8 +104,15 @@ export function registerPayPalWebhookRoutes(app: Express): void {
         const event = req.body;
         const eventType: string = event?.event_type ?? "";
         const resource = event?.resource ?? {};
+        const eventId: string | undefined = event?.id;
 
-        logger.info({ eventType, id: event?.id }, "[PayPalWebhook] Event received");
+        // Deduplicate: skip if this event was already processed recently
+        if (eventId && processedEventIds.has(eventId)) {
+            logger.debug({ eventId, eventType }, "[PayPalWebhook] Duplicate event skipped");
+            return res.json({ received: true, duplicate: true });
+        }
+
+        logger.info({ eventType, id: eventId }, "[PayPalWebhook] Event received");
 
         try {
             const db = await getDb();
@@ -192,6 +212,12 @@ export function registerPayPalWebhookRoutes(app: Express): void {
 
                 default:
                     logger.debug({ eventType }, "[PayPalWebhook] Unhandled event");
+            }
+
+            // Mark event as processed for deduplication
+            if (eventId) {
+                processedEventIds.set(eventId, Date.now());
+                if (processedEventIds.size > DEDUP_MAX_SIZE) pruneProcessedEvents();
             }
 
             res.json({ received: true });
