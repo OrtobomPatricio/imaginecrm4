@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Trash2, CheckCircle2, XCircle, Phone, Plus, QrCode, Loader2 } from "lucide-react";
+import { Trash2, CheckCircle2, XCircle, Phone, Plus, QrCode, Loader2, Unplug, Cloud } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
 import QRCode from "react-qr-code";
@@ -20,6 +20,7 @@ import {
 
 export function WhatsAppConnectionsList() {
     const [deleteId, setDeleteId] = useState<number | null>(null);
+    const [disconnectingId, setDisconnectingId] = useState<number | null>(null);
     const [showModal, setShowModal] = useState(false);
     const [showQrModal, setShowQrModal] = useState(false);
     const [qrCode, setQrCode] = useState<string | null>(null);
@@ -64,6 +65,29 @@ export function WhatsAppConnectionsList() {
             toast.error(`Error: ${e.message}`);
         },
     });
+
+    /** Disconnect Embedded Signup / Cloud API connections via REST */
+    const handleApiDisconnect = async (connectionId: number) => {
+        setDisconnectingId(connectionId);
+        try {
+            const res = await fetch("/api/whatsapp/embedded-signup/disconnect", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ connectionId }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.error || "Error al desconectar");
+            }
+            toast.success("WhatsApp Cloud API desconectado correctamente");
+            utils.whatsapp.list.invalidate();
+        } catch (err: any) {
+            toast.error(err.message || "Error al desconectar");
+        } finally {
+            setDisconnectingId(null);
+        }
+    };
 
     const createNumberMutation = trpc.whatsappNumbers.create.useMutation({
         onSuccess: (data) => {
@@ -185,31 +209,67 @@ export function WhatsAppConnectionsList() {
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {connections?.map((num) => (
+                {connections?.map((num) => {
+                    const isApi = num.connectionType === "api";
+                    const isEmbedded = num.setupSource === "embedded_signup";
+
+                    return (
                     <Card key={num.id}>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                             <CardTitle className="text-sm font-medium">
                                 {num.number?.phoneNumber || "Sin número"}
                             </CardTitle>
-                            <Badge variant={num.isConnected ? 'default' : 'secondary'}>
-                                {num.isConnected ? 'Conectado' : 'Desconectado'}
-                            </Badge>
+                            <div className="flex items-center gap-1.5">
+                                {isApi ? (
+                                    <Badge variant="outline" className="text-[10px] border-blue-200 text-blue-700 dark:text-blue-400">
+                                        <Cloud className="w-3 h-3 mr-1" />
+                                        Cloud API
+                                    </Badge>
+                                ) : (
+                                    <Badge variant="outline" className="text-[10px] border-amber-200 text-amber-700 dark:text-amber-400">
+                                        <QrCode className="w-3 h-3 mr-1" />
+                                        QR
+                                    </Badge>
+                                )}
+                                <Badge variant={num.isConnected ? 'default' : 'secondary'}>
+                                    {num.isConnected ? 'Conectado' : 'Desconectado'}
+                                </Badge>
+                            </div>
                         </CardHeader>
                         <CardContent>
                             <div className="text-xs text-muted-foreground mt-2 mb-4">
                                 {num.number?.displayName || "Sin nombre"}
                             </div>
                             <div className="grid grid-cols-4 gap-2">
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="col-span-3 w-full"
-                                    onClick={() => handleConnectQR(num.id)}
-                                    disabled={num.isConnected}
-                                >
-                                    <QrCode className="h-4 w-4 mr-2" />
-                                    {num.isConnected ? 'Vinculado' : 'Ver QR'}
-                                </Button>
+                                {isApi ? (
+                                    /* Cloud API / Embedded Signup: Disconnect button */
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="col-span-3 w-full"
+                                        onClick={() => handleApiDisconnect(num.id)}
+                                        disabled={!num.isConnected || disconnectingId === num.id}
+                                    >
+                                        {disconnectingId === num.id ? (
+                                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                        ) : (
+                                            <Unplug className="h-4 w-4 mr-2" />
+                                        )}
+                                        {!num.isConnected ? 'Desconectado' : disconnectingId === num.id ? 'Desconectando...' : 'Desconectar'}
+                                    </Button>
+                                ) : (
+                                    /* QR / Baileys: QR button */
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="col-span-3 w-full"
+                                        onClick={() => handleConnectQR(num.id)}
+                                        disabled={num.isConnected}
+                                    >
+                                        <QrCode className="h-4 w-4 mr-2" />
+                                        {num.isConnected ? 'Vinculado' : 'Ver QR'}
+                                    </Button>
+                                )}
                                 <Button
                                     variant="outline"
                                     size="icon"
@@ -222,7 +282,8 @@ export function WhatsAppConnectionsList() {
                             </div>
                         </CardContent>
                     </Card>
-                ))}
+                    );
+                })}
 
                 {(!connections || connections.length === 0) && (
                     <div className="col-span-full text-center py-8 border rounded-lg bg-muted/30 border-dashed">
