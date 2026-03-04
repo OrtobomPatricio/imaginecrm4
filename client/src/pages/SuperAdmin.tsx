@@ -434,13 +434,11 @@ function ImpersonateDialog({
     onSuccess: (data) => {
       toast({
         title: "Impersonación iniciada",
-        description: `Sesión activa como ${data.targetUser.name} (${data.targetUser.email}). Recargando...`,
-        duration: 3000,
+        description: `Sesión activa como ${data.targetUser.name} (${data.targetUser.email}). Redirigiendo…`,
+        duration: 2000,
       });
-      // The backend already set the cookie. Redirect to dashboard.
-      setTimeout(() => {
-        window.location.href = "/";
-      }, 1500);
+      // The backend already set the cookie. Full reload to pick up new session.
+      window.location.href = "/";
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });

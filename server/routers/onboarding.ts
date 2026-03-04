@@ -77,7 +77,8 @@ export const onboardingRouter = router({
                     } as any)
                     .where(eq(tenants.id, ctx.tenantId));
             } catch (error) {
-                logger.warn("[MockDB] Warning: Could not update tenant name in mock DB");
+                logger.error({ err: error, tenantId: ctx.tenantId }, "[Onboarding] Failed to update tenant name");
+                // Non-fatal: continue so onboarding step is still recorded
             }
 
             return await updateOnboardingStep(

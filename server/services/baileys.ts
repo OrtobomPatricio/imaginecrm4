@@ -29,6 +29,58 @@ const connections: Map<number, ConnectionState> = new Map();
 // Typing state cleanup timers
 const typingTimers: Map<string, NodeJS.Timeout> = new Map();
 
+/**
+ * Bridge Baileys presence events to the WebSocket typing indicator.
+ * userId here is whatsappNumbers.id (the CRM WhatsApp number record).
+ */
+async function emitContactTyping(whatsappNumberId: number, jid: string, isTyping: boolean): Promise<void> {
+    try {
+        if (!jid || jid.includes("status@broadcast") || jid.includes("@lid")) return;
+
+        const { isIOInitialized, emitToConversation } = await import("./websocket");
+        if (!isIOInitialized()) return;
+
+        const { getDb } = await import("../db");
+        const { normalizeContactPhone } = await import("../_core/phone");
+        const { eq, and } = await import("drizzle-orm");
+        const { whatsappNumbers: waNums, conversations } = await import("../../drizzle/schema");
+
+        const db = await getDb();
+        if (!db) return;
+
+        // Resolve tenantId
+        const waRow = await db.select({ tenantId: waNums.tenantId })
+            .from(waNums)
+            .where(eq(waNums.id, whatsappNumberId))
+            .limit(1);
+        const tenantId = waRow[0]?.tenantId;
+        if (!tenantId) return;
+
+        // Find the conversation
+        const phone = normalizeContactPhone(jid);
+        const convRows = await db.select({ id: conversations.id })
+            .from(conversations)
+            .where(and(
+                eq(conversations.whatsappNumberId, whatsappNumberId),
+                eq(conversations.contactPhone, phone),
+                eq(conversations.channel, "whatsapp"),
+            ))
+            .limit(1);
+
+        const convId = convRows[0]?.id;
+        if (!convId) return;
+
+        emitToConversation(convId, "conversation:typing", {
+            conversationId: convId,
+            userId: 0,         // 0 = contact, not an agent
+            userName: "Contacto",
+            isTyping,
+        }, tenantId);
+    } catch {
+        // Best-effort; don't crash the Baileys socket over a typing indicator
+    }
+}
+
 export const BaileysService = {
     getSocket(userId: number) {
         return connections.get(userId)?.socket;
@@ -107,7 +159,7 @@ export const BaileysService = {
         });
 
         // Typing Indicators
-        sock.ev.on('presence.update', (update) => {
+        sock.ev.on('presence.update', async (update) => {
             const jid = update.id;
             const presences = update.presences || {};
 
@@ -131,11 +183,16 @@ export const BaileysService = {
                     typingTimers.set(timerKey, setTimeout(() => {
                         conn.typingJids?.delete(jid);
                         typingTimers.delete(timerKey);
+                        // Emit typing=false when auto-cleared
+                        emitContactTyping(userId, jid, false).catch(() => {});
                     }, 3000));
                 } else {
                     conn.typingJids.delete(jid);
                 }
             }
+
+            // Broadcast to WebSocket so the agent UI shows the typing indicator
+            emitContactTyping(userId, jid, isTyping).catch(() => {});
         });
 
         // Read Receipts

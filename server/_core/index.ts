@@ -28,6 +28,7 @@ import { startSessionCleanup } from "../services/cleanup-sessions";
 import { startWorkflowPoller } from "../services/workflow-poller";
 import { startTicketStatusWorker } from "../services/ticket-status-worker";
 import { startRemindersWorker } from "../services/reminders-worker";
+import { startWarmupScheduler } from "../services/warmup-scheduler";
 import { runMigrations } from "../scripts/migrate";
 import { validateProductionSecrets } from "./validate-env";
 import { assertDbConstraints } from "../services/assert-db";
@@ -373,6 +374,7 @@ async function startServer() {
     startWorkflowPoller();
     startTicketStatusWorker();
     startRemindersWorker();
+    startWarmupScheduler();
 
     // Database optimization (FULLTEXT indexes)
     import("../services/fulltext-indexes").then(({ createFulltextIndexes }) => {
