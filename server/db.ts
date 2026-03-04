@@ -57,8 +57,9 @@ export async function getDb() {
         queueLimit: 0,
         enableKeepAlive: true,
         keepAliveInitialDelay: 0,
-        // Enable SSL/TLS in production for encrypted DB connections
-        ...(isProd && process.env.DB_SSL !== "0" ? { ssl: { rejectUnauthorized: true } } : {}),
+        // Enable SSL/TLS only when explicitly requested (DB_SSL=1)
+        // Internal Docker connections (e.g. EasyPanel) don't need SSL
+        ...(process.env.DB_SSL === "1" ? { ssl: { rejectUnauthorized: true } } : {}),
       });
     }
 
@@ -70,7 +71,7 @@ export async function getDb() {
     _db = drizzle(_pool as any);
     logger.info("[Database] MySQL connection initialized successfully.");
   } catch (error) {
-    logger.error("[Database] MySQL Connection FAILURE:", error);
+    logger.error({ err: error }, "[Database] MySQL Connection FAILURE");
     if (isProd) {
       logger.error("[Database] Production mode forbids mock DB fallback. Exiting.");
       process.exit(1);
