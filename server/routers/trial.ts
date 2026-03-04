@@ -104,22 +104,6 @@ export const trialRouter = router({
         }),
 
     // Prorate plan change is not supported with PayPal subscriptions. Use the PayPal dashboard to manage plan changes.
-                await db.update(tenants).set({
-                    plan: input.newPlan,
-                } as any).where(eq(tenants.id, ctx.tenantId));
-
-                logger.info(
-                    { tenantId: ctx.tenantId, newPlan: input.newPlan },
-                    "[Billing] Plan changed with proration"
-                );
-
-                return { success: true, plan: input.newPlan };
-            } catch (err: any) {
-                logger.error({ err }, "[Billing] Proration failed");
-                throw new TRPCError({
-                    code: "INTERNAL_SERVER_ERROR",
-                    message: "Error al cambiar de plan",
-                });
-            }
+                // Code related to Stripe proration has been removed.
         }),
 });
