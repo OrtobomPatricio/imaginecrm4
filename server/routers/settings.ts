@@ -236,7 +236,7 @@ export const settingsRouter = router({
 
     updateAiConfig: permissionProcedure("settings.manage")
         .input(z.object({
-            provider: z.enum(["openai", "anthropic"]),
+            provider: z.enum(["openai", "anthropic", "gemini"]),
             apiKey: z.string().max(500).optional().nullable(),
             model: z.string().max(100),
         }))

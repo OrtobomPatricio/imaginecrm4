@@ -173,8 +173,33 @@ function IntegrationsContent() {
 function AiSettings() {
   const query = trpc.settings.get.useQuery();
   const updateAi = trpc.settings.updateAiConfig.useMutation({ onSuccess: () => toast.success("AI config guardado") });
-  const [form, setForm] = useState({ provider: "openai" as "openai" | "anthropic", apiKey: "", model: "gpt-4-turbo" });
+  const [form, setForm] = useState({ provider: "openai" as "openai" | "anthropic" | "gemini", apiKey: "", model: "gpt-4-turbo" });
   const [hasExistingKey, setHasExistingKey] = useState(false);
+
+  const MODEL_OPTIONS: Record<string, { value: string; label: string }[]> = {
+    openai: [
+      { value: "gpt-4-turbo", label: "GPT-4 Turbo" },
+      { value: "gpt-4o", label: "GPT-4o" },
+      { value: "gpt-4o-mini", label: "GPT-4o Mini" },
+      { value: "gpt-4.1", label: "GPT-4.1" },
+      { value: "gpt-4.1-mini", label: "GPT-4.1 Mini" },
+      { value: "gpt-4.1-nano", label: "GPT-4.1 Nano" },
+      { value: "o3-mini", label: "o3 Mini" },
+    ],
+    anthropic: [
+      { value: "claude-sonnet-4-20250514", label: "Claude Sonnet 4" },
+      { value: "claude-3-5-sonnet-20241022", label: "Claude 3.5 Sonnet" },
+      { value: "claude-3-5-haiku-20241022", label: "Claude 3.5 Haiku" },
+      { value: "claude-3-opus-20240229", label: "Claude 3 Opus" },
+    ],
+    gemini: [
+      { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+      { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+      { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash" },
+      { value: "gemini-1.5-pro", label: "Gemini 1.5 Pro" },
+      { value: "gemini-1.5-flash", label: "Gemini 1.5 Flash" },
+    ],
+  };
 
   useEffect(() => {
     if (query.data?.aiConfig) {
@@ -187,6 +212,11 @@ function AiSettings() {
       setHasExistingKey(!!config.hasApiKey);
     }
   }, [query.data]);
+
+  const handleProviderChange = (provider: string) => {
+    const defaultModel = MODEL_OPTIONS[provider]?.[0]?.value || "";
+    setForm(p => ({ ...p, provider: provider as any, model: defaultModel }));
+  };
 
   const handleSave = () => {
     const payload: any = {
@@ -202,6 +232,8 @@ function AiSettings() {
     updateAi.mutate(payload);
   };
 
+  const currentModels = MODEL_OPTIONS[form.provider] || [];
+
   return (
     <Card>
       <CardHeader>
@@ -210,11 +242,12 @@ function AiSettings() {
       <CardContent className="space-y-4">
         <div className="grid gap-2">
           <Label>Proveedor</Label>
-          <Select value={form.provider} onValueChange={(v: any) => setForm(p => ({ ...p, provider: v }))}>
+          <Select value={form.provider} onValueChange={handleProviderChange}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="openai">OpenAI</SelectItem>
               <SelectItem value="anthropic">Anthropic</SelectItem>
+              <SelectItem value="gemini">Google Gemini</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -224,12 +257,19 @@ function AiSettings() {
             type="password"
             value={form.apiKey}
             onChange={e => setForm(p => ({ ...p, apiKey: e.target.value }))}
-            placeholder={hasExistingKey ? "Guardado ••••" : "sk-..."}
+            placeholder={hasExistingKey ? "Guardado ••••" : form.provider === "gemini" ? "AIza..." : "sk-..."}
           />
         </div>
         <div className="grid gap-2">
-          <Label>Modelo (Default)</Label>
-          <Input value={form.model} onChange={e => setForm(p => ({ ...p, model: e.target.value }))} />
+          <Label>Modelo</Label>
+          <Select value={form.model} onValueChange={(v) => setForm(p => ({ ...p, model: v }))}>
+            <SelectTrigger><SelectValue placeholder="Seleccionar modelo" /></SelectTrigger>
+            <SelectContent>
+              {currentModels.map(m => (
+                <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <Button onClick={handleSave} className="w-full" isLoading={updateAi.isPending} disabled={updateAi.isPending}>
           Guardar
