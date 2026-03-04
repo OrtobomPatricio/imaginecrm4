@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { useLocation } from "wouter";
 import {
   Card,
   CardContent,
@@ -34,14 +33,12 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import {
   MessageCircle,
-  Mail,
   Bot,
   MapPin,
   Workflow,
   Trash2,
   Send,
   Activity,
-  ArrowRight,
   Code2,
   Plus,
   RefreshCw,
@@ -51,6 +48,13 @@ import {
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PermissionGuard } from "@/components/PermissionGuard";
+import { AddWhatsAppDialog } from "@/components/AddWhatsAppDialog";
+import { WhatsAppConnectionsList } from "@/components/WhatsAppConnectionsList";
+import { EmbeddedSignupButton } from "@/components/EmbeddedSignupButton";
+import { AddEmailDialog } from "@/components/AddEmailDialog";
+import { EmailConnectionsList } from "@/components/EmailConnectionsList";
+import { AddFacebookDialog } from "@/components/AddFacebookDialog";
+import { FacebookPagesList } from "@/components/FacebookPagesList";
 
 export default function Integrations() {
   return (
@@ -61,7 +65,7 @@ export default function Integrations() {
 }
 
 function IntegrationsContent() {
-  const [, setLocation] = useLocation();
+  const utils = trpc.useUtils();
 
   return (
     <div className="space-y-4">
@@ -79,61 +83,71 @@ function IntegrationsContent() {
           <TabsTrigger value="system">Sistema & IA</TabsTrigger>
         </TabsList>
 
-        {/* CHANNELS TAB — links to Settings > Conexiones */}
+        {/* CHANNELS TAB — inline config */}
         <TabsContent value="messaging" className="space-y-4 mt-4">
           <Card>
             <CardHeader>
-              <CardTitle>Canales de comunicación</CardTitle>
-              <CardDescription>
-                Todos los canales (WhatsApp, Email, Facebook) se administran desde Configuración &gt; Conexiones.
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Conexiones de WhatsApp</CardTitle>
+                  <CardDescription>Administra tus cuentas de WhatsApp Business conectadas.</CardDescription>
+                </div>
+                <AddWhatsAppDialog />
+              </div>
             </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <button
-                  onClick={() => setLocation("/settings?tab=distribution")}
-                  className="flex items-center gap-3 p-4 border rounded-lg hover:bg-muted/50 transition-colors text-left"
-                >
-                  <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30">
+            <CardContent className="space-y-6">
+              <div className="border border-dashed border-green-300 dark:border-green-700 rounded-xl p-4 bg-green-50/50 dark:bg-green-900/10">
+                <div className="flex items-start gap-3 mb-3">
+                  <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
                     <MessageCircle className="w-5 h-5 text-green-600" />
                   </div>
-                  <div className="flex-1">
-                    <h4 className="font-medium text-sm">WhatsApp</h4>
-                    <p className="text-xs text-muted-foreground">Cloud API y QR</p>
+                  <div>
+                    <h3 className="font-semibold text-sm">Conexión Rápida (Recomendado)</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Conecta tu WhatsApp Business en segundos con la integración oficial de Meta.
+                    </p>
                   </div>
-                  <ArrowRight className="w-4 h-4 text-muted-foreground" />
-                </button>
-
-                <button
-                  onClick={() => setLocation("/settings?tab=distribution")}
-                  className="flex items-center gap-3 p-4 border rounded-lg hover:bg-muted/50 transition-colors text-left"
-                >
-                  <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
-                    <Mail className="w-5 h-5 text-blue-600" />
-                  </div>
-                  <div className="flex-1">
-                    <h4 className="font-medium text-sm">Email (SMTP)</h4>
-                    <p className="text-xs text-muted-foreground">Invitaciones y alertas</p>
-                  </div>
-                  <ArrowRight className="w-4 h-4 text-muted-foreground" />
-                </button>
-
-                <button
-                  onClick={() => setLocation("/settings?tab=distribution")}
-                  className="flex items-center gap-3 p-4 border rounded-lg hover:bg-muted/50 transition-colors text-left"
-                >
-                  <div className="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-900/30">
-                    <Activity className="w-5 h-5 text-indigo-600" />
-                  </div>
-                  <div className="flex-1">
-                    <h4 className="font-medium text-sm">Facebook Pages</h4>
-                    <p className="text-xs text-muted-foreground">Messenger y páginas</p>
-                  </div>
-                  <ArrowRight className="w-4 h-4 text-muted-foreground" />
-                </button>
+                </div>
+                <EmbeddedSignupButton
+                  onSuccess={() => utils.whatsapp.list.invalidate()}
+                  onError={(msg) => console.warn("[EmbeddedSignup] Error:", msg)}
+                />
               </div>
+              <WhatsAppConnectionsList />
             </CardContent>
           </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Conexiones de Email (SMTP)</CardTitle>
+                  <CardDescription>Configura cuentas de email para invitaciones y notificaciones.</CardDescription>
+                </div>
+                <AddEmailDialog />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <EmailConnectionsList />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Facebook Pages</CardTitle>
+                  <CardDescription>Gestiona conexiones con páginas de Facebook.</CardDescription>
+                </div>
+                <AddFacebookDialog />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <FacebookPagesList />
+            </CardContent>
+          </Card>
+
+          <MetaPlatformConfig />
         </TabsContent>
 
         {/* AUTOMATION TAB */}
@@ -838,5 +852,73 @@ function WebhookDeliveries({ webhookId }: { webhookId: number }) {
         </tbody>
       </table>
     </ScrollArea>
+  );
+}
+
+function MetaPlatformConfig() {
+  const query = trpc.settings.get.useQuery();
+  const updateGeneral = trpc.settings.updateGeneral.useMutation({
+    onSuccess: () => toast.success("Configuración de Meta guardada"),
+    onError: (e) => toast.error(e.message),
+  });
+  const [form, setForm] = useState({ appId: "", appSecret: "", verifyToken: "" });
+
+  useEffect(() => {
+    if (query.data) {
+      const meta = (query.data as any).metaConfig;
+      if (meta) {
+        setForm({
+          appId: meta.appId || "",
+          appSecret: "", // never hydrate secret
+          verifyToken: meta.verifyToken || "",
+        });
+      }
+    }
+  }, [query.data]);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Configuración de Meta Platform</CardTitle>
+        <CardDescription>Credenciales de la app de Meta para Embedded Signup y verificación de webhooks.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid gap-2">
+            <Label>App ID</Label>
+            <Input
+              value={form.appId}
+              onChange={e => setForm(p => ({ ...p, appId: e.target.value }))}
+              placeholder="123456789..."
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label>App Secret</Label>
+            <Input
+              type="password"
+              value={form.appSecret}
+              onChange={e => setForm(p => ({ ...p, appSecret: e.target.value }))}
+              placeholder="Guardado ••••"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label>Verify Token</Label>
+            <Input
+              value={form.verifyToken}
+              onChange={e => setForm(p => ({ ...p, verifyToken: e.target.value }))}
+              placeholder="imagine_crm_verify"
+            />
+          </div>
+        </div>
+        <div className="flex justify-end">
+          <Button
+            onClick={() => updateGeneral.mutate({ metaConfig: form })}
+            disabled={updateGeneral.isPending}
+          >
+            {updateGeneral.isPending ? "Guardando..." : "Guardar"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
