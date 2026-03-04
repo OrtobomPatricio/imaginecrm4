@@ -168,23 +168,57 @@ export const BaileysService = {
                             logger.error("Baileys: Error invoking MessageHandler", e);
                         }
                     } else {
-                        // Ideally we should also sync our own sent messages from history
-                        // But for now let's focus on incoming
-                        // Validating if we should sync "fromMe" history messages too?
-                        // User asked for "historial", so YES, we should probably sync sent messages from history too.
-                        // Let's enable checking "fromMe" ONLY if type is NOT 'notify' (which is real-time).
-                        // Real-time "fromMe" are usually handled by us sending it, but if sent from phone directly?
-                        // For safety, let's stick to incoming first as per "Safety" plan, 
-                        // but actually "historial" implies both sides.
-                        // Let's loosen the check: pass everything to handler, let handler decide based on 'fromMe'.
-
-                        // REVISING STRATEGY: user wants history. History includes sent messages.
-                        // I will pass ALL messages to handler, but flag them.
-                        try {
-                            const { MessageHandler } = await import("./message-handler");
-                            await MessageHandler.handleIncomingMessage(userId, msg, m.type);
-                        } catch (e) {
-                            logger.error("Baileys: Error invoking MessageHandler for own message", e);
+                        // fromMe messages:
+                        // - 'notify' (real-time) = echo of a message WE just sent via chat.sendMessage.
+                        //   The message is already in the DB, so SKIP to avoid duplicates.
+                        // - 'append' (history sync) = old sent messages being synced from the phone.
+                        //   These need to be processed so the chat history is complete.
+                        if (m.type === 'append') {
+                            try {
+                                const { MessageHandler } = await import("./message-handler");
+                                await MessageHandler.handleIncomingMessage(userId, msg, m.type);
+                            } catch (e) {
+                                logger.error("Baileys: Error invoking MessageHandler for own message", e);
+                            }
+                        } else {
+                            // Real-time fromMe echo — update whatsappMessageId on existing record
+                            // so the dedup guard works for future history syncs
+                            try {
+                                const { getDb } = await import("../db");
+                                const { chatMessages } = await import("../../drizzle/schema");
+                                const { eq, and, isNull, desc } = await import("drizzle-orm");
+                                const db = await getDb();
+                                if (db && msg.key.id) {
+                                    // Find the most recent pending/sent outbound message for this conversation
+                                    const jid = msg.key.remoteJid;
+                                    if (jid) {
+                                        const { normalizeContactPhone } = await import("../_core/phone");
+                                        const phone = normalizeContactPhone(jid);
+                                        const { conversations } = await import("../../drizzle/schema");
+                                        const convRows = await db.select({ id: conversations.id })
+                                            .from(conversations)
+                                            .where(and(
+                                                eq(conversations.whatsappNumberId, userId),
+                                                eq(conversations.contactPhone, phone),
+                                                eq(conversations.channel, 'whatsapp'),
+                                            ))
+                                            .limit(1);
+                                        if (convRows[0]) {
+                                            // Patch the most recent outbound message that has no whatsappMessageId
+                                            await db.update(chatMessages)
+                                                .set({ whatsappMessageId: msg.key.id } as any)
+                                                .where(and(
+                                                    eq(chatMessages.conversationId, convRows[0].id),
+                                                    eq(chatMessages.whatsappNumberId, userId),
+                                                    eq(chatMessages.direction, 'outbound'),
+                                                    isNull(chatMessages.whatsappMessageId),
+                                                ));
+                                        }
+                                    }
+                                }
+                            } catch (e) {
+                                logger.debug({ err: e }, "Baileys: Could not patch whatsappMessageId for fromMe echo (non-fatal)");
+                            }
                         }
                     }
                 }
