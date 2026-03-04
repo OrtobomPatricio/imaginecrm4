@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
 import { useSearch } from "wouter";
 import {
   Select,
@@ -23,7 +22,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { useEffect, useMemo, useState } from "react";
@@ -33,19 +31,10 @@ import { Forbidden } from "@/components/Forbidden";
 import { usePermissions } from "@/_core/hooks/usePermissions";
 import { AlertCircle, Plus, Trash2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 
 import { SalesConfigEditor } from "@/components/SalesConfigEditor";
 import { SLAConfigEditor } from "@/components/SLAConfigEditor";
 import { StorageConfigEditor } from "@/components/StorageConfigEditor";
-import { PermissionsMatrixEditor } from "@/components/PermissionsMatrixEditor";
 import { DashboardConfigEditor } from "@/components/DashboardConfigEditor";
 import { AddUserDialog } from "@/components/AddUserDialog";
 import { AddWhatsAppDialog } from "@/components/AddWhatsAppDialog";
@@ -318,7 +307,7 @@ function SettingsContent() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full h-auto grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-y-2">
+        <TabsList className="grid w-full h-auto grid-cols-2 md:grid-cols-4 lg:grid-cols-10 gap-y-2">
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="team">Usuarios</TabsTrigger>
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
@@ -327,6 +316,7 @@ function SettingsContent() {
           <TabsTrigger value="security">Seguridad</TabsTrigger>
           <TabsTrigger value="storage">Almacenamiento</TabsTrigger>
           <TabsTrigger value="customFields">Campos</TabsTrigger>
+          <TabsTrigger value="sla">SLA</TabsTrigger>
           <TabsTrigger value="billing">Facturación</TabsTrigger>
         </TabsList>
 

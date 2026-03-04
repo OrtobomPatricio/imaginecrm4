@@ -340,7 +340,7 @@ function WhatsAppQrList() {
 
 function SmtpSettings() {
   const query = trpc.settings.get.useQuery();
-  const utils = trpc.useContext();
+  const utils = trpc.useUtils();
   const updateSmtp = trpc.settings.updateSmtpConfig.useMutation({
     onSuccess: () => { toast.success("SMTP guardado"); utils.settings.get.invalidate(); }
   });
@@ -351,6 +351,8 @@ function SmtpSettings() {
 
   const [form, setForm] = useState({ host: "", port: 587, secure: false, user: "", pass: "", from: "" });
   const [hasExistingPassword, setHasExistingPassword] = useState(false);
+  const [testEmail, setTestEmail] = useState("");
+  const [testDialogOpen, setTestDialogOpen] = useState(false);
 
   useEffect(() => {
     if (query.data?.smtpConfig) {
@@ -425,10 +427,32 @@ function SmtpSettings() {
           </div>
         </div>
         <div className="flex justify-between">
-          <Button variant="outline" onClick={() => {
-            const email = prompt("Email de prueba:");
-            if (email) testSmtp.mutate({ email });
-          }}>Probar</Button>
+          <Dialog open={testDialogOpen} onOpenChange={setTestDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline">Probar</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Enviar email de prueba</DialogTitle>
+                <DialogDescription>Ingresa el email donde recibir la prueba SMTP.</DialogDescription>
+              </DialogHeader>
+              <Input placeholder="correo@ejemplo.com" value={testEmail} onChange={(e) => setTestEmail(e.target.value)} type="email" />
+              <DialogFooter>
+                <Button
+                  onClick={() => {
+                    if (testEmail) {
+                      testSmtp.mutate({ email: testEmail });
+                      setTestDialogOpen(false);
+                      setTestEmail("");
+                    }
+                  }}
+                  disabled={!testEmail || testSmtp.isPending}
+                >
+                  Enviar
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
           <Button onClick={handleSave} isLoading={updateSmtp.isPending} disabled={updateSmtp.isPending}>
             Guardar
           </Button>
@@ -616,7 +640,7 @@ function WebhookIntegrations() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
   const integrationsQuery = trpc.integrations.list.useQuery();
-  const utils = trpc.useContext();
+  const utils = trpc.useUtils();
 
   const deleteMutation = trpc.integrations.delete.useMutation({
     onSuccess: () => {

@@ -1,4 +1,5 @@
 import { ChatList } from "@/components/chat/ChatList";
+import { useState } from "react";
 import { ChatThread } from "@/components/chat/ChatThread";
 import { NewConversationDialog } from "@/components/chat/NewConversationDialog";
 import { ChatLeadDetails } from "@/components/chat/ChatLeadDetails";
@@ -13,16 +14,9 @@ import {
   Filter,
   ArrowUpDown,
   AlertCircle,
-  Flag,
   Users,
   Layers,
-  Briefcase,
-  Hash,
   MessageSquare,
-  Tag,
-  Globe,
-  Calendar,
-  Clock,
   Phone
 } from "lucide-react";
 import {
@@ -309,8 +303,9 @@ function FilterMenu({
   onChange: (next: { unreadOnly: boolean; assignedToMe: boolean }) => void;
   onClear: () => void;
 }) {
+  const [open, setOpen] = useState(false);
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button aria-label="Filtros" variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-muted-foreground hover:bg-muted/50 rounded-full">
           <Filter className="h-3.5 w-3.5" />
@@ -347,7 +342,7 @@ function FilterMenu({
         </div>
         <div className="p-2 border-t bg-muted/20 flex justify-end gap-2">
           <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={onClear}>Limpiar</Button>
-          <Button size="sm" className="h-7 text-xs" onClick={() => undefined}>Cerrar</Button>
+          <Button size="sm" className="h-7 text-xs" onClick={() => setOpen(false)}>Cerrar</Button>
         </div>
       </PopoverContent>
     </Popover>

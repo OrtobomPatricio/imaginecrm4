@@ -157,7 +157,7 @@ export default function AutomationBuilder() {
     return (
         <div className="max-w-4xl mx-auto space-y-8">
             <div>
-                <h1 className="text-2xl font-bold tracking-tight">Nueva Automatización</h1>
+                <h1 className="text-2xl font-bold tracking-tight">{id ? 'Editar Automatización' : 'Nueva Automatización'}</h1>
                 <p className="text-muted-foreground">Configura reglas automáticas</p>
             </div>
 
@@ -327,8 +327,8 @@ export default function AutomationBuilder() {
                         <ChevronLeft className="mr-2 h-4 w-4" /> Anterior
                     </Button>
                     {currentStep === 3 ? (
-                        <Button onClick={handleSave} disabled={createWorkflow.isPending || !formData.name}>
-                            {createWorkflow.isPending ? 'Guardando...' : 'Crear Automatización'}
+                        <Button onClick={handleSave} disabled={createWorkflow.isPending || updateWorkflow.isPending || !formData.name}>
+                            {(createWorkflow.isPending || updateWorkflow.isPending) ? 'Guardando...' : (id ? 'Guardar Cambios' : 'Crear Automatización')}
                         </Button>
                     ) : (
                         <Button onClick={handleNext}>

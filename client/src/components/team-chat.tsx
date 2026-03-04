@@ -135,7 +135,7 @@ function ChatWindow({ recipient, onBack, currentUser }: { recipient: { id: numbe
     const scrollRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const utils = trpc.useContext();
+    const utils = trpc.useUtils();
     const markAsRead = trpc.internalChat.markAsRead.useMutation({
         onSuccess: () => {
             utils.internalChat.getRecentChats.invalidate();

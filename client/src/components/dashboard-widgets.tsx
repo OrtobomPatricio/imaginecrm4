@@ -220,6 +220,11 @@ export function RecentActivityWidget() {
 }
 
 export function WarmupWidget() {
+    const { data: connections } = trpc.whatsapp.list.useQuery();
+    const warming = (connections ?? []).filter((c: any) => c.warmupStatus === "warming").length;
+    const cooling = (connections ?? []).filter((c: any) => c.warmupStatus === "cooling").length;
+    const ready = (connections ?? []).filter((c: any) => !c.warmupStatus || c.warmupStatus === "ready" || c.isConnected).length;
+    const total = Math.max(warming + cooling + ready, 1);
     return (
         <Card className="h-full flex flex-col">
             <CardHeader>
@@ -234,28 +239,28 @@ export function WarmupWidget() {
                     <div className="space-y-2">
                         <div className="flex items-center justify-between text-sm">
                             <span>En calentamiento</span>
-                            <span className="font-bold">3 números</span>
+                            <span className="font-bold">{warming} número{warming !== 1 ? "s" : ""}</span>
                         </div>
                         <div className="h-2 bg-muted rounded-full overflow-hidden">
-                            <div className="h-full bg-warning w-[60%]" />
+                            <div className="h-full bg-warning" style={{ width: `${(warming / total) * 100}%` }} />
                         </div>
                     </div>
                     <div className="space-y-2">
                         <div className="flex items-center justify-between text-sm">
                             <span>En enfriamiento</span>
-                            <span className="font-bold">1 número</span>
+                            <span className="font-bold">{cooling} número{cooling !== 1 ? "s" : ""}</span>
                         </div>
                         <div className="h-2 bg-muted rounded-full overflow-hidden">
-                            <div className="h-full bg-info w-[20%]" />
+                            <div className="h-full bg-info" style={{ width: `${(cooling / total) * 100}%` }} />
                         </div>
                     </div>
                     <div className="space-y-2">
                         <div className="flex items-center justify-between text-sm">
                             <span>Listos</span>
-                            <span className="font-bold">5 números</span>
+                            <span className="font-bold">{ready} número{ready !== 1 ? "s" : ""}</span>
                         </div>
                         <div className="h-2 bg-muted rounded-full overflow-hidden">
-                            <div className="h-full bg-success w-[100%]" />
+                            <div className="h-full bg-success" style={{ width: `${(ready / total) * 100}%` }} />
                         </div>
                     </div>
                 </div>

@@ -42,7 +42,7 @@ export default function SetupAccount() {
 
     if (!token) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+            <div className="min-h-screen flex items-center justify-center bg-background p-4">
                 <Card className="w-full max-w-md">
                     <CardHeader>
                         <CardTitle>Registro Privado</CardTitle>
@@ -51,7 +51,7 @@ export default function SetupAccount() {
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-sm text-muted-foreground bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                        <div className="text-sm text-muted-foreground bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
                             Necesitas una invitación del administrador para crear una cuenta.
                             <br /><br />
                             Si ya tienes una invitación, por favor revisa tu correo y haz clic en el enlace proporcionado.
@@ -66,7 +66,7 @@ export default function SetupAccount() {
     }
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+        <div className="min-h-screen flex items-center justify-center bg-background p-4">
             <Card className="w-full max-w-md">
                 <CardHeader>
                     <CardTitle>Bienvenido a Imagine CRM</CardTitle>

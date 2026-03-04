@@ -21,7 +21,7 @@ interface ChatLeadDetailsProps {
 }
 
 export function ChatLeadDetails({ leadId, className }: ChatLeadDetailsProps) {
-    const utils = trpc.useContext();
+    const utils = trpc.useUtils();
 
     // Fetch Data
     const { data: lead, isLoading: isLoadingLead } = trpc.leads.getById.useQuery({ id: leadId });

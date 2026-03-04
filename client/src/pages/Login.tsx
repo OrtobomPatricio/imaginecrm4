@@ -4,10 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
-import { getLoginUrl } from "@/const";
 import { useTheme } from "@/contexts/ThemeContext";
-import { MessageCircle, Moon, Sun, Mail, Lock, User, ArrowRight } from "lucide-react";
+import { MessageCircle, Moon, Sun, Mail, Lock, ArrowRight } from "lucide-react";
 import { useState } from "react";
 
 export default function Login() {
@@ -227,9 +225,9 @@ export default function Login() {
           {/* Footer */}
           <p className="text-center text-xs text-muted-foreground mt-6">
             Al continuar, aceptas nuestros{" "}
-            <button className="text-primary hover:underline">Términos de Servicio</button>
+            <a href="/terms" className="text-primary hover:underline">Términos de Servicio</a>
             {" "}y{" "}
-            <button className="text-primary hover:underline">Política de Privacidad</button>
+            <a href="/privacy" className="text-primary hover:underline">Política de Privacidad</a>
           </p>
         </div>
       </div>

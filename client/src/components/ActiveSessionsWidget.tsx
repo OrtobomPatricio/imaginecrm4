@@ -21,7 +21,7 @@ function timeAgo(dateString: string | Date) {
 }
 
 export function ActiveSessionsWidget() {
-    const utils = trpc.useContext();
+    const utils = trpc.useUtils();
     const { data: sessions, isLoading } = trpc.sessions.list.useQuery();
 
     const revokeMutation = trpc.sessions.revoke.useMutation({

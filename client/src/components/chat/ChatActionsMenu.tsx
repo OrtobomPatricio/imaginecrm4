@@ -21,7 +21,7 @@ interface ChatActionsMenuProps {
 }
 
 export function ChatActionsMenu({ conversationId, currentAssignedId }: ChatActionsMenuProps) {
-    const utils = trpc.useContext();
+    const utils = trpc.useUtils();
     const [isTransferOpen, setIsTransferOpen] = useState(false);
     const [selectedAgentId, setSelectedAgentId] = useState<string>(currentAssignedId?.toString() || "");
 
