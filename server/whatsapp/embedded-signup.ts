@@ -75,23 +75,35 @@ async function requireAdminAuth(req: Request, res: Response): Promise<{ userId: 
 
 // ── Input validation ──
 
+/** Only digits allowed — prevents SSRF / path traversal via Graph API URLs */
+const GRAPH_ID_RE = /^\d{1,30}$/;
+
 const completeSignupSchema = z.object({
-  code: z.string().min(1, "Se requiere el código de autorización"),
-  waba_id: z.string().min(1, "Se requiere el WABA ID"),
-  phone_number_id: z.string().min(1, "Se requiere el Phone Number ID"),
+  code: z.string().min(1, "Se requiere el código de autorización").max(512),
+  waba_id: z.string().min(1, "Se requiere el WABA ID").regex(GRAPH_ID_RE, "WABA ID debe contener solo dígitos"),
+  phone_number_id: z.string().min(1, "Se requiere el Phone Number ID").regex(GRAPH_ID_RE, "Phone Number ID debe contener solo dígitos"),
+});
+
+const disconnectSchema = z.object({
+  connectionId: z.number({ error: "Se requiere connectionId (número entero)" }).int().positive(),
 });
 
 // ── Helper: Graph API fetch ──
 
 async function graphGet<T = any>(path: string, token: string, params?: Record<string, string>): Promise<T> {
   const url = new URL(`${GRAPH_BASE}/${GRAPH_VERSION}/${path}`);
-  url.searchParams.set("access_token", token);
+  // Pass params as query strings (needed for oauth endpoints)
+  // but NEVER pass access_token as a query param — use Authorization header.
   if (params) {
     for (const [k, v] of Object.entries(params)) {
       url.searchParams.set(k, v);
     }
   }
-  const res = await fetch(url.toString());
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  const res = await fetch(url.toString(), { headers });
   const data = await res.json() as any;
   if (!res.ok) {
     const msg = data?.error?.message || `Graph API error ${res.status}`;
@@ -192,7 +204,10 @@ export function registerEmbeddedSignupRoutes(app: Express) {
       const settings = await getOrCreateAppSettings(database, tenantId);
       const appId = settings.metaConfig?.appId || process.env.META_APP_ID || "";
       const appSecretStored = settings.metaConfig?.appSecret || process.env.META_APP_SECRET || "";
-      const appSecret = decryptSecret(appSecretStored) || appSecretStored;
+      const appSecret = decryptSecret(appSecretStored);
+      if (!appSecret && appSecretStored) {
+        logger.error({ tenantId }, "[EmbeddedSignup] Failed to decrypt appSecret — check DATA_ENCRYPTION_KEY");
+      }
 
       if (!appId || !appSecret) {
         return res.status(400).json({
@@ -257,9 +272,11 @@ export function registerEmbeddedSignupRoutes(app: Express) {
 
       // ── Step 5: Register phone number (enable messaging) ──
       try {
+        // Generate a random 6-digit PIN (required by Graph API)
+        const pin = String(Math.floor(100000 + Math.random() * 900000));
         await graphPost(`${phone_number_id}/register`, longToken, {
           messaging_product: "whatsapp",
-          pin: "000000", // 6-digit PIN required by Graph API, can be any value
+          pin,
         });
         logger.info({ phoneNumberId: phone_number_id }, "[EmbeddedSignup] Phone number registered for messaging");
       } catch (err: any) {
@@ -317,36 +334,40 @@ export function registerEmbeddedSignupRoutes(app: Express) {
         connectionId = existingConn[0].id;
         logger.info({ connectionId, tenantId }, "[EmbeddedSignup] Updated existing connection");
       } else {
-        // Create new number + connection
-        const [newNumber] = await database.insert(whatsappNumbers).values({
-          tenantId,
-          phoneNumber: rawPhone,
-          displayName: phoneVerifiedName || displayPhone,
-          country: "Unknown",
-          countryCode: "+",
-          status: "active",
-          isConnected: true,
-          lastConnected: new Date(),
-          dailyMessageLimit: 1000,
-          messagesSentToday: 0,
-          totalMessagesSent: 0,
-        }).$returningId();
+        // Create new number + connection inside a transaction to avoid orphan rows
+        const result = await database.transaction(async (tx) => {
+          const [newNumber] = await tx.insert(whatsappNumbers).values({
+            tenantId,
+            phoneNumber: rawPhone,
+            displayName: phoneVerifiedName || displayPhone,
+            country: "Unknown",
+            countryCode: "+",
+            status: "active",
+            isConnected: true,
+            lastConnected: new Date(),
+            dailyMessageLimit: 1000,
+            messagesSentToday: 0,
+            totalMessagesSent: 0,
+          }).$returningId();
 
-        const [newConn] = await database.insert(whatsappConnections).values({
-          tenantId,
-          whatsappNumberId: newNumber.id,
-          connectionType: "api",
-          phoneNumberId: phone_number_id,
-          businessAccountId: waba_id,
-          wabaId: waba_id,
-          accessToken: encryptedToken,
-          isConnected: true,
-          setupSource: "embedded_signup",
-          lastPingAt: new Date(),
-        }).$returningId();
+          const [newConn] = await tx.insert(whatsappConnections).values({
+            tenantId,
+            whatsappNumberId: newNumber.id,
+            connectionType: "api",
+            phoneNumberId: phone_number_id,
+            businessAccountId: waba_id,
+            wabaId: waba_id,
+            accessToken: encryptedToken,
+            isConnected: true,
+            setupSource: "embedded_signup",
+            lastPingAt: new Date(),
+          }).$returningId();
 
-        connectionId = newConn.id;
-        logger.info({ connectionId, numberId: newNumber.id, tenantId }, "[EmbeddedSignup] Created new connection");
+          return { connectionId: newConn.id, numberId: newNumber.id };
+        });
+
+        connectionId = result.connectionId;
+        logger.info({ connectionId, numberId: result.numberId, tenantId }, "[EmbeddedSignup] Created new connection");
       }
 
       // ── Audit log ──
@@ -388,10 +409,11 @@ export function registerEmbeddedSignupRoutes(app: Express) {
       const auth = await requireAdminAuth(req, res);
       if (!auth) return;
 
-      const { connectionId } = req.body as { connectionId?: number };
-      if (!connectionId) {
-        return res.status(400).json({ error: "Se requiere connectionId" });
+      const parseResult = disconnectSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ error: "Se requiere connectionId (número entero positivo)", details: parseResult.error.flatten().fieldErrors });
       }
+      const { connectionId } = parseResult.data;
 
       const database = await db.getDb();
       if (!database) return res.status(500).json({ error: "Base de datos no disponible" });

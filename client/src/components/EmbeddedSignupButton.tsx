@@ -40,9 +40,24 @@ interface EmbeddedSignupButtonProps {
 // ── SDK loader (singleton) ──
 
 let sdkLoadPromise: Promise<void> | null = null;
+let sdkLoadedAppId: string | null = null;
 
 function loadMetaSDK(appId: string, graphVersion: string): Promise<void> {
-  if (sdkLoadPromise) return sdkLoadPromise;
+  // Re-init if appId changed since last load
+  if (sdkLoadPromise && sdkLoadedAppId === appId) return sdkLoadPromise;
+  if (sdkLoadPromise && sdkLoadedAppId !== appId) {
+    // SDK already loaded but with different appId — re-init it
+    if ((window as any).FB) {
+      (window as any).FB.init({
+        appId,
+        autoLogAppEvents: true,
+        xfbml: false,
+        version: graphVersion,
+      });
+      sdkLoadedAppId = appId;
+      return Promise.resolve();
+    }
+  }
 
   sdkLoadPromise = new Promise<void>((resolve, reject) => {
     // Check if already loaded
@@ -53,6 +68,7 @@ function loadMetaSDK(appId: string, graphVersion: string): Promise<void> {
         xfbml: false,
         version: graphVersion,
       });
+      sdkLoadedAppId = appId;
       resolve();
       return;
     }
@@ -71,6 +87,7 @@ function loadMetaSDK(appId: string, graphVersion: string): Promise<void> {
         xfbml: false,
         version: graphVersion,
       });
+      sdkLoadedAppId = appId;
       resolve();
     };
 
@@ -104,12 +121,21 @@ export function EmbeddedSignupButton({ onSuccess, onError, className, compact }:
   // Listen for postMessage from Meta's Embedded Signup popup
   useEffect(() => {
     const handleMessage = async (event: MessageEvent) => {
-      // Only process messages from Facebook domains
-      if (
-        !event.origin.includes("facebook.com") &&
-        !event.origin.includes("fb.com")
-      ) {
-        return;
+      // Only process messages from official Facebook/Meta domains
+      // Use strict URL origin comparison to prevent spoofing (e.g. evil-facebook.com)
+      try {
+        const origin = new URL(event.origin);
+        const hostname = origin.hostname;
+        if (
+          !hostname.endsWith(".facebook.com") &&
+          !hostname.endsWith(".fb.com") &&
+          hostname !== "facebook.com" &&
+          hostname !== "fb.com"
+        ) {
+          return;
+        }
+      } catch {
+        return; // malformed origin
       }
 
       // The Embedded Signup sends a message with structure:

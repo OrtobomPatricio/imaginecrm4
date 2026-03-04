@@ -64,7 +64,7 @@ export default function Step3ConnectWhatsApp() {
                             </div>
                             <EmbeddedSignupButton
                                 onSuccess={() => setConnected(true)}
-                                onError={() => {}}
+                                onError={(msg) => console.warn("[EmbeddedSignup] Error:", msg)}
                             />
                         </div>
                     )}

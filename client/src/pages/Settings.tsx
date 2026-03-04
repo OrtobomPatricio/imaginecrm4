@@ -708,6 +708,7 @@ function SettingsContent() {
                     // Invalidate the WhatsApp connections list
                     utils.whatsapp.list.invalidate();
                   }}
+                  onError={(msg) => console.warn("[EmbeddedSignup] Error:", msg)}
                 />
               </div>
 
