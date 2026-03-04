@@ -1,6 +1,7 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 // import DashboardLayout from "@/components/DashboardLayout"; // REMOVED
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
@@ -79,7 +80,7 @@ export default function Dashboard() {
 
 function DashboardContent() {
     const { user } = useAuth();
-    const { data: stats } = trpc.dashboard.getStats.useQuery();
+    const { data: stats, isLoading: loadingStats } = trpc.dashboard.getStats.useQuery();
     const { data: settings } = trpc.settings.get.useQuery();
     const utils = trpc.useUtils();
 
@@ -416,24 +417,39 @@ function DashboardContent() {
 
             {/* Stats Cards */}
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-                {statCards.filter(s => widgetConfig[s.key] !== false).map((stat) => (
-                    <Card key={stat.key} className="glass-card">
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium text-muted-foreground">
-                                {stat.title}
-                            </CardTitle>
-                            <div className={`icon-container ${stat.iconColor}`}>
-                                <stat.icon className="h-5 w-5" />
-                            </div>
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">{stat.value}</div>
-                            <p className="text-xs text-muted-foreground mt-1">
-                                {stat.description}
-                            </p>
-                        </CardContent>
-                    </Card>
-                ))}
+                {loadingStats ? (
+                    Array.from({ length: 4 }).map((_, i) => (
+                        <Card key={i} className="glass-card">
+                            <CardHeader className="flex flex-row items-center justify-between pb-2">
+                                <Skeleton className="h-4 w-24" />
+                                <Skeleton className="h-10 w-10 rounded-full" />
+                            </CardHeader>
+                            <CardContent>
+                                <Skeleton className="h-8 w-20 mb-1" />
+                                <Skeleton className="h-3 w-16" />
+                            </CardContent>
+                        </Card>
+                    ))
+                ) : (
+                    statCards.filter(s => widgetConfig[s.key] !== false).map((stat) => (
+                        <Card key={stat.key} className="glass-card">
+                            <CardHeader className="flex flex-row items-center justify-between pb-2">
+                                <CardTitle className="text-sm font-medium text-muted-foreground">
+                                    {stat.title}
+                                </CardTitle>
+                                <div className={`icon-container ${stat.iconColor}`}>
+                                    <stat.icon className="h-5 w-5" />
+                                </div>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-2xl font-bold">{stat.value}</div>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    {stat.description}
+                                </p>
+                            </CardContent>
+                        </Card>
+                    ))
+                )}
             </div>
 
             {/* Primary Widgets */}

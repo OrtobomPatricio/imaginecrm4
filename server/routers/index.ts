@@ -33,8 +33,7 @@ import { leadRemindersRouter } from "./lead-reminders";
 import { onboardingRouter } from "./onboarding";
 import { billingRouter } from "./billing";
 import { superadminRouter } from "./superadmin";
-import { trialRouter } from "./trial";
-import { termsRouter } from "./terms";
+
 import { gdprRouter } from "./gdpr";
 import { signupRouter } from "./signup";
 import { accountRouter } from "./account";
@@ -77,8 +76,7 @@ export const appRouter = router({
     onboarding: onboardingRouter,
     billing: billingRouter,
     superadmin: superadminRouter,
-    trial: trialRouter,
-    terms: termsRouter,
+
     gdpr: gdprRouter,
     signup: signupRouter,
     account: accountRouter,
