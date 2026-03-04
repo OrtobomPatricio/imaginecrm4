@@ -11,10 +11,23 @@ export const whatsappNumbersRouter = router({
         if (!db) return [];
 
         try {
-            return await db.select()
+            const rows = await db.select({
+                number: whatsappNumbers,
+                connection: {
+                    connectionType: whatsappConnections.connectionType,
+                    isConnected: whatsappConnections.isConnected,
+                },
+            })
                 .from(whatsappNumbers)
+                .leftJoin(whatsappConnections, eq(whatsappNumbers.id, whatsappConnections.whatsappNumberId))
                 .where(eq(whatsappNumbers.tenantId, ctx.tenantId))
                 .orderBy(desc(whatsappNumbers.createdAt));
+
+            return rows.map(r => ({
+                ...r.number,
+                connectionType: r.connection?.connectionType ?? null,
+                connectionIsConnected: r.connection?.isConnected ?? false,
+            }));
         } catch {
             return []; // whatsapp_numbers table may not exist
         }

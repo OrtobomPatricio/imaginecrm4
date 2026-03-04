@@ -198,23 +198,33 @@ export const whatsappConnectionsRouter = router({
             const db = await getDb();
             if (!db) throw new Error("Database not available");
 
-            // 1. Disconnect Baileys socket if QR connection
-            try {
-                const { BaileysService } = await import("../services/baileys");
-                await BaileysService.disconnect(input.whatsappNumberId);
-                logger.info(`[WhatsApp Disconnect] Baileys session disconnected for number ${input.whatsappNumberId}`);
-            } catch (err) {
-                // Log but don't fail - socket might not exist
-                logger.warn(`[WhatsApp Disconnect] Baileys disconnect warning for ${input.whatsappNumberId}:`, err);
+            // Fetch existing connection to check type
+            const existing = await db.select()
+                .from(whatsappConnections)
+                .where(and(eq(whatsappConnections.tenantId, ctx.tenantId), eq(whatsappConnections.whatsappNumberId, input.whatsappNumberId)))
+                .limit(1);
+
+            const connType = existing[0]?.connectionType;
+
+            // 1. Disconnect Baileys socket only for QR connections
+            if (connType === 'qr') {
+                try {
+                    const { BaileysService } = await import("../services/baileys");
+                    await BaileysService.disconnect(input.whatsappNumberId);
+                    logger.info(`[WhatsApp Disconnect] Baileys session disconnected for number ${input.whatsappNumberId}`);
+                } catch (err) {
+                    logger.warn(`[WhatsApp Disconnect] Baileys disconnect warning for ${input.whatsappNumberId}:`, err);
+                }
             }
 
-            // 2. Clear QR code and connection status in DB
+            // 2. Clear connection status in DB (clear accessToken for API, sessionData/QR for QR)
             await db.update(whatsappConnections)
                 .set({
                     isConnected: false,
                     qrCode: null,
                     qrExpiresAt: null,
                     sessionData: null,
+                    ...(connType === 'api' ? { accessToken: null } : {}),
                 })
                 .where(and(eq(whatsappConnections.tenantId, ctx.tenantId), eq(whatsappConnections.whatsappNumberId, input.whatsappNumberId)));
 

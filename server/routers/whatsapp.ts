@@ -38,17 +38,13 @@ export const whatsappRouter = router({
                 .where(eq(whatsappConnections.tenantId, ctx.tenantId))
                 .orderBy(whatsappConnections.createdAt);
 
-            // Merge with real-time status
+            // Merge with real-time status (only for QR connections — BaileysService is irrelevant for API)
             return connections.map(conn => {
                 let realStatus = conn.isConnected;
-                if (conn.number) {
+                if (conn.connectionType === 'qr' && conn.number) {
                     const status = BaileysService.getStatus(conn.number.id);
-                    // If Baileys says disconnected/connecting/qr_ready, trust it over DB
                     if (status === 'disconnected') realStatus = false;
                     if (status === 'connected') realStatus = true;
-                    // For QR ready, technically incorrectly connected in DB but we want to show it needs action
-                    // But the UI might expects boolean. 
-                    // Let's trust Baileys status if available.
                 }
                 return { ...conn, isConnected: realStatus };
             });

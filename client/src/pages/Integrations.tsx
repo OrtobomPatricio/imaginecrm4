@@ -122,7 +122,11 @@ function WhatsAppList() {
       <CardContent className="space-y-4">
         {numbersQuery.isLoading && <div className="text-sm">Cargando...</div>}
         <div className="grid gap-4">
-          {numbersQuery.data?.map((num) => (
+          {numbersQuery.data
+            ?.filter((num: any) => num.connectionType === 'api' || !num.connectionType)
+            .map((num: any) => {
+              const isConnected = num.connectionType === 'api' ? num.connectionIsConnected : false;
+              return (
             <div key={num.id} className="flex items-center justify-between p-4 border rounded-lg bg-card">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
@@ -130,8 +134,10 @@ function WhatsAppList() {
                   {num.displayName && <span className="text-muted-foreground">({num.displayName})</span>}
                 </div>
                 <div className="flex items-center gap-2 text-xs">
-                  <span className={`w-2 h-2 rounded-full ${num.isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-                  <span className="text-muted-foreground">{num.isConnected ? "Conectado" : "Desconectado"}</span>
+                  <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+                  <span className="text-muted-foreground">
+                    {!num.connectionType ? "Sin configurar" : isConnected ? "Conectado" : "Desconectado"}
+                  </span>
                 </div>
               </div>
               <Button variant="outline" size="sm" onClick={() => { setEditingId(num.id); setOpen(true); }}>
@@ -139,9 +145,10 @@ function WhatsAppList() {
                 Configurar
               </Button>
             </div>
-          ))}
+              );
+            })}
 
-          {numbersQuery.data?.length === 0 && (
+          {numbersQuery.data?.filter((num: any) => num.connectionType === 'api' || !num.connectionType).length === 0 && (
             <div className="flex items-center gap-2 p-4 text-sm text-yellow-600 bg-yellow-50 rounded-lg">
               <AlertCircle className="w-4 h-4" />
               No hay números registrados. Contacta a soporte para agregar uno.
@@ -264,7 +271,11 @@ function WhatsAppQrList() {
         {numbersQuery.isLoading && <div className="text-sm">Cargando...</div>}
 
         <div className="grid gap-4">
-          {numbersQuery.data?.map((num) => (
+          {numbersQuery.data
+            ?.filter((num: any) => num.connectionType === 'qr' || !num.connectionType)
+            .map((num: any) => {
+              const isConnected = num.connectionType === 'qr' ? num.connectionIsConnected : false;
+              return (
             <div key={num.id} className="flex items-center justify-between p-4 border rounded-lg bg-card">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
@@ -272,8 +283,10 @@ function WhatsAppQrList() {
                   {num.displayName && <span className="text-muted-foreground">({num.displayName})</span>}
                 </div>
                 <div className="flex items-center gap-2 text-xs">
-                  <span className={`w-2 h-2 rounded-full ${num.isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-                  <span className="text-muted-foreground">{num.isConnected ? "Conectado" : "Desconectado"}</span>
+                  <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+                  <span className="text-muted-foreground">
+                    {!num.connectionType ? "Sin configurar" : isConnected ? "Conectado" : "Desconectado"}
+                  </span>
                 </div>
               </div>
 
@@ -283,6 +296,7 @@ function WhatsAppQrList() {
                   Generar QR
                 </Button>
 
+                {num.connectionType === 'qr' && (
                 <Button
                   variant="destructive"
                   size="sm"
@@ -292,9 +306,11 @@ function WhatsAppQrList() {
                   <Trash2 className="w-4 h-4 mr-2" />
                   Desconectar
                 </Button>
+                )}
               </div>
             </div>
-          ))}
+              );
+            })}
         </div>
 
         <Dialog open={open} onOpenChange={setOpen}>
