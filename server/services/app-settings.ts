@@ -53,3 +53,26 @@ export async function updateAppSettings(db: MySql2Database<any>, tenantId: numbe
         .set(values)
         .where(and(eq(appSettings.tenantId, tenantId), eq(appSettings.id, row.id)));
 }
+
+/**
+ * Get the platform-level Meta config (from tenant 1).
+ * This is the "shared" Meta App that all tenants inherit automatically.
+ * Returns { appId, appSecret, configId } or nulls if not configured.
+ */
+export async function getPlatformMetaConfig(dbOrNull?: MySql2Database<any> | null) {
+    try {
+        const platformSettings = await getOrCreateAppSettings(dbOrNull ?? null, 1);
+        const meta = platformSettings.metaConfig as Record<string, any> | null;
+        return {
+            appId: meta?.appId || process.env.META_APP_ID || "",
+            appSecret: meta?.appSecret || process.env.META_APP_SECRET || "",
+            configId: meta?.embeddedSignupConfigId || process.env.META_EMBEDDED_SIGNUP_CONFIG_ID || "",
+        };
+    } catch {
+        return {
+            appId: process.env.META_APP_ID || "",
+            appSecret: process.env.META_APP_SECRET || "",
+            configId: process.env.META_EMBEDDED_SIGNUP_CONFIG_ID || "",
+        };
+    }
+}

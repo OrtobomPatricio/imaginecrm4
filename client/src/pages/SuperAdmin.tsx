@@ -3505,6 +3505,138 @@ function StorageOverviewPanel() {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
+   PLATFORM META / WHATSAPP CONFIGURATION PANEL
+   ════════════════════════════════════════════════════════════════════════════ */
+
+function PlatformMetaConfigPanel() {
+  const { toast } = useToast();
+  const metaQuery = trpc.superadmin.getPlatformMetaConfig.useQuery();
+  const saveMeta = trpc.superadmin.savePlatformMetaConfig.useMutation({
+    onSuccess: () => { toast({ title: "Configuración de Meta guardada" }); metaQuery.refetch(); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const [appId, setAppId] = useState("");
+  const [appSecret, setAppSecret] = useState("");
+  const [configId, setConfigId] = useState("");
+  const [initialized, setInitialized] = useState(false);
+
+  useEffect(() => {
+    if (metaQuery.data && !initialized) {
+      setAppId(metaQuery.data.appId ?? "");
+      setConfigId(metaQuery.data.configId ?? "");
+      setInitialized(true);
+    }
+  }, [metaQuery.data, initialized]);
+
+  const isConfigured = !!metaQuery.data?.appId && !!metaQuery.data?.hasSecret;
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-bold flex items-center gap-2">
+        <Globe className="w-5 h-5 text-blue-500" /> Configuración de Meta para la Plataforma
+      </h2>
+      <p className="text-sm text-muted-foreground">
+        Configura tu Meta App <strong>una sola vez</strong>. Todos los tenants heredarán esta configuración automáticamente
+        y podrán conectar su WhatsApp con solo hacer clic en "Conectar WhatsApp" → iniciar sesión con Facebook → dar permisos.
+      </p>
+
+      {/* Status indicator */}
+      <Card className={`p-4 border-2 ${isConfigured ? "border-green-200 bg-green-50/50 dark:bg-green-900/10 dark:border-green-800" : "border-amber-200 bg-amber-50/50 dark:bg-amber-900/10 dark:border-amber-800"}`}>
+        <div className="flex items-center gap-3">
+          {isConfigured ? (
+            <>
+              <CheckCircle2 className="w-6 h-6 text-green-600" />
+              <div>
+                <p className="font-semibold text-green-800 dark:text-green-300">Meta configurado correctamente</p>
+                <p className="text-xs text-green-600 dark:text-green-400">
+                  Todos los tenants pueden conectar WhatsApp con Embedded Signup.
+                </p>
+              </div>
+            </>
+          ) : (
+            <>
+              <AlertTriangle className="w-6 h-6 text-amber-600" />
+              <div>
+                <p className="font-semibold text-amber-800 dark:text-amber-300">Meta no configurado</p>
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  Los tenants no podrán conectar WhatsApp hasta que configures los datos de tu Meta App aquí.
+                </p>
+              </div>
+            </>
+          )}
+        </div>
+      </Card>
+
+      {/* Instructions */}
+      <Card className="p-4">
+        <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
+          <Code className="w-4 h-4" /> Cómo obtener tus credenciales
+        </h3>
+        <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside">
+          <li>Ve a <strong>developers.facebook.com</strong> y crea o selecciona tu app</li>
+          <li>En "Configuración → Básica" copia el <strong>App ID</strong> y <strong>App Secret</strong></li>
+          <li>En "WhatsApp → Configuración" activa <strong>Embedded Signup</strong></li>
+          <li>Copia el <strong>Config ID</strong> del Embedded Signup (opcional pero recomendado)</li>
+          <li>Pega los valores aquí abajo y guarda</li>
+        </ol>
+      </Card>
+
+      {/* Form */}
+      <Card className="p-4 space-y-4">
+        <h3 className="text-sm font-semibold">Credenciales de Meta App</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <Label className="text-xs">Meta App ID *</Label>
+            <Input
+              value={appId}
+              onChange={(e) => setAppId(e.target.value)}
+              placeholder="123456789012345"
+              className="h-9 text-sm font-mono"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Meta App Secret *</Label>
+            <Input
+              type="password"
+              value={appSecret}
+              onChange={(e) => setAppSecret(e.target.value)}
+              placeholder={metaQuery.data?.hasSecret ? "••••••••••••••••••• (guardado)" : "abc123def456..."}
+              className="h-9 text-sm font-mono"
+            />
+            {metaQuery.data?.hasSecret && !appSecret && (
+              <p className="text-[10px] text-green-600 mt-1">El secret ya está guardado y encriptado. Déjalo vacío para no cambiarlo.</p>
+            )}
+          </div>
+        </div>
+        <div>
+          <Label className="text-xs">Embedded Signup Config ID (opcional)</Label>
+          <Input
+            value={configId}
+            onChange={(e) => setConfigId(e.target.value)}
+            placeholder="1234567890123456"
+            className="h-9 text-sm font-mono"
+          />
+          <p className="text-[10px] text-muted-foreground mt-1">Se usa para preconfigurar el popup de Embedded Signup. Si no lo tienes, déjalo vacío.</p>
+        </div>
+        <Button
+          onClick={() => saveMeta.mutate({
+            appId: appId.trim(),
+            appSecret: appSecret.trim() || undefined,
+            embeddedSignupConfigId: configId.trim(),
+          })}
+          disabled={saveMeta.isPending || !appId.trim()}
+          className="gap-2"
+        >
+          {saveMeta.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          Guardar Configuración
+        </Button>
+      </Card>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
    MAIN PAGE
    ════════════════════════════════════════════════════════════════════════════ */
 
@@ -3699,6 +3831,9 @@ export default function SuperAdmin() {
             </TabsTrigger>
             <TabsTrigger value="storage" className="text-xs gap-1">
               <HardDrive className="w-3 h-3" /> Storage
+            </TabsTrigger>
+            <TabsTrigger value="platform-meta" className="text-xs gap-1">
+              <Globe className="w-3 h-3" /> Meta/WhatsApp
             </TabsTrigger>
           </TabsList>
 
@@ -4006,6 +4141,11 @@ export default function SuperAdmin() {
           {/* ─── STORAGE OVERVIEW TAB ─── */}
           <TabsContent value="storage" className="mt-4">
             <StorageOverviewPanel />
+          </TabsContent>
+
+          {/* ─── PLATFORM META CONFIG TAB ─── */}
+          <TabsContent value="platform-meta" className="mt-4">
+            <PlatformMetaConfigPanel />
           </TabsContent>
         </Tabs>
       )}

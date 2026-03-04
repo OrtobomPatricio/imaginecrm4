@@ -183,6 +183,10 @@ export function EmbeddedSignupButton({ onSuccess, onError, className, compact }:
       });
       if (!configRes.ok) {
         const body = await configRes.json().catch(() => ({ error: "Error desconocido" }));
+        // Show user-friendly message for platform not configured
+        if (body.code === "PLATFORM_META_NOT_CONFIGURED") {
+          throw new Error("La integración con Meta aún no está habilitada. Contacta al administrador de la plataforma para activarla.");
+        }
         throw new Error(body.error || `HTTP ${configRes.status}`);
       }
 

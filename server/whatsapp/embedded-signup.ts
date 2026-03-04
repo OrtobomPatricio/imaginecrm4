@@ -33,7 +33,7 @@ import * as db from "../db";
 import { whatsappNumbers, whatsappConnections } from "../../drizzle/schema";
 import { encryptSecret, decryptSecret } from "../_core/crypto";
 import { logger, safeError } from "../_core/logger";
-import { getOrCreateAppSettings } from "../services/app-settings";
+import { getOrCreateAppSettings, getPlatformMetaConfig } from "../services/app-settings";
 import { sdk } from "../_core/sdk";
 import { logAccess, getClientIp } from "../services/security";
 
@@ -146,11 +146,16 @@ export function registerEmbeddedSignupRoutes(app: Express) {
 
       const database = await db.getDb();
       const settings = await getOrCreateAppSettings(database, auth.tenantId);
-      const appId = settings.metaConfig?.appId || process.env.META_APP_ID || "";
-      const configId = settings.metaConfig?.embeddedSignupConfigId || process.env.META_EMBEDDED_SIGNUP_CONFIG_ID || "";
+      // Fallback chain: tenant config → platform config (tenant 1) → env vars
+      const platformMeta = await getPlatformMetaConfig(database);
+      const appId = settings.metaConfig?.appId || platformMeta.appId;
+      const configId = settings.metaConfig?.embeddedSignupConfigId || platformMeta.configId;
 
       if (!appId) {
-        return res.status(400).json({ error: "META_APP_ID no está configurado. Ve a Configuración → Meta para añadirlo." });
+        return res.status(400).json({
+          error: "La plataforma aún no tiene configurada la integración con Meta. Contacta al administrador de la plataforma.",
+          code: "PLATFORM_META_NOT_CONFIGURED",
+        });
       }
 
       return res.json({
@@ -202,8 +207,10 @@ export function registerEmbeddedSignupRoutes(app: Express) {
       }
 
       const settings = await getOrCreateAppSettings(database, tenantId);
-      const appId = settings.metaConfig?.appId || process.env.META_APP_ID || "";
-      const appSecretStored = settings.metaConfig?.appSecret || process.env.META_APP_SECRET || "";
+      // Fallback chain: tenant config → platform config (tenant 1) → env vars
+      const platformMeta = await getPlatformMetaConfig(database);
+      const appId = settings.metaConfig?.appId || platformMeta.appId;
+      const appSecretStored = settings.metaConfig?.appSecret || platformMeta.appSecret;
       const appSecret = decryptSecret(appSecretStored);
       if (!appSecret && appSecretStored) {
         logger.error({ tenantId }, "[EmbeddedSignup] Failed to decrypt appSecret — check DATA_ENCRYPTION_KEY");
@@ -211,7 +218,8 @@ export function registerEmbeddedSignupRoutes(app: Express) {
 
       if (!appId || !appSecret) {
         return res.status(400).json({
-          error: "Faltan credenciales de Meta (APP_ID + APP_SECRET). Configúralas en Configuración → Meta.",
+          error: "La plataforma aún no tiene configuradas las credenciales de Meta. Contacta al administrador.",
+          code: "PLATFORM_META_NOT_CONFIGURED",
         });
       }
 

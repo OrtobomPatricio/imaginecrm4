@@ -10,6 +10,8 @@ import { sdk } from "../_core/sdk";
 import { getSessionCookieOptions } from "../_core/cookies";
 import { COOKIE_NAME } from "@shared/const";
 import { getPlanLimits } from "../services/plan-limits";
+import { getOrCreateAppSettings, updateAppSettings, getPlatformMetaConfig } from "../services/app-settings";
+import { encryptSecret } from "../_core/crypto";
 
 /**
  * Superadmin Router
@@ -2566,5 +2568,50 @@ export const superadminRouter = router({
                 `) as any;
                 return rows ?? [];
             } catch { return []; }
+        }),
+
+    /* ══════════════════════════════════════════════════════════════════════
+       PLATFORM META CONFIGURATION
+       Allows the platform owner to configure Meta App credentials once.
+       All tenants automatically inherit these for Embedded Signup.
+       ══════════════════════════════════════════════════════════════════════ */
+
+    /** Get current platform Meta config (appId visible, secret masked) */
+    getPlatformMetaConfig: superadminGuard
+        .query(async () => {
+            const cfg = await getPlatformMetaConfig();
+            return {
+                appId: cfg.appId,
+                configId: cfg.configId,
+                hasSecret: !!cfg.appSecret,
+            };
+        }),
+
+    /** Save platform-level Meta App credentials (stored in tenant 1's appSettings) */
+    savePlatformMetaConfig: superadminGuard
+        .input(z.object({
+            appId: z.string().max(50).optional(),
+            appSecret: z.string().max(512).optional(),
+            embeddedSignupConfigId: z.string().max(100).optional(),
+        }))
+        .mutation(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) throw new Error("Database not available");
+
+            const current = await getOrCreateAppSettings(db, 1);
+            const prevMeta = (current.metaConfig as Record<string, any>) ?? {};
+
+            const metaConfigUpdate: Record<string, any> = { ...prevMeta };
+            if (input.appId !== undefined) metaConfigUpdate.appId = input.appId;
+            if (input.embeddedSignupConfigId !== undefined) metaConfigUpdate.embeddedSignupConfigId = input.embeddedSignupConfigId;
+            // Only update secret if provided and non-empty
+            if (input.appSecret && input.appSecret.trim()) {
+                metaConfigUpdate.appSecret = encryptSecret(input.appSecret.trim());
+            }
+
+            await updateAppSettings(db, 1, { metaConfig: metaConfigUpdate });
+            await logSuperadminAction(ctx.user!.id, "savePlatformMetaConfig", { appId: input.appId ?? "(unchanged)" });
+
+            return { success: true };
         }),
 });
