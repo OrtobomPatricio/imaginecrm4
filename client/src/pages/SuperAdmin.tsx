@@ -658,6 +658,18 @@ function TenantRow({
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const setTrialDate = trpc.superadmin.setTrialDate.useMutation({
+    onSuccess: (d) => { toast({ title: d.message }); refetch(); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const setTenantMaint = trpc.superadmin.setTenantMaintenanceMode.useMutation({
+    onSuccess: (d) => { toast({ title: d.message }); refetch(); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const [trialInput, setTrialInput] = useState("");
+
   const isSuspended = tenant.status === "suspended";
   const isPlatform = tenant.id === 1;
 
@@ -827,6 +839,52 @@ function TenantRow({
                     disabled={archive.isPending}
                   >
                     {archive.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Archive className="w-3 h-3" />} Archivar
+                  </Button>
+                )}
+
+                {/* Set Trial Date */}
+                {!isPlatform && (
+                  <Dialog>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" size="sm" className="h-7 text-xs gap-1">
+                        <Timer className="w-3 h-3" /> Trial
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-xs">
+                      <DialogHeader><DialogTitle>Fecha de Trial — {tenant.name}</DialogTitle></DialogHeader>
+                      <Input type="date" value={trialInput} onChange={(e) => setTrialInput(e.target.value)} className="h-9 text-sm" />
+                      <DialogFooter className="gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => { setTrialDate.mutate({ tenantId: tenant.id, trialEndsAt: null }); }} disabled={setTrialDate.isPending}>
+                          Quitar Trial
+                        </Button>
+                        <DialogClose asChild>
+                          <Button size="sm" onClick={() => { if (trialInput) setTrialDate.mutate({ tenantId: tenant.id, trialEndsAt: trialInput }); }} disabled={!trialInput || setTrialDate.isPending}>
+                            {setTrialDate.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                            Guardar
+                          </Button>
+                        </DialogClose>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                )}
+
+                {/* Per-tenant maintenance mode */}
+                {!isPlatform && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs gap-1 text-amber-600 hover:text-amber-700"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const enable = !tenant.maintenanceMode;
+                      if (confirm(`¿${enable ? "Activar" : "Desactivar"} mantenimiento para "${tenant.name}"?`)) {
+                        setTenantMaint.mutate({ tenantId: tenant.id, enabled: enable, message: enable ? "Tenant en mantenimiento" : "" });
+                      }
+                    }}
+                    disabled={setTenantMaint.isPending}
+                  >
+                    {setTenantMaint.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <AlertTriangle className="w-3 h-3" />}
+                    {tenant.maintenanceMode ? "Quitar Mant." : "Mantenimiento"}
                   </Button>
                 )}
               </div>
@@ -2974,7 +3032,7 @@ function TemplateOversightPanel() {
   const { toast } = useToast();
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const tplList = trpc.superadmin.listAllTemplates.useQuery({ type: typeFilter as any, limit: 100, offset: 0 });
-  // tplStats removed — fetched but never rendered (dead API call)
+  const tplStats = trpc.superadmin.getTemplateStats.useQuery();
   const copyTpl = trpc.superadmin.copyTemplateToTenant.useMutation({
     onSuccess: (d) => { toast({ title: d.message }); tplList.refetch(); },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
@@ -2994,6 +3052,22 @@ function TemplateOversightPanel() {
           </SelectContent>
         </Select>
       </div>
+
+      {/* Template Stats per Tenant */}
+      {(tplStats.data ?? []).length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
+          {(tplStats.data ?? []).map((s: any) => (
+            <Card key={s.id} className="p-2">
+              <p className="text-xs font-semibold truncate">{s.tenantName}</p>
+              <div className="flex items-center gap-2 mt-1">
+                <Badge variant="outline" className="text-[9px]">WA: {s.whatsappCount}</Badge>
+                <Badge variant="outline" className="text-[9px]">Email: {s.emailCount}</Badge>
+                <Badge className="text-[9px] bg-muted">{s.totalTemplates} total</Badge>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {tplList.isLoading ? (
         <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
@@ -3048,6 +3122,12 @@ function LicenseManagementPanel() {
     onSuccess: (d) => { toast({ title: d.message }); licList.refetch(); },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
+  const updateFeatures = trpc.superadmin.updateLicenseFeatures.useMutation({
+    onSuccess: (d) => { toast({ title: d.message }); licList.refetch(); setEditFeaturesTarget(null); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const [editFeaturesTarget, setEditFeaturesTarget] = useState<{ licenseId: number; features: string } | null>(null);
 
   const STATUS_COLORS_LIC: Record<string, string> = {
     active: "bg-green-100 text-green-700", expired: "bg-red-100 text-red-700",
@@ -3081,10 +3161,43 @@ function LicenseManagementPanel() {
               <Button variant="ghost" size="sm" className="h-5 text-[10px]" onClick={() => confirm("¿Rotar clave de licencia?") && rotateKey.mutate({ licenseId: l.id })}>
                 <RefreshCw className="w-3 h-3 mr-1" /> Rotar
               </Button>
+              <Button variant="ghost" size="sm" className="h-5 text-[10px]" onClick={() => setEditFeaturesTarget({ licenseId: l.id, features: (l.features ?? []).join(", ") })}>
+                <Sliders className="w-3 h-3 mr-1" /> Features
+              </Button>
             </div>
           ))}
         </div>
       )}
+
+      {/* Edit Features Dialog */}
+      <Dialog open={editFeaturesTarget !== null} onOpenChange={() => setEditFeaturesTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Editar Features de Licencia</DialogTitle></DialogHeader>
+          <DialogDescription className="text-xs">Ingresa features separados por coma (ej: whatsapp, email, workflows)</DialogDescription>
+          <Textarea
+            value={editFeaturesTarget?.features ?? ""}
+            onChange={(e) => setEditFeaturesTarget(prev => prev ? { ...prev, features: e.target.value } : null)}
+            className="text-sm"
+            rows={3}
+            placeholder="whatsapp, email, workflows, campaigns"
+          />
+          <DialogFooter>
+            <DialogClose asChild><Button variant="ghost">Cancelar</Button></DialogClose>
+            <Button
+              onClick={() => {
+                if (editFeaturesTarget) {
+                  const features = editFeaturesTarget.features.split(",").map(s => s.trim()).filter(Boolean);
+                  updateFeatures.mutate({ licenseId: editFeaturesTarget.licenseId, features });
+                }
+              }}
+              disabled={updateFeatures.isPending}
+            >
+              {updateFeatures.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+              Guardar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -3304,6 +3417,14 @@ function StorageOverviewPanel() {
   const storage = trpc.superadmin.storageOverview.useQuery();
   const totalBytes = (storage.data ?? []).reduce((s: number, r: any) => s + Number(r.totalBytes), 0);
 
+  const [retentionDays, setRetentionDays] = useState(365);
+  const [purgeDataType, setPurgeDataType] = useState<string>("messages");
+  const [showPurgePreview, setShowPurgePreview] = useState(false);
+  const purgePreview = trpc.superadmin.previewRetentionPurge.useQuery(
+    { retentionDays, dataType: purgeDataType as any },
+    { enabled: showPurgePreview }
+  );
+
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-bold flex items-center gap-2"><HardDrive className="w-5 h-5 text-gray-500" /> Storage por Tenant — Total: {fmtBytes(totalBytes)}</h2>
@@ -3331,6 +3452,54 @@ function StorageOverviewPanel() {
           })}
         </div>
       )}
+
+      {/* Preview Retention Purge */}
+      <Separator />
+      <Card className="p-4 space-y-3">
+        <h3 className="text-sm font-semibold flex items-center gap-2">
+          <Trash2 className="w-4 h-4 text-red-500" /> Vista Previa de Purga por Retención
+        </h3>
+        <p className="text-xs text-muted-foreground">Previsualiza cuántos registros se eliminarían aplicando una política de retención.</p>
+        <div className="flex items-end gap-3 flex-wrap">
+          <div>
+            <Label className="text-xs">Tipo de datos</Label>
+            <Select value={purgeDataType} onValueChange={(v) => { setPurgeDataType(v); setShowPurgePreview(false); }}>
+              <SelectTrigger className="w-36 h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="messages">Mensajes</SelectItem>
+                <SelectItem value="activity_logs">Activity Logs</SelectItem>
+                <SelectItem value="access_logs">Access Logs</SelectItem>
+                <SelectItem value="files">Archivos</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs">Retención (días)</Label>
+            <Input type="number" min={30} max={3650} value={retentionDays} onChange={(e) => { setRetentionDays(Number(e.target.value)); setShowPurgePreview(false); }} className="w-28 h-8 text-xs" />
+          </div>
+          <Button size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => { setShowPurgePreview(true); purgePreview.refetch(); }}>
+            <Search className="w-3 h-3" /> Previsualizar
+          </Button>
+        </div>
+        {showPurgePreview && (
+          <div className="text-sm mt-2">
+            {purgePreview.isLoading ? (
+              <span className="flex items-center gap-2 text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Calculando...</span>
+            ) : purgePreview.isError ? (
+              <span className="text-red-500 text-xs">Error al calcular la purga.</span>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Badge variant={purgePreview.data?.count ? "destructive" : "secondary"} className="text-sm">
+                  {(purgePreview.data?.count ?? 0).toLocaleString()} registros
+                </Badge>
+                <span className="text-xs text-muted-foreground">
+                  de tipo <strong>{purgeDataType}</strong> con más de <strong>{retentionDays}</strong> días serían eliminados.
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
     </div>
   );
 }
@@ -3346,6 +3515,12 @@ export default function SuperAdmin() {
   const whoami = trpc.superadmin.whoami.useQuery(undefined, { retry: 0 });
 
   const stats = trpc.superadmin.platformStats.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    retry: 1,
+  });
+
+  const liveKpis = trpc.superadmin.liveKpis.useQuery(undefined, {
+    refetchInterval: 15000,
     refetchOnWindowFocus: false,
     retry: 1,
   });
@@ -3529,6 +3704,43 @@ export default function SuperAdmin() {
 
           {/* ─── OVERVIEW TAB ─── */}
           <TabsContent value="overview" className="mt-4 space-y-4">
+            {/* Live KPIs (real-time, 15s refresh) */}
+            {liveKpis.data && (
+              <Card className="p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-semibold flex items-center gap-1"><Activity className="w-3 h-3 text-green-500" /> KPIs en Tiempo Real</h3>
+                  <Badge variant="outline" className="text-[9px] px-1.5">⚡ Auto-refresh 15s</Badge>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                  {[
+                    { label: "Tenants Activos", value: liveKpis.data.activeTenants, color: "text-violet-600" },
+                    { label: "Usuarios Activos", value: liveKpis.data.activeUsers, color: "text-blue-600" },
+                    { label: "Sesiones", value: liveKpis.data.activeSessions, color: "text-cyan-600" },
+                    { label: "Msgs/última hora", value: liveKpis.data.messagesLastHour, color: "text-amber-600" },
+                    { label: "Leads hoy", value: liveKpis.data.leadsToday, color: "text-green-600" },
+                    { label: "Convs hoy", value: liveKpis.data.conversationsToday, color: "text-red-600" },
+                  ].map((k) => (
+                    <div key={k.label} className="text-center">
+                      <p className={`text-xl font-bold ${k.color}`}>{k.value ?? 0}</p>
+                      <p className="text-[10px] text-muted-foreground">{k.label}</p>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
+
+            <div className="flex items-center justify-between">
+              <div />
+              <Button variant="outline" size="sm" className="h-8 text-xs gap-1" onClick={async () => {
+                try {
+                  const rows = await (trpc as any).superadmin.exportMetrics.query();
+                  downloadCSV(rows ?? [], `metrics_${Date.now()}.csv`);
+                } catch { /* handled by trpc error */ }
+              }}>
+                <FileDown className="w-3 h-3" /> Exportar Métricas CSV
+              </Button>
+            </div>
+
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
               <KpiCard icon={Building2} label="Tenants" value={stats.data?.totalTenants ?? 0} color="bg-violet-500" />
               <KpiCard icon={Users} label="Usuarios Activos" value={stats.data?.totalUsers ?? 0} color="bg-blue-500" />

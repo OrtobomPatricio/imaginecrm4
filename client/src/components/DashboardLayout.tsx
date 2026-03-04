@@ -50,6 +50,8 @@ import {
   Layers,
   Search,
   Shield,
+  AlertTriangle,
+  X,
 } from "lucide-react";
 import { CommandPalette, useCommandPalette } from "./CommandPalette";
 import { RealtimeNotifications } from "./RealtimeNotifications";
@@ -68,6 +70,41 @@ import { MobileBottomNav } from "./MobileBottomNav";
 import { HelpCenter } from "@/components/help-center";
 import { OfflineBanner } from "./OfflineBanner";
 import { useOfflineQueue } from "@/hooks/useOfflineQueue";
+
+/* ─── Platform Announcement Banner ─── */
+function AnnouncementBanner() {
+  const announcements = (trpc as any).superadmin?.getActiveAnnouncements?.useQuery?.(undefined, {
+    refetchInterval: 120000, // every 2 min
+    retry: 0,
+  });
+  const [dismissed, setDismissed] = useState<Set<number>>(new Set());
+
+  const items = (announcements?.data ?? []).filter((a: any) => !dismissed.has(a.id));
+  if (!items.length) return null;
+
+  return (
+    <div className="space-y-1 mb-2">
+      {items.map((a: any) => (
+        <div
+          key={a.id}
+          className={`flex items-center gap-2 px-4 py-2 rounded text-sm ${
+            a.type === "warning"
+              ? "bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+              : a.type === "error"
+                ? "bg-red-50 text-red-800 dark:bg-red-900/30 dark:text-red-300"
+                : "bg-blue-50 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
+          }`}
+        >
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span className="flex-1">{a.title}{a.message ? ` — ${a.message}` : ""}</span>
+          <button onClick={() => setDismissed(prev => new Set(prev).add(a.id))} className="shrink-0 opacity-60 hover:opacity-100">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 type MenuItem = {
   icon: any;
@@ -449,7 +486,10 @@ function DashboardLayoutContent({
           </div>
         </div>
 
-        <main className="flex-1 p-4 md:p-6 overflow-x-hidden">{children}</main>
+        <main className="flex-1 p-4 md:p-6 overflow-x-hidden">
+          <AnnouncementBanner />
+          {children}
+        </main>
       </SidebarInset>
 
       <KeyboardShortcutsDialog
