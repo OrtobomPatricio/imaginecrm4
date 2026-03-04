@@ -36,9 +36,11 @@ import { logger, safeError } from "./logger";
 import { registerTestRoutes } from "./test-routes";
 import { initWebSocket } from "../services/websocket";
 import { validateEnvironment } from "./env-validation";
+import { validateCriticalEnv } from "./env";
 
 // Validate environment variables before starting
 validateEnvironment();
+validateCriticalEnv();
 
 // Modular Imports
 import { requireAuthMiddleware } from "./middleware/auth";
@@ -90,6 +92,7 @@ export async function createApp() {
   }
 
   const app = express();
+  const isProd = process.env.NODE_ENV === "production";
 
   app.disable("x-powered-by");
 
@@ -113,7 +116,7 @@ export async function createApp() {
       },
     },
     crossOriginResourcePolicy: { policy: "cross-origin" },
-    hsts: false, // Disable HSTS for HTTP-only VPS access context
+    hsts: isProd ? { maxAge: 31536000, includeSubDomains: true } : false,
     crossOriginOpenerPolicy: false,
     originAgentCluster: false,
   }));

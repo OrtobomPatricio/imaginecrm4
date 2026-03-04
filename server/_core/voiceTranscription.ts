@@ -28,6 +28,7 @@
 import { ENV } from "./env";
 
 import { logger } from "./logger";
+import { assertSafeOutboundUrl } from "./urlSafety";
 
 export type TranscribeOptions = {
   audioUrl: string; // URL to the audio file (e.g., S3 URL)
@@ -96,6 +97,9 @@ export async function transcribeAudio(
     let audioBuffer: Buffer;
     let mimeType: string;
     try {
+      // SSRF guard: validate the URL before fetching
+      await assertSafeOutboundUrl(options.audioUrl);
+
       const response = await fetch(options.audioUrl);
       if (!response.ok) {
         return {

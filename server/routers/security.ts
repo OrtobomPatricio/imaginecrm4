@@ -2,7 +2,7 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { sessions, users, leads, conversations, chatMessages, accessLogs } from "../../drizzle/schema";
-import { eq, and, desc, ne } from "drizzle-orm";
+import { eq, and, desc, ne, sql } from "drizzle-orm";
 import { logger } from "../_core/logger";
 import { TRPCError } from "@trpc/server";
 
@@ -30,7 +30,7 @@ export const securityRouter = router({
             const userSessions = await db
                 .select()
                 .from(sessions)
-                .where(eq(sessions.userId, ctx.user!.id))
+                .where(and(eq(sessions.userId, ctx.user!.id), eq(sessions.tenantId, ctx.tenantId)))
                 .orderBy(desc(sessions.createdAt));
 
             return userSessions.map((s) => ({
@@ -61,7 +61,8 @@ export const securityRouter = router({
             await db.delete(sessions).where(
                 and(
                     eq(sessions.id, input.sessionId),
-                    eq(sessions.userId, ctx.user!.id)
+                    eq(sessions.userId, ctx.user!.id),
+                    eq(sessions.tenantId, ctx.tenantId)
                 )
             );
 
@@ -78,6 +79,7 @@ export const securityRouter = router({
             const result = await db.delete(sessions).where(
                 and(
                     eq(sessions.userId, ctx.user!.id),
+                    eq(sessions.tenantId, ctx.tenantId),
                     ne(sessions.id, Number(ctx.sessionJti) || 0)
                 )
             );
@@ -97,24 +99,30 @@ export const securityRouter = router({
             const tenantId = ctx.tenantId;
             const userId = ctx.user!.id;
 
-            // Gather all personal data
-            const [userData] = await db.select().from(users).where(eq(users.id, userId));
+            // Gather only safe personal fields (avoid fetching password/tokens)
+            const [userData] = await db.select({
+                id: users.id,
+                email: users.email,
+                name: users.name,
+                role: users.role,
+                createdAt: users.createdAt,
+            }).from(users).where(eq(users.id, userId));
 
-            const userLeads = await db.select()
+            // Count instead of loading all rows into memory
+            const [leadCount] = await db.select({ count: sql<number>`COUNT(*)` })
                 .from(leads)
-                .where(and(eq(leads.tenantId, tenantId), eq(leads.assignedToId, userId)))
-                .limit(10000);
+                .where(and(eq(leads.tenantId, tenantId), eq(leads.assignedToId, userId)));
 
             return {
                 exportedAt: new Date().toISOString(),
-                user: {
-                    id: userData?.id,
-                    email: (userData as any)?.email,
-                    fullName: (userData as any)?.fullName,
-                    role: (userData as any)?.role,
-                    createdAt: (userData as any)?.createdAt,
-                },
-                leadsAssigned: userLeads.length,
+                user: userData ? {
+                    id: userData.id,
+                    email: userData.email,
+                    name: userData.name,
+                    role: userData.role,
+                    createdAt: userData.createdAt,
+                } : null,
+                leadsAssigned: Number(leadCount?.count ?? 0),
                 dataCategories: [
                     "Profile Information",
                     "Assigned Leads",
@@ -154,7 +162,7 @@ export const securityRouter = router({
 
             // Anonymize user (soft delete - keep ID for FK integrity)
             await db.update(users).set({
-                fullName: "[DELETED USER]",
+                name: "[DELETED USER]",
                 email: `deleted-${ctx.user!.id}@anonymized.local`,
             } as any).where(eq(users.id, ctx.user!.id));
 

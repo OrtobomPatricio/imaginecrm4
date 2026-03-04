@@ -34,6 +34,12 @@ export async function getSmtpConfig(tenantId: number) {
 }
 
 export async function sendEmail({ tenantId, to, subject, html, text }: SendEmailOptions) {
+    // Basic email format validation
+    if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+        logger.warn({ to }, "[Email Service] Invalid 'to' address, skipping");
+        return false;
+    }
+
     const config = await getSmtpConfig(tenantId);
 
     // If no SMTP config, we just log it (in dev/preview)

@@ -1,4 +1,4 @@
-import { exec } from "node:child_process";
+import { exec, execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs";
 import path from "node:path";
@@ -6,6 +6,7 @@ import os from "node:os";
 import { logger } from "../_core/logger";
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFileCb);
 
 /**
  * ClamAV antivirus scanning service.
@@ -44,28 +45,31 @@ export async function scanFile(buffer: Buffer, filename: string): Promise<ScanRe
     }
 
     const tempDir = os.tmpdir();
-    const tempPath = path.join(tempDir, `crm-scan-${Date.now()}-${filename}`);
+    // Sanitize filename to prevent command injection — alphanumeric, dots, dashes, underscores only
+    const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const tempPath = path.join(tempDir, `crm-scan-${Date.now()}-${safeFilename}`);
 
     try {
         // Write buffer to temp file
         fs.writeFileSync(tempPath, buffer);
 
         // Try clamdscan first (faster, uses daemon), fallback to clamscan
-        let scanCommand: string;
+        // Use execFileAsync to avoid shell interpretation (command injection)
+        let scanBinary: string;
         try {
             await execAsync("which clamdscan");
-            scanCommand = `clamdscan --no-summary "${tempPath}"`;
+            scanBinary = "clamdscan";
         } catch {
             try {
                 await execAsync("which clamscan");
-                scanCommand = `clamscan --no-summary "${tempPath}"`;
+                scanBinary = "clamscan";
             } catch {
                 logger.warn("[Antivirus] ClamAV not installed, skipping scan");
                 return { clean: true, scanned: false, error: "ClamAV not installed" };
             }
         }
 
-        const { stdout, stderr } = await execAsync(scanCommand, { timeout: 30000 });
+        const { stdout } = await execFileAsync(scanBinary, ["--no-summary", tempPath], { timeout: 30000 });
 
         if (stdout.includes("OK")) {
             logger.info({ filename }, "[Antivirus] File is clean");

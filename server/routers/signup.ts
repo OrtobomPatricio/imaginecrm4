@@ -99,7 +99,7 @@ export const signupRouter = router({
             slug: z.string().min(3).max(50),
             ownerName: z.string().min(2).max(100),
             email: z.string().email(),
-            password: z.string().min(8, "La contraseña debe tener al menos 8 caracteres"),
+            password: z.string().min(8, "La contraseña debe tener al menos 8 caracteres").max(128),
             timezone: z.string().default("America/Asuncion"),
             language: z.string().default("es"),
             currency: z.string().default("USD"),

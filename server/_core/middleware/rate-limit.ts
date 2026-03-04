@@ -53,6 +53,22 @@ const SENSITIVE_LIMITS: Record<string, ReturnType<typeof rateLimit>> = {
         store: makeRedisStore(),
         message: { error: "rate_limit", message: "Excedido el límite de registro." }
     }),
+    "signup.register": rateLimit({
+        windowMs: Number(process.env.RATE_LIMIT_REGISTER_WINDOW_MS ?? "60000"),
+        max: Number(process.env.RATE_LIMIT_REGISTER_MAX ?? "10"),
+        standardHeaders: true,
+        legacyHeaders: false,
+        store: makeRedisStore(),
+        message: { error: "rate_limit", message: "Excedido el límite de registro." }
+    }),
+    "account.resetPassword": rateLimit({
+        windowMs: 60000,
+        max: 10,
+        standardHeaders: true,
+        legacyHeaders: false,
+        store: makeRedisStore(),
+        message: { error: "rate_limit", message: "Excedido el límite de intentos." }
+    }),
 };
 
 export const rateLimitMiddleware = (req: Request, res: Response, next: NextFunction) => {

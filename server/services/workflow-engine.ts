@@ -328,7 +328,7 @@ async function _actionSendTemplate(action: SendTemplateAction, payload: Workflow
 
 async function _actionUpdateStage(action: UpdateStageAction, payload: WorkflowEventPayload, db: any): Promise<void> {
     if (!payload.leadId) throw new Error("update_stage requires leadId");
-    const [stage] = await db.select({ id: pipelineStages.id }).from(pipelineStages).where(eq(pipelineStages.id, action.stageId)).limit(1);
+    const [stage] = await db.select({ id: pipelineStages.id }).from(pipelineStages).where(and(eq(pipelineStages.id, action.stageId), eq(pipelineStages.tenantId, payload.tenantId))).limit(1);
     if (!stage) throw new Error("Stage not found");
 
     await db.update(leads).set({ pipelineStageId: action.stageId })

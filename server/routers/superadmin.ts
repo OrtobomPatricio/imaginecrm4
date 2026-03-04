@@ -1721,11 +1721,39 @@ export const superadminRouter = router({
     /** Update platform-level configuration sections */
     updatePlatformConfig: superadminGuard
         .input(z.object({
-            smtpConfig: z.any().optional(),
-            metaConfig: z.any().optional(),
-            aiConfig: z.any().optional(),
-            storageConfig: z.any().optional(),
-            securityConfig: z.any().optional(),
+            smtpConfig: z.object({
+                host: z.string().max(255).optional(),
+                port: z.number().int().min(1).max(65535).optional(),
+                user: z.string().max(255).optional(),
+                pass: z.string().max(500).optional(),
+                from: z.string().max(255).optional(),
+                secure: z.boolean().optional(),
+            }).passthrough().optional(),
+            metaConfig: z.object({
+                appId: z.string().max(255).optional(),
+                appSecret: z.string().max(500).optional(),
+                verifyToken: z.string().max(255).optional(),
+                webhookUrl: z.string().max(500).optional(),
+            }).passthrough().optional(),
+            aiConfig: z.object({
+                provider: z.string().max(50).optional(),
+                apiKey: z.string().max(500).optional(),
+                model: z.string().max(100).optional(),
+                maxTokens: z.number().int().min(1).max(100000).optional(),
+            }).passthrough().optional(),
+            storageConfig: z.object({
+                provider: z.string().max(50).optional(),
+                bucket: z.string().max(255).optional(),
+                region: z.string().max(50).optional(),
+                accessKey: z.string().max(500).optional(),
+                secretKey: z.string().max(500).optional(),
+            }).passthrough().optional(),
+            securityConfig: z.object({
+                maxLoginAttempts: z.number().int().min(1).max(100).optional(),
+                sessionTimeout: z.number().int().min(60).max(86400000).optional(),
+                requireMfa: z.boolean().optional(),
+                ipWhitelist: z.array(z.string().max(45)).max(100).optional(),
+            }).passthrough().optional(),
             companyName: z.string().max(120).optional(),
             timezone: z.string().max(60).optional(),
             language: z.string().max(10).optional(),

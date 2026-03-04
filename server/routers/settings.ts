@@ -162,12 +162,12 @@ export const settingsRouter = router({
 
     updateSmtpConfig: permissionProcedure("settings.manage")
         .input(z.object({
-            host: z.string(),
+            host: z.string().max(255),
             port: z.number(),
             secure: z.boolean(),
-            user: z.string(),
-            pass: z.string().optional().nullable(),
-            from: z.string().optional(),
+            user: z.string().max(255),
+            pass: z.string().max(500).optional().nullable(),
+            from: z.string().max(255).optional(),
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
@@ -194,12 +194,12 @@ export const settingsRouter = router({
     updateStorageConfig: permissionProcedure("settings.manage")
         .input(z.object({
             provider: z.enum(["forge", "s3"]),
-            bucket: z.string().optional(),
-            region: z.string().optional(),
-            accessKey: z.string().optional().nullable(),
-            secretKey: z.string().optional().nullable(),
-            endpoint: z.string().optional(),
-            publicUrl: z.string().optional(),
+            bucket: z.string().max(255).optional(),
+            region: z.string().max(50).optional(),
+            accessKey: z.string().max(500).optional().nullable(),
+            secretKey: z.string().max(500).optional().nullable(),
+            endpoint: z.string().max(500).optional(),
+            publicUrl: z.string().max(500).optional(),
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
@@ -228,8 +228,8 @@ export const settingsRouter = router({
     updateAiConfig: permissionProcedure("settings.manage")
         .input(z.object({
             provider: z.enum(["openai", "anthropic"]),
-            apiKey: z.string().optional().nullable(),
-            model: z.string(),
+            apiKey: z.string().max(500).optional().nullable(),
+            model: z.string().max(100),
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();

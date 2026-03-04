@@ -26,7 +26,7 @@ export const backupRouter = router({
 
     restoreBackupJson: permissionProcedure("settings.manage")
         .input(z.object({
-            backupJson: z.any(),
+            backupJson: z.record(z.string(), z.unknown()),
             mode: z.enum(["replace", "merge"]).default("replace"),
         }))
         .mutation(async ({ input, ctx }) => {

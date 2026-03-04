@@ -11,3 +11,23 @@ export const ENV = {
   forgeApiUrl: process.env.FORGE_API_URL ?? "",
   forgeApiKey: process.env.FORGE_API_KEY ?? "",
 };
+
+/**
+ * Validate that critical environment variables are set in production.
+ * Called at server startup — refuses to start if secrets are missing.
+ */
+export function validateCriticalEnv(): void {
+  const isProd = process.env.NODE_ENV === "production";
+  if (!isProd) return;
+
+  const missing: string[] = [];
+  if (!ENV.cookieSecret) missing.push("COOKIE_SECRET (or JWT_SECRET)");
+  if (!ENV.dataEncryptionKey) missing.push("DATA_ENCRYPTION_KEY");
+  if (!process.env.DATABASE_URL) missing.push("DATABASE_URL");
+
+  if (missing.length > 0) {
+    const msg = `[FATAL] Missing required env vars in production: ${missing.join(", ")}`;
+    console.error(msg);
+    process.exit(1);
+  }
+}

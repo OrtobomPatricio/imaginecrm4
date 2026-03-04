@@ -8,7 +8,7 @@ export const templatesRouter = router({
     list: permissionProcedure("campaigns.view").query(async ({ ctx }) => {
         const db = await getDb();
         if (!db) return [];
-        return db.select().from(templates).where(eq(templates.tenantId, ctx.tenantId)).orderBy(desc(templates.createdAt));
+        return db.select().from(templates).where(eq(templates.tenantId, ctx.tenantId)).orderBy(desc(templates.createdAt)).limit(500);
     }),
 
     // Chat-friendly list: WhatsApp templates available to agents in the composer
@@ -25,14 +25,16 @@ export const templatesRouter = router({
                     .select()
                     .from(templates)
                     .where(and(eq(templates.tenantId, ctx.tenantId), eq(templates.type, "whatsapp"), or(like(templates.name, needle), like(templates.content, needle))))
-                    .orderBy(desc(templates.createdAt));
+                    .orderBy(desc(templates.createdAt))
+                    .limit(200);
             }
 
             return db
                 .select()
                 .from(templates)
                 .where(and(eq(templates.tenantId, ctx.tenantId), eq(templates.type, "whatsapp")))
-                .orderBy(desc(templates.createdAt));
+                .orderBy(desc(templates.createdAt))
+                .limit(200);
         }),
 
 

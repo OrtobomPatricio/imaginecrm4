@@ -68,11 +68,8 @@ export function createOAuthSessionStore(): session.Store | undefined {
   const requireRedis = process.env.REQUIRE_REDIS_IN_PROD === "1";
 
   if (!redisUrl) {
-    if (isProd && requireRedis) {
-      throw new Error("REDIS_URL is required in production when REQUIRE_REDIS_IN_PROD=1 (OAuth session store)");
-    }
     if (isProd) {
-      logger.warn("[OAuthSession] REDIS_URL not set in production, falling back to MemoryStore");
+      throw new Error("REDIS_URL is required in production for OAuth session store. Set REDIS_URL or disable OAuth.");
     }
     return undefined;
   }

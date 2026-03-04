@@ -9,7 +9,7 @@ export const tagsRouter = router({
     list: permissionProcedure("leads.view").query(async ({ ctx }) => {
         const db = await getDb();
         if (!db) return [];
-        return db.select().from(tags).where(eq(tags.tenantId, ctx.tenantId)).orderBy(tags.name);
+        return db.select().from(tags).where(eq(tags.tenantId, ctx.tenantId)).orderBy(tags.name).limit(500);
     }),
 
     create: permissionProcedure("settings.manage")
@@ -74,7 +74,7 @@ export const tagsRouter = router({
         }),
 
     getLeadTagsBatch: permissionProcedure("leads.view")
-        .input(z.object({ leadIds: z.array(z.number()) }))
+        .input(z.object({ leadIds: z.array(z.number()).max(500) }))
         .query(async ({ input, ctx }) => {
             const db = await getDb();
             if (!db || input.leadIds.length === 0) return [];

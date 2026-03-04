@@ -117,10 +117,15 @@ async function pollPendingJobs() {
 
     for (const job of readyJobs) {
         try {
-            // 1. Marcar como "processing" (evitar que otro nodo del cluster lo tome)
-            // Como aquí no tenemos enum "processing", lo dejamos pending pero podemos 
-            // confiar en la naturaleza asíncrona serial de este loop para no duplicar.
-            // En un entorno de múltiples workers se requeriría FOR UPDATE o UPDATE ... WHERE status = 'pending'.
+            // Atomically claim the job: UPDATE ... WHERE status = 'pending' prevents duplicates in multi-instance deployments
+            const claimed = await db.update(workflowJobs)
+                .set({ status: "processing" as any })
+                .where(and(eq(workflowJobs.id, job.id), eq(workflowJobs.status, "pending")));
+
+            if ((claimed as any)[0]?.affectedRows === 0) {
+                // Another worker already claimed this job
+                continue;
+            }
 
             const workflowRows = await db
                 .select()

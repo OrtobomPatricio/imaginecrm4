@@ -18,7 +18,7 @@ interface SendFacebookMessageParams {
 }
 
 export async function sendFacebookMessage(params: SendFacebookMessageParams) {
-    const url = `${FACEBOOK_GRAPH_URL}/me/messages?access_token=${params.accessToken}`;
+    const url = `${FACEBOOK_GRAPH_URL}/me/messages`;
 
     const body = {
         recipient: { id: params.recipientId },
@@ -30,6 +30,7 @@ export async function sendFacebookMessage(params: SendFacebookMessageParams) {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
+            "Authorization": `Bearer ${params.accessToken}`,
         },
         body: JSON.stringify(body),
     });
@@ -45,9 +46,11 @@ export async function sendFacebookMessage(params: SendFacebookMessageParams) {
 }
 
 export async function getFacebookUserProfile(psid: string, accessToken: string) {
-    const url = `${FACEBOOK_GRAPH_URL}/${psid}?fields=first_name,last_name,profile_pic&access_token=${accessToken}`;
+    const url = `${FACEBOOK_GRAPH_URL}/${psid}?fields=first_name,last_name,profile_pic`;
 
-    const response = await fetch(url);
+    const response = await fetch(url, {
+        headers: { "Authorization": `Bearer ${accessToken}` },
+    });
     if (!response.ok) return null;
 
     return await response.json();

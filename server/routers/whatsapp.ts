@@ -5,7 +5,7 @@ import { getDb } from "../db";
 import { permissionProcedure, router } from "../_core/trpc";
 import { fetchCloudTemplates } from "../whatsapp/cloud";
 import { BaileysService } from "../services/baileys";
-
+import { encryptSecret, decryptSecret } from "../_core/crypto";
 import { logger } from "../_core/logger";
 
 export const whatsappRouter = router({
@@ -76,7 +76,7 @@ export const whatsappRouter = router({
             if (existingConnection.length > 0) {
                 // Update existing connection
                 await db.update(whatsappConnections).set({
-                    accessToken: input.accessToken,
+                    accessToken: encryptSecret(input.accessToken),
                     businessAccountId: input.businessAccountId,
                     isConnected: true,
                     lastPingAt: new Date(),
@@ -119,7 +119,7 @@ export const whatsappRouter = router({
                 whatsappNumberId: newNumber.id,
                 connectionType: "api",
                 phoneNumberId: input.phoneNumberId,
-                accessToken: input.accessToken,
+                accessToken: encryptSecret(input.accessToken),
                 businessAccountId: input.businessAccountId,
                 isConnected: true,
                 lastPingAt: new Date(),
@@ -203,9 +203,11 @@ export const whatsappRouter = router({
             return [];
         }
 
+        const plainToken = decryptSecret(connection[0].accessToken) || connection[0].accessToken;
+
         try {
             return await fetchCloudTemplates({
-                accessToken: connection[0].accessToken,
+                accessToken: plainToken,
                 businessAccountId: connection[0].businessAccountId
             });
         } catch (e) {

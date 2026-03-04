@@ -178,11 +178,19 @@ export const accountRouter = router({
     resetPassword: publicProcedure
         .input(z.object({
             token: z.string().min(10),
-            newPassword: z.string().min(8, "La contraseña debe tener al menos 8 caracteres"),
+            newPassword: z.string().min(8, "La contraseña debe tener al menos 8 caracteres").max(128),
         }))
         .mutation(async ({ input }) => {
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            // Rate limiting
+            const rateLimitKey = `resetpw:${input.token.slice(0, 8)}`;
+            try {
+                await authRateLimit(rateLimitKey);
+            } catch {
+                throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Demasiados intentos. Espere un momento." });
+            }
 
             const [user] = await db.select()
                 .from(users)
@@ -229,8 +237,8 @@ export const accountRouter = router({
      */
     changePassword: protectedProcedure
         .input(z.object({
-            currentPassword: z.string(),
-            newPassword: z.string().min(8, "La contraseña debe tener al menos 8 caracteres"),
+            currentPassword: z.string().max(128),
+            newPassword: z.string().min(8, "La contraseña debe tener al menos 8 caracteres").max(128),
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();

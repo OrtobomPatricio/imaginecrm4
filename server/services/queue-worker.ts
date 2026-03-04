@@ -150,13 +150,13 @@ export class MessageQueueWorker {
 
         try {
             // Fetch full context: Message, Conversation, Connection
-            const [chatMessage] = await db.select().from(chatMessages).where(eq(chatMessages.id, item.chatMessageId!));
+            const [chatMessage] = await db.select().from(chatMessages).where(and(eq(chatMessages.id, item.chatMessageId!), eq(chatMessages.tenantId, item.tenantId)));
 
             if (!chatMessage) {
                 throw new Error("Linked ChatMessage not found");
             }
 
-            const [conversation] = await db.select().from(conversations).where(eq(conversations.id, item.conversationId));
+            const [conversation] = await db.select().from(conversations).where(and(eq(conversations.id, item.conversationId), eq(conversations.tenantId, item.tenantId)));
             if (!conversation) {
                 throw new Error("Conversation not found");
             }

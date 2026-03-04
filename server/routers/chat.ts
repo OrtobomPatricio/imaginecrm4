@@ -220,6 +220,9 @@ export const chatRouter = router({
                     query = query.orderBy(desc(conversations.lastMessageAt)) as typeof query;
                 }
 
+                // Safety limit to prevent unbounded result sets
+                query = query.limit(200) as typeof query;
+
                 const convs = await query;
 
                 // Get last message info for each conversation in a single query
@@ -488,16 +491,16 @@ export const chatRouter = router({
             whatsappNumberId: z.number().optional(),
             facebookPageId: z.number().optional(),
             messageType: z.enum(['text', 'image', 'video', 'audio', 'document', 'location', 'sticker', 'contact', 'template']),
-            content: z.string().optional(),
-            mediaUrl: z.string().optional(),
-            mediaName: z.string().optional(),
-            mediaMimeType: z.string().optional(),
+            content: z.string().max(10000).optional(),
+            mediaUrl: z.string().max(2000).optional(),
+            mediaName: z.string().max(500).optional(),
+            mediaMimeType: z.string().max(100).optional(),
             latitude: z.number().optional(),
             longitude: z.number().optional(),
-            locationName: z.string().optional(),
+            locationName: z.string().max(500).optional(),
             // Template specific
-            templateName: z.string().optional(),
-            templateLanguage: z.string().optional(),
+            templateName: z.string().max(200).optional(),
+            templateLanguage: z.string().max(10).optional(),
             templateComponents: z.array(z.any()).optional(),
             // Facebook specific
             isFacebook: z.boolean().optional(),

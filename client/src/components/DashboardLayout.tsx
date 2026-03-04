@@ -68,7 +68,6 @@ import { TeamChatWidget } from "@/components/team-chat";
 import { CommandMenu } from "./CommandMenu";
 import { MobileBottomNav } from "./MobileBottomNav";
 import { HelpCenter } from "@/components/help-center";
-import { OfflineBanner } from "./OfflineBanner";
 import { useOfflineQueue } from "@/hooks/useOfflineQueue";
 
 /* ─── Platform Announcement Banner ─── */
@@ -222,7 +221,6 @@ export default function DashboardLayout({
       <MobileBottomNav />
       <RealtimeNotifications />
       <CommandPalette open={commandOpen} onOpenChange={setCommandOpen} />
-      <OfflineBanner />
     </SidebarProvider>
   );
 }

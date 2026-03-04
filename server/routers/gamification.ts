@@ -64,7 +64,7 @@ export const gamificationRouter = router({
                 if (!db) return { success: false };
                 await db.update(goals)
                     .set({ currentAmount: input.amount })
-                    .where(and(eq(goals.tenantId, ctx.tenantId), eq(goals.id, input.id)));
+                    .where(and(eq(goals.tenantId, ctx.tenantId), eq(goals.id, input.id), eq(goals.userId, ctx.user!.id)));
                 return { success: true };
             }),
     }),

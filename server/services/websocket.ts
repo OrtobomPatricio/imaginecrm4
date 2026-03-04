@@ -12,7 +12,7 @@ const getRedisClient = () => {
 };
 import { getDb } from "../db";
 import { users, sessions } from "../../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import cookie from "cookie";
 
 // Event types for type safety
@@ -259,9 +259,11 @@ export async function initWebSocket(server: HttpServer): Promise<SocketIOServer>
         socket.on("message:read", async (conversationId: number) => {
             try {
                 if (typeof conversationId !== "number" || !Number.isFinite(conversationId)) return;
-                // Broadcast to other participants in conversation
-                const room = `conversation:${conversationId}`;
-                socket.to(room).emit("message:read", { conversationId, userId });
+                // Broadcast to other participants in conversation (tenant-prefixed + legacy)
+                if (tenantId) {
+                    socket.to(`tenant:${tenantId}:conversation:${conversationId}`).emit("message:read", { conversationId, userId });
+                }
+                socket.to(`conversation:${conversationId}`).emit("message:read", { conversationId, userId });
             } catch (e) {
                 logger.error({ err: safeError(e), userId, conversationId }, "websocket: error on message:read");
             }
@@ -318,33 +320,41 @@ export function emitToUser(userId: number, event: keyof ServerToClientEvents, da
 }
 
 // Emit to conversation participants
-export function emitToConversation(conversationId: number, event: keyof ServerToClientEvents, data: any): void {
+export function emitToConversation(conversationId: number, event: keyof ServerToClientEvents, data: any, tenantId?: number): void {
     if (!io) {
         logger.warn("[emitToConversation] IO not initialized");
         return;
     }
-    const room = `conversation:${conversationId}`;
+    // Use tenant-prefixed room (matches what clients join) with fallback for backwards compat
+    const room = tenantId ? `tenant:${tenantId}:conversation:${conversationId}` : `conversation:${conversationId}`;
     logger.info(`[emitToConversation] Emitting ${event} to room ${room}`);
     io.to(room).emit(event, data);
+    // Also emit to non-prefixed room for any legacy clients
+    if (tenantId) {
+        io.to(`conversation:${conversationId}`).emit(event, data);
+    }
 }
 
-// Broadcast to all connected clients
-export function broadcast(event: keyof ServerToClientEvents, data: any): void {
+// Broadcast to all connected clients in a tenant
+export function broadcast(event: keyof ServerToClientEvents, data: any, tenantId: number): void {
     if (!io) return;
-    io.emit(event, data);
+    io.to(`tenant:${tenantId}`).emit(event, data);
 }
 
 // Emit to users with specific role
-export async function emitToRole(role: string, event: keyof ServerToClientEvents, data: any): Promise<void> {
+export async function emitToRole(role: string, event: keyof ServerToClientEvents, data: any, tenantId: number): Promise<void> {
     if (!io) return;
 
     try {
         const db = await getDb();
         if (!db) return;
 
+        const conditions: any[] = [eq(users.role, role as any)];
+        conditions.push(eq(users.tenantId, tenantId));
+
         const userRows = await db.select({ id: users.id })
             .from(users)
-            .where(eq(users.role, role as any));
+            .where(and(...conditions));
 
         userRows.forEach(row => {
             emitToUser(row.id, event, data);

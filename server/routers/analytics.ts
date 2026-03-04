@@ -75,7 +75,7 @@ export const analyticsRouter = router({
         .input(z.object({ period: periodSchema }))
         .query(async ({ ctx, input }) => {
             const db = (await getDb())!;
-            const { tenantId } = ctx.user;
+            const tenantId = ctx.tenantId;
             const { from, to } = getDateRange(input.period);
 
             // Período anterior (misma duración)
@@ -211,7 +211,7 @@ export const analyticsRouter = router({
         .input(z.object({ period: periodSchema }))
         .query(async ({ ctx, input }) => {
             const db = (await getDb())!;
-            const { tenantId } = ctx.user;
+            const tenantId = ctx.tenantId;
             const { from, to } = getDateRange(input.period);
 
             const rows = await db
@@ -241,7 +241,7 @@ export const analyticsRouter = router({
         }))
         .query(async ({ ctx, input }) => {
             const db = (await getDb())!;
-            const { tenantId } = ctx.user;
+            const tenantId = ctx.tenantId;
             const { from, to } = getDateRange(input.period);
 
             // Obtener el pipeline (por defecto o el especificado)
@@ -304,7 +304,7 @@ export const analyticsRouter = router({
         .input(z.object({ period: periodSchema }))
         .query(async ({ ctx, input }) => {
             const db = (await getDb())!;
-            const { tenantId } = ctx.user;
+            const tenantId = ctx.tenantId;
             const { from, to } = getDateRange(input.period);
 
             // Conversaciones por agente asignado
@@ -385,7 +385,7 @@ export const analyticsRouter = router({
         .input(z.object({ period: periodSchema }))
         .query(async ({ ctx, input }) => {
             const db = (await getDb())!;
-            const { tenantId } = ctx.user;
+            const tenantId = ctx.tenantId;
             const { from, to } = getDateRange(input.period);
 
             const rows = await db
@@ -425,7 +425,7 @@ export const analyticsRouter = router({
         .query(async ({ ctx, input }) => {
             const db = (await getDb())!;
             if (!db) return [];
-            const { tenantId } = ctx.user;
+            const tenantId = ctx.tenantId;
             const { from, to } = getDateRange(input.period);
 
             try {
@@ -478,7 +478,7 @@ export const analyticsRouter = router({
         .input(z.object({ period: periodSchema }))
         .query(async ({ ctx, input }) => {
             const db = (await getDb())!;
-            const { tenantId } = ctx.user;
+            const tenantId = ctx.tenantId;
             const { from, to } = getDateRange(input.period);
 
             const rows = await db
@@ -512,7 +512,7 @@ export const analyticsRouter = router({
         .input(z.object({ period: periodSchema }))
         .query(async ({ ctx, input }) => {
             const db = (await getDb())!;
-            const { tenantId } = ctx.user;
+            const tenantId = ctx.tenantId;
             const { from, to } = getDateRange(input.period);
 
             // Tiempo promedio de primera respuesta (en minutos) por agente
@@ -565,7 +565,7 @@ export const analyticsRouter = router({
         .input(z.object({}))
         .query(async ({ ctx }) => {
             const db = (await getDb())!;
-            const { tenantId } = ctx.user;
+            const tenantId = ctx.tenantId;
             const from = new Date();
             from.setDate(from.getDate() - 6);
             from.setHours(0, 0, 0, 0);

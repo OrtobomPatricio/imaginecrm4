@@ -275,7 +275,11 @@ export function registerMetaRoutes(app: Express) {
         const challenge = req.query["hub.challenge"];
 
         try {
-            const verifyToken = process.env.META_WEBHOOK_VERIFY_TOKEN || "imagine_crm_verify";
+            const verifyToken = process.env.META_WEBHOOK_VERIFY_TOKEN;
+            if (!verifyToken) {
+                logger.error("META_WEBHOOK_VERIFY_TOKEN is not set — rejecting webhook verification");
+                return res.sendStatus(500);
+            }
 
             if (mode === "subscribe" && token === verifyToken) {
                 res.status(200).send(challenge);

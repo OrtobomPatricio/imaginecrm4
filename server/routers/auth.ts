@@ -116,7 +116,7 @@ export const authRouter = router({
     }),
 
     loginWithCredentials: publicProcedure
-        .input(z.object({ email: z.string().includes("@"), password: z.string() }))
+        .input(z.object({ email: z.string().includes("@"), password: z.string().max(128) }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
             if (!db) return { success: false, error: "Database not available" };
@@ -201,7 +201,7 @@ export const authRouter = router({
     acceptInvitation: publicProcedure
         .input(z.object({
             token: z.string(),
-            password: z.string().min(8),
+            password: z.string().min(8).max(128),
             termsVersion: z.string().optional(), // Match request for termsVersion
         }))
         .mutation(async ({ input, ctx }) => {

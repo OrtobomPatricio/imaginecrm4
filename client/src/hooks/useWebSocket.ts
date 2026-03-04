@@ -167,12 +167,12 @@ export function useWebSocket() {
     }, []);
 
     // Emit helpers
-    const joinConversation = useCallback((conversationId: number) => {
+    const joinConversation = useCallback((conversationId: number, _retries = 0) => {
         if (globalSocket?.connected) {
             globalSocket.emit("conversation:join", conversationId);
-        } else {
-            // Retry after a short delay
-            setTimeout(() => joinConversation(conversationId), 500);
+        } else if (_retries < 5) {
+            // Retry with exponential backoff, max 5 attempts
+            setTimeout(() => joinConversation(conversationId, _retries + 1), 500 * Math.pow(2, _retries));
         }
     }, []);
 

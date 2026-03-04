@@ -58,6 +58,7 @@ async function processQueue(): Promise<void> {
     if (isProcessing) return;
     isProcessing = true;
 
+    try {
     while (queue.some((j) => j.status === "pending")) {
         const batch = queue
             .filter((j) => j.status === "pending")
@@ -102,8 +103,9 @@ async function processQueue(): Promise<void> {
             if (idx !== -1) queue.splice(idx, 1);
         });
     }
-
-    isProcessing = false;
+    } finally {
+        isProcessing = false;
+    }
 }
 
 /**

@@ -9,7 +9,7 @@ export const campaignsRouter = router({
         const db = await getDb();
         if (!db) return [];
         try {
-            return await db.select().from(campaigns).where(eq(campaigns.tenantId, ctx.tenantId)).orderBy(desc(campaigns.createdAt));
+            return await db.select().from(campaigns).where(eq(campaigns.tenantId, ctx.tenantId)).orderBy(desc(campaigns.createdAt)).limit(500);
         } catch {
             return []; // campaigns table may not exist
         }
@@ -88,7 +88,7 @@ export const campaignsRouter = router({
             }
             const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-            const audience = await db.select().from(leads).where(whereClause);
+            const audience = await db.select().from(leads).where(whereClause).limit(10000);
 
             if (audience.length === 0) {
                 throw new Error("No recipients found for campaign");

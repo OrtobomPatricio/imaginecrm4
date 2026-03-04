@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 
@@ -46,12 +46,15 @@ export function useChatController() {
         { enabled: !!selectedConversationId }
     );
 
+    const didAutoOpenRef = useRef(false);
     useEffect(() => {
+        if (didAutoOpenRef.current) return;
         const params = new URLSearchParams(window.location.search);
         const leadIdParam = params.get("leadId");
         if (leadIdParam) {
             const leadId = parseInt(leadIdParam);
             if (!isNaN(leadId)) {
+                didAutoOpenRef.current = true;
                 getOrCreateMutation.mutate({ leadId });
             }
         }

@@ -100,12 +100,12 @@ export const leadsRouter = router({
 
     create: permissionProcedure("leads.create")
         .input(z.object({
-            name: z.string().trim().min(1),
+            name: z.string().trim().min(1).max(200),
             phone: phoneValidator,
             email: z.string().trim().email().optional().or(z.literal("")),
-            country: z.string().trim().min(1),
-            source: z.string().trim().optional(),
-            notes: z.string().trim().optional(),
+            country: z.string().trim().min(1).max(100),
+            source: z.string().trim().max(200).optional(),
+            notes: z.string().trim().max(5000).optional(),
             pipelineStageId: z.number().optional(),
             customFields: z.record(z.string(), z.any()).optional(),
             value: z.number().optional(), // Deal value
@@ -203,13 +203,13 @@ export const leadsRouter = router({
         .query(async ({ ctx }) => {
             const db = await getDb();
             if (!db) throw new Error("Database not available");
-            const allLeads = await db.select().from(leads).where(eq(leads.tenantId, ctx.tenantId));
+            const allLeads = await db.select().from(leads).where(and(eq(leads.tenantId, ctx.tenantId), sql`${leads.deletedAt} IS NULL`)).limit(50000);
             const csv = leadsToCSV(allLeads);
             return { csv };
         }),
 
     import: permissionProcedure("leads.import")
-        .input(z.object({ csvContent: z.string() }))
+        .input(z.object({ csvContent: z.string().max(10_000_000) }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
             if (!db) throw new Error("Database not available");
@@ -221,12 +221,12 @@ export const leadsRouter = router({
     update: permissionProcedure("leads.update")
         .input(z.object({
             id: z.number(),
-            name: z.string().trim().min(1).optional(),
+            name: z.string().trim().min(1).max(200).optional(),
             phone: phoneValidator.optional(),
             email: z.string().trim().email().optional().nullable(),
-            country: z.string().trim().min(1).optional(),
-            source: z.string().trim().optional().nullable(),
-            notes: z.string().trim().optional().nullable(),
+            country: z.string().trim().min(1).max(100).optional(),
+            source: z.string().trim().max(200).optional().nullable(),
+            notes: z.string().trim().max(5000).optional().nullable(),
             pipelineStageId: z.number().optional(),
             customFields: z.record(z.string(), z.any()).optional(),
             value: z.number().optional(),
@@ -450,7 +450,7 @@ export const leadsRouter = router({
                 conditions.push(sql`${leads.createdAt} <= ${new Date(filters.dateTo)}`);
             }
 
-            let query = db.select().from(leads).where(and(...conditions)).orderBy(asc(leads.kanbanOrder));
+            let query = db.select().from(leads).where(and(...conditions)).orderBy(asc(leads.kanbanOrder)).limit(5000);
 
             const filteredLeads = await query;
 

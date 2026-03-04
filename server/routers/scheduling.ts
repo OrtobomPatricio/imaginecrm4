@@ -12,7 +12,8 @@ export const schedulingRouter = router({
         return db.select()
             .from(appointments)
             .where(eq(appointments.tenantId, ctx.tenantId))
-            .orderBy(desc(appointments.appointmentDate));
+            .orderBy(desc(appointments.appointmentDate))
+            .limit(1000);
     }),
 
     listReasons: permissionProcedure("scheduling.view").query(async ({ ctx }) => {
@@ -22,7 +23,8 @@ export const schedulingRouter = router({
         return db.select()
             .from(appointmentReasons)
             .where(and(eq(appointmentReasons.tenantId, ctx.tenantId), eq(appointmentReasons.isActive, true)))
-            .orderBy(appointmentReasons.name);
+            .orderBy(appointmentReasons.name)
+            .limit(200);
     }),
 
     create: permissionProcedure("scheduling.manage")
@@ -146,7 +148,7 @@ export const schedulingRouter = router({
     getTemplates: protectedProcedure.query(async ({ ctx }) => {
         const db = await getDb();
         if (!db) return [];
-        return db.select().from(reminderTemplates).where(and(eq(reminderTemplates.tenantId, ctx.tenantId), eq(reminderTemplates.isActive, true)));
+        return db.select().from(reminderTemplates).where(and(eq(reminderTemplates.tenantId, ctx.tenantId), eq(reminderTemplates.isActive, true))).limit(200);
     }),
 
     saveTemplate: permissionProcedure("scheduling.manage")

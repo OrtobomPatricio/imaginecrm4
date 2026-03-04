@@ -2,7 +2,7 @@ import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
 import { license, usageTracking, users, whatsappNumbers, chatMessages } from "../../drizzle/schema";
 import { getDb } from "../db";
-import { permissionProcedure, router, publicProcedure } from "../_core/trpc";
+import { permissionProcedure, router, protectedProcedure } from "../_core/trpc";
 import { logger, safeError } from "../_core/logger";
 
 export const licensingRouter = router({
@@ -159,9 +159,9 @@ export const licensingRouter = router({
     /**
      * Record usage (called internally)
      */
-    recordUsage: publicProcedure
+    recordUsage: protectedProcedure
         .input(z.object({
-            tenantId: z.number().default(1),
+            tenantId: z.number().optional(),
             messagesSent: z.number().optional(),
             messagesReceived: z.number().optional(),
         }))
@@ -169,6 +169,8 @@ export const licensingRouter = router({
             const db = await getDb();
             if (!db) return;
 
+            // Always use the caller's tenant — ignore input.tenantId for security
+            const tenantId = ctx.tenantId;
             const now = new Date();
             const year = now.getFullYear();
             const month = now.getMonth() + 1;
@@ -176,7 +178,7 @@ export const licensingRouter = router({
             const [existing] = await db.select()
                 .from(usageTracking)
                 .where(and(
-                    eq(usageTracking.tenantId, input.tenantId),
+                    eq(usageTracking.tenantId, tenantId),
                     eq(usageTracking.year, year),
                     eq(usageTracking.month, month)
                 ));
@@ -188,10 +190,10 @@ export const licensingRouter = router({
                         messagesReceived: sql`${usageTracking.messagesReceived} + ${input.messagesReceived || 0}`,
                         updatedAt: new Date(),
                     })
-                    .where(and(eq(usageTracking.tenantId, input.tenantId), eq(usageTracking.id, existing.id)));
+                    .where(and(eq(usageTracking.tenantId, tenantId), eq(usageTracking.id, existing.id)));
             } else {
                 await db.insert(usageTracking).values({
-                    tenantId: input.tenantId,
+                    tenantId,
                     year,
                     month,
                     messagesSent: input.messagesSent || 0,

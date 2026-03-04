@@ -55,13 +55,13 @@ export function registerNativeOAuth(app: Express) {
     const redisSessionStore = createOAuthSessionStore();
 
     const sessionConfig: any = {
-        secret: sessionSecret || 'dev-cookie-secret-local-only',
+        secret: sessionSecret || (isProd ? undefined : 'dev-cookie-secret-local-only'),
         resave: false,
         saveUninitialized: false,
         cookie: {
             secure: isProd,
             httpOnly: true,
-            maxAge: ONE_YEAR_MS,
+            maxAge: 10 * 60 * 1000, // 10 min for OAuth state
         },
     };
 
