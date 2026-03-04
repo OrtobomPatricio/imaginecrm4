@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
+import { PermissionGuard } from "@/components/PermissionGuard";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -105,6 +106,14 @@ function SortableStage({ stage, onDelete, onUpdate }: any) {
 
 
 export default function PipelineSettings() {
+    return (
+        <PermissionGuard permission="kanban.manage">
+            <PipelineSettingsContent />
+        </PermissionGuard>
+    );
+}
+
+function PipelineSettingsContent() {
     const { data: pipelines, isLoading, refetch } = trpc.pipelines.list.useQuery();
     const utils = trpc.useUtils();
 

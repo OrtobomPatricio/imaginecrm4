@@ -13,8 +13,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import HelpdeskQueues from "./HelpdeskQueues";
 import QuickAnswers from "./QuickAnswers";
+import { PermissionGuard } from "@/components/PermissionGuard";
 
 export default function Helpdesk() {
+  return (
+    <PermissionGuard permission="helpdesk.view">
+      <HelpdeskContent />
+    </PermissionGuard>
+  );
+}
+
+function HelpdeskContent() {
   const [selectedConversationId, setSelectedConversationId] = useState<number | null>(null);
   const [queueId, setQueueId] = useState<number | null>(null);
   const [ticketStatus, setTicketStatus] = useState<"pending" | "open" | "closed">("pending");

@@ -28,8 +28,17 @@ import {
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import { PermissionGuard } from "@/components/PermissionGuard";
 
 export default function Scheduling() {
+  return (
+    <PermissionGuard permission="scheduling.view">
+      <SchedulingContent />
+    </PermissionGuard>
+  );
+}
+
+function SchedulingContent() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
 

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { PermissionGuard } from "@/components/PermissionGuard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -579,6 +580,14 @@ function CampaignsTab({ period }: { period: Period }) {
 // ─── Componente principal ────────────────────────────────────────────────────
 
 export default function Analytics() {
+  return (
+    <PermissionGuard permission="analytics.view">
+      <AnalyticsContent />
+    </PermissionGuard>
+  );
+}
+
+function AnalyticsContent() {
   const [period, setPeriod] = useState<Period>("30d");
   const searchParams = new URLSearchParams(window.location.search);
   const defaultTab = searchParams.get("tab") || "overview";

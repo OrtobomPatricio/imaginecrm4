@@ -45,8 +45,17 @@ import { trpc } from "@/lib/trpc";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { PermissionGuard } from "@/components/PermissionGuard";
 
 export default function ChatPage() {
+  return (
+    <PermissionGuard permission="chat.view">
+      <ChatPageContent />
+    </PermissionGuard>
+  );
+}
+
+function ChatPageContent() {
   const [location, setLocation] = useLocation();
   const { isConnected: isWsConnected } = useWebSocket();
 

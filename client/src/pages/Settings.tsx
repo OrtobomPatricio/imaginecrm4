@@ -43,7 +43,7 @@ import { WhatsAppConnectionsList } from "@/components/WhatsAppConnectionsList";
 import { EmbeddedSignupButton } from "@/components/EmbeddedSignupButton";
 import { AddEmailDialog } from "@/components/AddEmailDialog";
 import { EmailConnectionsList } from "@/components/EmailConnectionsList";
-import { BackupRestoreSection, ActivityLogsViewer } from "@/components/SecurityComponents";
+import { ActivityLogsViewer } from "@/components/SecurityComponents";
 import { CustomFieldsManager } from "@/components/CustomFieldsManager";
 import { AddFacebookDialog } from "@/components/AddFacebookDialog";
 import { FacebookPagesList } from "@/components/FacebookPagesList";
@@ -298,7 +298,7 @@ function SettingsContent() {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid w-full h-auto grid-cols-2 md:grid-cols-4 lg:grid-cols-10 gap-y-2">
           <TabsTrigger value="general">General</TabsTrigger>
-          <TabsTrigger value="team">Usuarios</TabsTrigger>
+          <TabsTrigger value="team">Equipo</TabsTrigger>
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
           <TabsTrigger value="distribution">Conexiones</TabsTrigger>
           <TabsTrigger value="sales">Ventas</TabsTrigger>
@@ -735,6 +735,47 @@ function SettingsContent() {
               <FacebookPagesList />
             </CardContent>
           </Card>
+
+          <Card className="mt-4">
+            <CardHeader>
+              <CardTitle>Configuración de Meta Platform</CardTitle>
+              <CardDescription>Credenciales de la app de Meta para Embedded Signup y verificación de webhooks.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid gap-2">
+                  <Label>App ID</Label>
+                  <Input
+                    value={form.metaConfig.appId}
+                    onChange={e => setForm(p => ({ ...p, metaConfig: { ...p.metaConfig, appId: e.target.value } }))}
+                    placeholder="123456789..."
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label>App Secret</Label>
+                  <Input
+                    type="password"
+                    value={form.metaConfig.appSecret}
+                    onChange={e => setForm(p => ({ ...p, metaConfig: { ...p.metaConfig, appSecret: e.target.value } }))}
+                    placeholder="Guardado ••••"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Verify Token</Label>
+                  <Input
+                    value={form.metaConfig.verifyToken}
+                    onChange={e => setForm(p => ({ ...p, metaConfig: { ...p.metaConfig, verifyToken: e.target.value } }))}
+                    placeholder="imagine_crm_verify"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <Button onClick={saveGeneral} disabled={updateGeneral.isPending}>
+                  {updateGeneral.isPending ? "Guardando..." : "Guardar"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="sales" className="space-y-4">
@@ -746,7 +787,6 @@ function SettingsContent() {
         </TabsContent>
 
         <TabsContent value="security" className="space-y-4">
-          <BackupRestoreSection />
           <ActivityLogsViewer />
           <SecurityConfigEditor
             query={settingsQuery}

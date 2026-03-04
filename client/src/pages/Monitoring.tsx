@@ -2,6 +2,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { PermissionGuard } from "@/components/PermissionGuard";
 import { trpc } from "@/lib/trpc";
 import {
   Phone,
@@ -80,6 +81,14 @@ const statusConfig: Record<NumberStatus, { label: string; color: string; icon: R
 };
 
 export default function Monitoring() {
+  return (
+    <PermissionGuard permission="monitoring.view">
+      <MonitoringContent />
+    </PermissionGuard>
+  );
+}
+
+function MonitoringContent() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isConnectDialogOpen, setIsConnectDialogOpen] = useState(false);
   const [selectedNumberId, setSelectedNumberId] = useState<number | null>(null);

@@ -14,8 +14,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PermissionGuard } from "@/components/PermissionGuard";
 
 export default function Backup() {
+    return (
+        <PermissionGuard permission="backups.view" roles={["owner", "admin"]}>
+            <BackupContent />
+        </PermissionGuard>
+    );
+}
+
+function BackupContent() {
     const [isExporting, setIsExporting] = useState(false);
     const [isImporting, setIsImporting] = useState(false);
     const [isRestoring, setIsRestoring] = useState(false);

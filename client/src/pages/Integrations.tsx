@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
 import {
   Card,
   CardContent,
@@ -28,25 +29,32 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { trpc } from "@/lib/trpc";
-import QRCode from "qrcode";
 import { toast } from "sonner";
 import {
   MessageCircle,
   Mail,
-  Database,
   Bot,
   MapPin,
-  Key,
   Workflow,
-  AlertCircle,
   Trash2,
   Send,
-  Activity
+  Activity,
+  ArrowRight
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
-import FacebookSettings from "@/components/FacebookSettings";
+import { PermissionGuard } from "@/components/PermissionGuard";
 
 export default function Integrations() {
+  return (
+    <PermissionGuard permission="integrations.view">
+      <IntegrationsContent />
+    </PermissionGuard>
+  );
+}
+
+function IntegrationsContent() {
+  const [, setLocation] = useLocation();
+
   return (
     <div className="space-y-4">
       <div>
@@ -58,17 +66,66 @@ export default function Integrations() {
 
       <Tabs defaultValue="messaging" className="w-full">
         <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="messaging">Mensajería</TabsTrigger>
+          <TabsTrigger value="messaging">Canales</TabsTrigger>
           <TabsTrigger value="automation">Automatización</TabsTrigger>
           <TabsTrigger value="system">Sistema & IA</TabsTrigger>
         </TabsList>
 
-        {/* MESSAGING TAB */}
+        {/* CHANNELS TAB — links to Settings > Conexiones */}
         <TabsContent value="messaging" className="space-y-4 mt-4">
-          <WhatsAppList />
-          <WhatsAppQrList />
-          <FacebookSettings />
-          <SmtpSettings />
+          <Card>
+            <CardHeader>
+              <CardTitle>Canales de comunicación</CardTitle>
+              <CardDescription>
+                Todos los canales (WhatsApp, Email, Facebook) se administran desde Configuración &gt; Conexiones.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <button
+                  onClick={() => setLocation("/settings?tab=distribution")}
+                  className="flex items-center gap-3 p-4 border rounded-lg hover:bg-muted/50 transition-colors text-left"
+                >
+                  <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30">
+                    <MessageCircle className="w-5 h-5 text-green-600" />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-medium text-sm">WhatsApp</h4>
+                    <p className="text-xs text-muted-foreground">Cloud API y QR</p>
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                </button>
+
+                <button
+                  onClick={() => setLocation("/settings?tab=distribution")}
+                  className="flex items-center gap-3 p-4 border rounded-lg hover:bg-muted/50 transition-colors text-left"
+                >
+                  <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
+                    <Mail className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-medium text-sm">Email (SMTP)</h4>
+                    <p className="text-xs text-muted-foreground">Invitaciones y alertas</p>
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                </button>
+
+                <button
+                  onClick={() => setLocation("/settings?tab=distribution")}
+                  className="flex items-center gap-3 p-4 border rounded-lg hover:bg-muted/50 transition-colors text-left"
+                >
+                  <div className="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-900/30">
+                    <Activity className="w-5 h-5 text-indigo-600" />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-medium text-sm">Facebook Pages</h4>
+                    <p className="text-xs text-muted-foreground">Messenger y páginas</p>
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                </button>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* AUTOMATION TAB */}
@@ -80,7 +137,6 @@ export default function Integrations() {
         <TabsContent value="system" className="space-y-4 mt-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <AiSettings />
-            <StorageSettings />
             <MapsSettings />
           </div>
         </TabsContent>
@@ -90,448 +146,6 @@ export default function Integrations() {
 }
 
 // --- SUB-COMPONENTS ---
-
-function WhatsAppList() {
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [open, setOpen] = useState(false);
-
-  const numbersQuery = trpc.whatsappNumbers.list.useQuery();
-  const updateCreds = trpc.whatsappNumbers.updateCredentials.useMutation({
-    onSuccess: () => {
-      toast.success("Credenciales actualizadas");
-      setOpen(false);
-      setEditingId(null);
-      numbersQuery.refetch();
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const selectedNumber = numbersQuery.data?.find((n) => n.id === editingId);
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <MessageCircle className="w-5 h-5" />
-          WhatsApp Cloud API
-        </CardTitle>
-        <CardDescription>
-          Gestiona los números conectados y sus credenciales de Meta.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {numbersQuery.isLoading && <div className="text-sm">Cargando...</div>}
-        <div className="grid gap-4">
-          {numbersQuery.data
-            ?.filter((num: any) => num.connectionType === 'api' || !num.connectionType)
-            .map((num: any) => {
-              const isConnected = num.connectionType === 'api' ? num.connectionIsConnected : false;
-              return (
-            <div key={num.id} className="flex items-center justify-between p-4 border rounded-lg bg-card">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">{num.phoneNumber}</span>
-                  {num.displayName && <span className="text-muted-foreground">({num.displayName})</span>}
-                </div>
-                <div className="flex items-center gap-2 text-xs">
-                  <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-                  <span className="text-muted-foreground">
-                    {!num.connectionType ? "Sin configurar" : isConnected ? "Conectado" : "Desconectado"}
-                  </span>
-                </div>
-              </div>
-              <Button variant="outline" size="sm" onClick={() => { setEditingId(num.id); setOpen(true); }}>
-                <Key className="w-4 h-4 mr-2" />
-                Configurar
-              </Button>
-            </div>
-              );
-            })}
-
-          {numbersQuery.data?.filter((num: any) => num.connectionType === 'api' || !num.connectionType).length === 0 && (
-            <div className="flex items-center gap-2 p-4 text-sm text-yellow-600 bg-yellow-50 rounded-lg">
-              <AlertCircle className="w-4 h-4" />
-              No hay números registrados. Contacta a soporte para agregar uno.
-            </div>
-          )}
-        </div>
-
-        {/* Dialog for editing credentials */}
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Configurar API WhatsApp</DialogTitle>
-              <DialogDescription>Credenciales del portal de desarrolladores de Meta.</DialogDescription>
-            </DialogHeader>
-            {selectedNumber && (
-              <WhatsAppCredentialForm
-                numberId={selectedNumber.id}
-                onSubmit={(data) => updateCreds.mutate({ id: selectedNumber.id, ...data })}
-                isLoading={updateCreds.isPending}
-              />
-            )}
-          </DialogContent>
-        </Dialog>
-      </CardContent>
-    </Card>
-  );
-}
-
-function WhatsAppCredentialForm({ numberId, onSubmit, isLoading }: { numberId: number, onSubmit: (data: any) => void, isLoading: boolean }) {
-  const detailsQuery = trpc.whatsappNumbers.getById.useQuery({ id: numberId }, { enabled: !!numberId });
-  const [formData, setFormData] = useState({ phoneNumberId: "", businessAccountId: "", accessToken: "" });
-
-  useEffect(() => {
-    if (detailsQuery.data) {
-      setFormData({
-        phoneNumberId: detailsQuery.data.phoneNumberId || "",
-        businessAccountId: detailsQuery.data.businessAccountId || "",
-        accessToken: "",
-      });
-    }
-  }, [detailsQuery.data]);
-
-  return (
-    <div className="space-y-4 py-2">
-      <div className="grid gap-2">
-        <Label>Phone Number ID</Label>
-        <Input value={formData.phoneNumberId} onChange={(e) => setFormData(p => ({ ...p, phoneNumberId: e.target.value }))} />
-      </div>
-      <div className="grid gap-2">
-        <Label>Business Account ID</Label>
-        <Input value={formData.businessAccountId} onChange={(e) => setFormData(p => ({ ...p, businessAccountId: e.target.value }))} />
-      </div>
-      <div className="grid gap-2">
-        <Label>Access Token (Permanente)</Label>
-        <Input type="password" value={formData.accessToken} onChange={(e) => setFormData(p => ({ ...p, accessToken: e.target.value }))} placeholder={detailsQuery.data?.hasAccessToken ? "Guardado" : "EAAG..."} />
-      </div>
-      <DialogFooter>
-        <Button onClick={() => onSubmit(formData)} disabled={isLoading}>
-          {isLoading ? "Guardando..." : "Guardar"}
-        </Button>
-      </DialogFooter>
-    </div>
-  );
-}
-
-
-function WhatsAppQrList() {
-  const numbersQuery = trpc.whatsappNumbers.list.useQuery();
-  const [open, setOpen] = useState(false);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-  const [expiresAt, setExpiresAt] = useState<Date | null>(null);
-
-  const generateQr = trpc.whatsappConnections.generateQr.useMutation({
-    onSuccess: async (res) => {
-      if (!res?.qrCode) {
-        toast.error("No se pudo generar el QR (reintenta)");
-        return;
-      }
-      try {
-        const url = await QRCode.toDataURL(res.qrCode, { margin: 1, width: 260 });
-        setQrDataUrl(url);
-        setExpiresAt(res.expiresAt ? new Date(res.expiresAt) : null);
-        toast.success("QR generado. Escanéalo con WhatsApp");
-      } catch (e: any) {
-        toast.error(e?.message || "Error generando imagen del QR");
-      }
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const disconnect = trpc.whatsappConnections.disconnect.useMutation({
-    onSuccess: () => {
-      toast.success("Desconectado");
-      numbersQuery.refetch();
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const handleOpen = (id: number) => {
-    setSelectedId(id);
-    setQrDataUrl(null);
-    setExpiresAt(null);
-    setOpen(true);
-    generateQr.mutate({ whatsappNumberId: id });
-  };
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Activity className="w-5 h-5" />
-          WhatsApp QR (No oficial)
-        </CardTitle>
-        <CardDescription>
-          Conecta WhatsApp escaneando QR. Recomendado solo para soporte 1 a 1 (sin campañas).
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {numbersQuery.isLoading && <div className="text-sm">Cargando...</div>}
-
-        <div className="grid gap-4">
-          {numbersQuery.data
-            ?.filter((num: any) => num.connectionType === 'qr' || !num.connectionType)
-            .map((num: any) => {
-              const isConnected = num.connectionType === 'qr' ? num.connectionIsConnected : false;
-              return (
-            <div key={num.id} className="flex items-center justify-between p-4 border rounded-lg bg-card">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">{num.phoneNumber}</span>
-                  {num.displayName && <span className="text-muted-foreground">({num.displayName})</span>}
-                </div>
-                <div className="flex items-center gap-2 text-xs">
-                  <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-                  <span className="text-muted-foreground">
-                    {!num.connectionType ? "Sin configurar" : isConnected ? "Conectado" : "Desconectado"}
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => handleOpen(num.id)} disabled={generateQr.isPending}>
-                  <Key className="w-4 h-4 mr-2" />
-                  Generar QR
-                </Button>
-
-                {num.connectionType === 'qr' && (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => disconnect.mutate({ whatsappNumberId: num.id })}
-                  disabled={disconnect.isPending}
-                >
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  Desconectar
-                </Button>
-                )}
-              </div>
-            </div>
-              );
-            })}
-        </div>
-
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogContent className="sm:max-w-[420px]">
-            <DialogHeader>
-              <DialogTitle>Escanea el QR</DialogTitle>
-              <DialogDescription>
-                WhatsApp &gt; Dispositivos vinculados &gt; Vincular un dispositivo.
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="flex flex-col items-center gap-3 py-2">
-              {qrDataUrl ? (
-                <img src={qrDataUrl} alt="QR WhatsApp" className="rounded-lg border" />
-              ) : (
-                <div className="text-sm text-muted-foreground">Generando QR...</div>
-              )}
-
-              {expiresAt && (
-                <div className="text-xs text-muted-foreground">
-                  Expira aprox: {expiresAt.toLocaleTimeString()}
-                </div>
-              )}
-            </div>
-
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => selectedId && generateQr.mutate({ whatsappNumberId: selectedId })}
-                disabled={!selectedId || generateQr.isPending}
-              >
-                Regenerar
-              </Button>
-              <Button onClick={() => setOpen(false)}>Cerrar</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </CardContent>
-    </Card>
-  );
-}
-
-
-function SmtpSettings() {
-  const query = trpc.settings.get.useQuery();
-  const utils = trpc.useUtils();
-  const updateSmtp = trpc.settings.updateSmtpConfig.useMutation({
-    onSuccess: () => { toast.success("SMTP guardado"); utils.settings.get.invalidate(); }
-  });
-  const testSmtp = trpc.smtp.verifySmtpTest.useMutation({
-    onSuccess: () => toast.success("Email enviado"),
-    onError: (e: any) => toast.error(e.message)
-  });
-
-  const [form, setForm] = useState({ host: "", port: 587, secure: false, user: "", pass: "", from: "" });
-  const [hasExistingPassword, setHasExistingPassword] = useState(false);
-  const [testEmail, setTestEmail] = useState("");
-  const [testDialogOpen, setTestDialogOpen] = useState(false);
-
-  useEffect(() => {
-    if (query.data?.smtpConfig) {
-      const config = query.data.smtpConfig as any;
-      // CRITICAL: Don't hydrate password field if it's masked/metadata
-      setForm({
-        host: config.host || "",
-        port: config.port || 587,
-        secure: config.secure || false,
-        user: config.user || "",
-        pass: "", // Never hydrate password
-        from: config.from || ""
-      });
-      setHasExistingPassword(!!config.hasPass);
-    }
-  }, [query.data]);
-
-  const handleSave = () => {
-    // Only include password if user typed a new one
-    const payload: any = {
-      host: form.host,
-      port: form.port,
-      secure: form.secure,
-      user: form.user,
-      from: form.from
-    };
-
-    // Only send password if it was changed
-    if (form.pass.trim()) {
-      payload.pass = form.pass;
-    }
-
-    updateSmtp.mutate(payload);
-  };
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2"><Mail className="w-5 h-5" /> SMTP (Correo)</CardTitle>
-        <CardDescription>Para enviar invitaciones y alertas.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="grid gap-2">
-            <Label>Host</Label>
-            <Input value={form.host} onChange={e => setForm(p => ({ ...p, host: e.target.value }))} placeholder="smtp.gmail.com" />
-          </div>
-          <div className="grid gap-2">
-            <Label>Puerto</Label>
-            <Input type="number" value={form.port} onChange={e => setForm(p => ({ ...p, port: Number(e.target.value) }))} />
-          </div>
-          <div className="grid gap-2">
-            <Label>Usuario</Label>
-            <Input value={form.user} onChange={e => setForm(p => ({ ...p, user: e.target.value }))} />
-          </div>
-          <div className="grid gap-2">
-            <Label>Password</Label>
-            <Input
-              type="password"
-              value={form.pass}
-              onChange={e => setForm(p => ({ ...p, pass: e.target.value }))}
-              placeholder={hasExistingPassword ? "Guardado ••••" : "Password SMTP"}
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label>From</Label>
-            <Input value={form.from} onChange={e => setForm(p => ({ ...p, from: e.target.value }))} />
-          </div>
-          <div className="flex items-center gap-2 pt-8">
-            <Switch checked={form.secure} onCheckedChange={c => setForm(p => ({ ...p, secure: c }))} />
-            <Label>SSL/TLS</Label>
-          </div>
-        </div>
-        <div className="flex justify-between">
-          <Dialog open={testDialogOpen} onOpenChange={setTestDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline">Probar</Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-sm">
-              <DialogHeader>
-                <DialogTitle>Enviar email de prueba</DialogTitle>
-                <DialogDescription>Ingresa el email donde recibir la prueba SMTP.</DialogDescription>
-              </DialogHeader>
-              <Input placeholder="correo@ejemplo.com" value={testEmail} onChange={(e) => setTestEmail(e.target.value)} type="email" />
-              <DialogFooter>
-                <Button
-                  onClick={() => {
-                    if (testEmail) {
-                      testSmtp.mutate({ email: testEmail });
-                      setTestDialogOpen(false);
-                      setTestEmail("");
-                    }
-                  }}
-                  disabled={!testEmail || testSmtp.isPending}
-                >
-                  Enviar
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-          <Button onClick={handleSave} isLoading={updateSmtp.isPending} disabled={updateSmtp.isPending}>
-            Guardar
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function StorageSettings() {
-  const query = trpc.settings.get.useQuery();
-  const updateStorage = trpc.settings.updateStorageConfig.useMutation({
-    onSuccess: () => toast.success("Storage config guardado")
-  });
-  const [form, setForm] = useState({
-    provider: "s3" as "s3" | "forge", bucket: "", region: "", accessKey: "", secretKey: "", endpoint: "", publicUrl: ""
-  });
-
-  useEffect(() => {
-    if (query.data?.storageConfig) {
-      const config = query.data.storageConfig as any;
-      setForm({
-        provider: config.provider || "s3",
-        bucket: config.bucket || "",
-        region: config.region || "",
-        accessKey: "", // Never hydrate secrets
-        secretKey: "", // Never hydrate secrets
-        endpoint: config.endpoint || "",
-        publicUrl: config.publicUrl || ""
-      });
-    }
-  }, [query.data]);
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2"><Database className="w-5 h-5" /> Almacenamiento (S3)</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid gap-2">
-          <Label>Provider</Label>
-          <Select value={form.provider} onValueChange={(v: any) => setForm(p => ({ ...p, provider: v }))}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="s3">AWS S3 / Compatible</SelectItem>
-              <SelectItem value="forge">Forge (Built-in)</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        {form.provider === 's3' && (
-          <>
-            <div className="grid gap-2"><Label>Bucket</Label><Input value={form.bucket} onChange={e => setForm(p => ({ ...p, bucket: e.target.value }))} /></div>
-            <div className="grid gap-2"><Label>Region</Label><Input value={form.region} onChange={e => setForm(p => ({ ...p, region: e.target.value }))} /></div>
-            <div className="grid gap-2"><Label>Endpoint</Label><Input value={form.endpoint} onChange={e => setForm(p => ({ ...p, endpoint: e.target.value }))} /></div>
-            <div className="grid gap-2"><Label>Access Key</Label><Input value={form.accessKey} onChange={e => setForm(p => ({ ...p, accessKey: e.target.value }))} /></div>
-            <div className="grid gap-2"><Label>Secret Key</Label><Input type="password" value={form.secretKey} onChange={e => setForm(p => ({ ...p, secretKey: e.target.value }))} /></div>
-          </>
-        )}
-        <Button onClick={() => updateStorage.mutate(form)} className="w-full" isLoading={updateStorage.isPending} disabled={updateStorage.isPending}>Guardar</Button>
-      </CardContent>
-    </Card>
-  );
-}
 
 function AiSettings() {
   const query = trpc.settings.get.useQuery();

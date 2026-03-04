@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
+import { PermissionGuard } from "@/components/PermissionGuard";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -3648,6 +3649,14 @@ function PlatformMetaConfigPanel() {
    ════════════════════════════════════════════════════════════════════════════ */
 
 export default function SuperAdmin() {
+  return (
+    <PermissionGuard roles={["owner"]}>
+      <SuperAdminContent />
+    </PermissionGuard>
+  );
+}
+
+function SuperAdminContent() {
   const [search, setSearch] = useState("");
   const [mainTab, setMainTab] = useState("overview");
 
