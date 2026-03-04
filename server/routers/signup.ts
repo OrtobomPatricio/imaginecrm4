@@ -167,7 +167,7 @@ export const signupRouter = router({
                         plan: "pro",
                         status: "active",
                         trialEndsAt: trialEnd,
-                    } as any);
+                    });
                     tenantId = tenantResult[0].insertId;
 
                     // 2. Create owner user with email verification token
@@ -185,7 +185,7 @@ export const signupRouter = router({
                         hasSeenTour: false,
                         emailVerifyToken,
                         emailVerified: false,
-                    } as any);
+                    });
                     userId = userResult[0].insertId;
 
                     // 3. Create default app settings

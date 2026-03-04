@@ -104,8 +104,8 @@ export const billingRouter = router({
                     mode: "subscription",
                     payment_method_types: ["card"],
                     line_items: [{ price: priceId, quantity: 1 }],
-                    success_url: `${process.env.APP_URL}/settings/billing?success=true`,
-                    cancel_url: `${process.env.APP_URL}/settings/billing?cancelled=true`,
+                    success_url: `${process.env.APP_URL || process.env.CLIENT_URL || ''}/settings/billing?success=true`,
+                    cancel_url: `${process.env.APP_URL || process.env.CLIENT_URL || ''}/settings/billing?cancelled=true`,
                     metadata: {
                         tenantId: String(ctx.tenantId),
                         plan: input.plan,
@@ -158,7 +158,7 @@ export const billingRouter = router({
 
                 const portal = await client.billingPortal.sessions.create({
                     customer: customerId,
-                    return_url: `${process.env.APP_URL}/settings/billing`,
+                    return_url: `${process.env.APP_URL || process.env.CLIENT_URL || ''}/settings/billing`,
                 });
 
                 return { url: portal.url };

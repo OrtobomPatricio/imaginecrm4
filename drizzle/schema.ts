@@ -11,6 +11,7 @@ export const tenants = mysqlTable("tenants", {
   stripeCustomerId: varchar("stripeCustomerId", { length: 255 }),
   status: mysqlEnum("status", ["active", "suspended", "canceled"]).default("active").notNull(),
   trialEndsAt: timestamp("trialEndsAt"),
+  internalNotes: text("internalNotes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (t) => ({
@@ -39,6 +40,11 @@ export const users = mysqlTable("users", {
   hasSeenTour: boolean("hasSeenTour").default(false).notNull(),
   invitationToken: varchar("invitationToken", { length: 255 }),
   invitationExpires: timestamp("invitationExpires"),
+  // Email verification & password reset
+  emailVerified: boolean("emailVerified").default(false).notNull(),
+  emailVerifyToken: varchar("emailVerifyToken", { length: 255 }),
+  passwordResetToken: varchar("passwordResetToken", { length: 255 }),
+  passwordResetExpires: timestamp("passwordResetExpires"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),

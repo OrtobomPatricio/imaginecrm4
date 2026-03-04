@@ -35,7 +35,6 @@ import SuperAdmin from "./pages/SuperAdmin";
 import { useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import { OnboardingChecklist } from "./components/onboarding/OnboardingChecklist";
 // Redirect component for consolidated routes
 function Redirect({ to }: { to: string }) {
   const [, setLocation] = useLocation();

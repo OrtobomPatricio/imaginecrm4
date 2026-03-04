@@ -8,8 +8,8 @@ export const ENV = {
   whatsappGraphBaseUrl: process.env.WHATSAPP_GRAPH_BASE_URL ?? "https://graph.facebook.com",
   whatsappWebhookVerifyToken: process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN ?? "",
   whatsappAppSecret: process.env.WHATSAPP_APP_SECRET ?? "",
-  forgeApiUrl: process.env.FORGE_API_URL ?? "",
-  forgeApiKey: process.env.FORGE_API_KEY ?? "",
+  forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? process.env.FORGE_API_URL ?? "",
+  forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? process.env.FORGE_API_KEY ?? "",
 };
 
 /**

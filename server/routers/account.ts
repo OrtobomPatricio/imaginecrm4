@@ -37,7 +37,7 @@ export const accountRouter = router({
 
             const [user] = await db.select()
                 .from(users)
-                .where(eq((users as any).emailVerifyToken, input.token))
+                .where(eq(users.emailVerifyToken, input.token))
                 .limit(1);
 
             if (!user) {
@@ -51,7 +51,7 @@ export const accountRouter = router({
                 .set({
                     emailVerified: true,
                     emailVerifyToken: null,
-                } as any)
+                })
                 .where(eq(users.id, user.id));
 
             logger.info({ userId: user.id, email: user.email }, "[Account] Email verified");
@@ -71,16 +71,15 @@ export const accountRouter = router({
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
             const user = ctx.user!;
-            const userData = user as any;
 
-            if (userData.emailVerified) {
+            if ((user as any).emailVerified) {
                 return { success: true, message: "Tu email ya está verificado." };
             }
 
             // Generate new token
             const newToken = crypto.randomBytes(32).toString("hex");
             await db.update(users)
-                .set({ emailVerifyToken: newToken } as any)
+                .set({ emailVerifyToken: newToken })
                 .where(eq(users.id, user.id));
 
             const appUrl = process.env.APP_URL || "https://app.imaginecrm.com";
@@ -145,7 +144,7 @@ export const accountRouter = router({
                 .set({
                     passwordResetToken: resetToken,
                     passwordResetExpires: resetExpires,
-                } as any)
+                })
                 .where(eq(users.id, user.id));
 
             const appUrl = process.env.APP_URL || "https://app.imaginecrm.com";
@@ -194,7 +193,7 @@ export const accountRouter = router({
 
             const [user] = await db.select()
                 .from(users)
-                .where(eq((users as any).passwordResetToken, input.token))
+                .where(eq(users.passwordResetToken, input.token))
                 .limit(1);
 
             if (!user) {
@@ -205,7 +204,7 @@ export const accountRouter = router({
             }
 
             // Check token expiry
-            const resetExpires = (user as any).passwordResetExpires as Date | null;
+            const resetExpires = user.passwordResetExpires as Date | null;
             if (!resetExpires || new Date() > resetExpires) {
                 throw new TRPCError({
                     code: "BAD_REQUEST",
@@ -221,7 +220,7 @@ export const accountRouter = router({
                     password: hashedPassword,
                     passwordResetToken: null,
                     passwordResetExpires: null,
-                } as any)
+                })
                 .where(eq(users.id, user.id));
 
             logger.info({ userId: user.id }, "[Account] Password reset completed");

@@ -185,8 +185,13 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
     }
 
     await ensureColumn("tenants", "trialEndsAt", "`trialEndsAt` TIMESTAMP NULL", "tenants.trialEndsAt column");
+    await ensureColumn("tenants", "internalNotes", "`internalNotes` TEXT NULL", "tenants.internalNotes column");
 
     await ensureColumn("users", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "users.tenantId column");
+    await ensureColumn("users", "emailVerified", "`emailVerified` BOOLEAN NOT NULL DEFAULT FALSE", "users.emailVerified column");
+    await ensureColumn("users", "emailVerifyToken", "`emailVerifyToken` VARCHAR(255) NULL", "users.emailVerifyToken column");
+    await ensureColumn("users", "passwordResetToken", "`passwordResetToken` VARCHAR(255) NULL", "users.passwordResetToken column");
+    await ensureColumn("users", "passwordResetExpires", "`passwordResetExpires` TIMESTAMP NULL", "users.passwordResetExpires column");
     await ensureColumn("users", "gdprConsentAt", "`gdprConsentAt` TIMESTAMP NULL", "users.gdprConsentAt column");
     await ensureColumn("users", "gdprConsentVersion", "`gdprConsentVersion` VARCHAR(20) NULL", "users.gdprConsentVersion column");
     await ensureColumn("users", "marketingConsent", "`marketingConsent` BOOLEAN NOT NULL DEFAULT FALSE", "users.marketingConsent column");

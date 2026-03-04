@@ -318,7 +318,7 @@ function ChatWindow({ recipient, onBack, currentUser }: { recipient: { id: numbe
                             <div key={i} className="relative shrink-0 group">
                                 <div className="h-16 w-16 rounded border bg-slate-100 flex items-center justify-center overflow-hidden">
                                     {att.type === 'image' ? (
-                                        <img src={att.url} className="h-full w-full object-cover" />
+                                        <img src={att.url} alt={att.name || "Adjunto"} className="h-full w-full object-cover" />
                                     ) : (
                                         <FileIcon className="h-6 w-6 text-slate-400" />
                                     )}
