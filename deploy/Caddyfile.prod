@@ -1,12 +1,23 @@
 {
-    # Email para certificados SSL de Let's Encrypt
     acme_ca https://acme-v02.api.letsencrypt.org/directory
-    email youremail@example.com
+    email {$ACME_EMAIL}
+}
+
+# Snippet con headers de seguridad (reutilizable)
+(security_headers) {
+    header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    header X-Content-Type-Options "nosniff"
+    header X-Frame-Options "SAMEORIGIN"
+    header Referrer-Policy "strict-origin-when-cross-origin"
+    header Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    header -Server
 }
 
 # Dominio principal (landing page, login, signup)
 {$APP_DOMAIN} {
+    encode gzip zstd
     reverse_proxy app:3000
+    import security_headers
     tls {
         dns cloudflare {env.CLOUDFLARE_API_TOKEN}
     }
@@ -14,7 +25,9 @@
 
 # Subdominios wildcard para los tenants
 *.{$APP_DOMAIN} {
+    encode gzip zstd
     reverse_proxy app:3000
+    import security_headers
     tls {
         dns cloudflare {env.CLOUDFLARE_API_TOKEN}
     }

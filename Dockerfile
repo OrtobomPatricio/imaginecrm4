@@ -39,7 +39,7 @@ RUN pnpm exec vite build --logLevel error && \
 # Prune for production
 RUN pnpm prune --prod
 
-FROM node:20 AS runner
+FROM node:20-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3000

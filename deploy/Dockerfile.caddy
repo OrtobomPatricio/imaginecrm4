@@ -1,2 +1,2 @@
 FROM caddy:2
-COPY Caddyfile /etc/caddy/Caddyfile
+COPY deploy/Caddyfile.prod /etc/caddy/Caddyfile

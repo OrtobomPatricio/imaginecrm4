@@ -24,7 +24,36 @@ vitest.config.ts
 
 # Documentation & Misc
 README.md
+CONTRIBUTING.md
+CHANGELOG.md
+SETUP.md
+TROUBLESHOOTING.md
+INICIAR-AQUI.md
+QUICK-START.bat
 docs
 deployment_guide.md
 START_LOCAL.md
 todo.md
+
+# Windows/Dev scripts
+*.bat
+*.ps1
+start-dev.sh
+check-server.ps1
+
+# Test & CI files
+e2e
+stryker.config.mjs
+playwright.config.ts
+
+# Debug/fix files
+errors.txt
+tsc_output*.txt
+tsc_new.txt
+debug_wa.ts
+inspect_users.ts
+fix_db*.sql
+fix-database.sql
+fix_tenant_id.py
+insert_settings.sql
+patch-tenants*.ts
