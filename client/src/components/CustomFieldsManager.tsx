@@ -28,7 +28,7 @@ export function CustomFieldsManager() {
         name: "",
         fieldType: "text" as "text" | "number" | "date" | "select",
         options: "",
-        entityType: "lead" as "lead" | "contact",
+        entityType: "lead" as "lead" | "contact" | "company",
         isRequired: false,
     });
 
@@ -183,6 +183,7 @@ export function CustomFieldsManager() {
                                         <SelectContent>
                                             <SelectItem value="lead">Leads</SelectItem>
                                             <SelectItem value="contact">Contactos</SelectItem>
+                                            <SelectItem value="company">Empresas</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </div>

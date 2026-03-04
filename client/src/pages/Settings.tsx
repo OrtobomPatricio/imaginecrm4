@@ -26,7 +26,7 @@ import {
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { useEffect, useMemo, useState } from "react";
-import { SecurityTabContent } from "@/components/SecurityTabContent";
+// SecurityTabContent removed — its sections (IPs, logs, sessions) are now handled by SecurityConfigEditor + ActivityLogsViewer
 import { Forbidden } from "@/components/Forbidden";
 
 import { usePermissions } from "@/_core/hooks/usePermissions";
@@ -415,6 +415,7 @@ function SettingsContent() {
                   <SelectContent>
                     <SelectItem value="manual">Manual (Sin asignación automática)</SelectItem>
                     <SelectItem value="round_robin">Round Robin (Cíclico)</SelectItem>
+                    <SelectItem value="all_agents">Todos los Agentes (Broadcast)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -660,12 +661,10 @@ function SettingsContent() {
         </TabsContent>
 
         <TabsContent value="security" className="space-y-4">
-          <ActivityLogsViewer />
           <SecurityConfigEditor
             query={settingsQuery}
-            updateMutation={updateGeneral}
           />
-          <SecurityTabContent />
+          <ActivityLogsViewer />
         </TabsContent>
 
 

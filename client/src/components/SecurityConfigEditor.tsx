@@ -7,13 +7,22 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 import { ActiveSessionsWidget } from "./ActiveSessionsWidget";
+import { trpc } from "@/lib/trpc";
 
 interface SecurityConfigEditorProps {
     query: any;
-    updateMutation: any;
+    updateMutation?: any;
 }
 
-export function SecurityConfigEditor({ query, updateMutation }: SecurityConfigEditorProps) {
+export function SecurityConfigEditor({ query }: SecurityConfigEditorProps) {
+    const utils = trpc.useUtils();
+    const updateSecurity = trpc.settings.updateSecurityConfig.useMutation({
+        onSuccess: () => {
+            toast.success("Configuración de seguridad guardada");
+            utils.settings.get.invalidate();
+        },
+        onError: (e: any) => toast.error(`Error: ${e.message}`),
+    });
     const [form, setForm] = useState({
         allowedIps: "",
         maxLoginAttempts: 5,
@@ -36,15 +45,12 @@ export function SecurityConfigEditor({ query, updateMutation }: SecurityConfigEd
             .map(ip => ip.trim())
             .filter(ip => ip.length > 0);
 
-        updateMutation.mutate({
+        updateSecurity.mutate({
             securityConfig: {
                 allowedIps: allowedIpsArray,
                 maxLoginAttempts: form.maxLoginAttempts,
                 sessionTimeoutMinutes: form.sessionTimeoutMinutes,
             },
-        }, {
-            onSuccess: () => toast.success("Configuración de seguridad guardada"),
-            onError: (e: any) => toast.error(`Error: ${e.message}`),
         });
     };
 
@@ -106,8 +112,8 @@ export function SecurityConfigEditor({ query, updateMutation }: SecurityConfigEd
                     </div>
 
                     <div className="flex justify-end">
-                        <Button onClick={handleSave} disabled={updateMutation.isPending}>
-                            {updateMutation.isPending ? "Guardando..." : "Guardar Configuración"}
+                        <Button onClick={handleSave} disabled={updateSecurity.isPending}>
+                            {updateSecurity.isPending ? "Guardando..." : "Guardar Configuración"}
                         </Button>
                     </div>
                 </CardContent>
