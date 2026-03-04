@@ -47,6 +47,15 @@ export const accountRouter = router({
                 });
             }
 
+            // Enforce 24h token expiry based on user updatedAt (token set at last update)
+            const tokenAge = Date.now() - new Date(user.updatedAt).getTime();
+            if (tokenAge > VERIFY_TOKEN_EXPIRY_MS) {
+                throw new TRPCError({
+                    code: "BAD_REQUEST",
+                    message: "El token de verificación ha expirado. Solicita uno nuevo desde tu cuenta.",
+                });
+            }
+
             await db.update(users)
                 .set({
                     emailVerified: true,
@@ -85,7 +94,7 @@ export const accountRouter = router({
             const appUrl = process.env.APP_URL || "https://app.imaginecrm.com";
             const verifyUrl = `${appUrl}/verify-email?token=${newToken}`;
 
-            await sendEmail({
+            const result = await sendEmail({
                 tenantId: ctx.tenantId,
                 to: user.email!,
                 subject: "Verifica tu email - Imagine CRM",
@@ -99,6 +108,11 @@ export const accountRouter = router({
                     </div>
                 `,
             });
+
+            if (!result.sent) {
+                logger.warn({ userId: user.id, reason: result.reason }, "[Account] Verification email could not be sent");
+                return { success: false, message: "No se pudo enviar el email. Verifica la configuración SMTP." };
+            }
 
             logger.info({ userId: user.id }, "[Account] Verification email resent");
             return { success: true, message: "Email de verificación reenviado." };
@@ -150,7 +164,7 @@ export const accountRouter = router({
             const appUrl = process.env.APP_URL || "https://app.imaginecrm.com";
             const resetUrl = `${appUrl}/reset-password?token=${resetToken}`;
 
-            await sendEmail({
+            const emailResult = await sendEmail({
                 tenantId: user.tenantId,
                 to: user.email!,
                 subject: "Recuperar contraseña - Imagine CRM",
@@ -165,8 +179,12 @@ export const accountRouter = router({
                 `,
             });
 
+            if (!emailResult.sent) {
+                logger.warn({ userId: user.id, reason: emailResult.reason }, "[Account] Password reset email could not be sent");
+            }
+
             clearRateLimit(rateLimitKey, 'auth');
-            logger.info({ userId: user.id }, "[Account] Password reset email sent");
+            logger.info({ userId: user.id, sent: emailResult.sent }, "[Account] Password reset processed");
 
             return { success: true, message: "Si el email existe, recibirás un enlace de recuperación." };
         }),

@@ -1,5 +1,6 @@
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
+import { Strategy as FacebookStrategy } from 'passport-facebook';
 import { OIDCStrategy } from 'passport-azure-ad';
 import type { Express, Request, Response } from 'express';
 import session from 'express-session';
@@ -175,6 +176,110 @@ export function registerNativeOAuth(app: Express) {
         logger.info('✅ Google OAuth enabled');
     } else {
         logger.info('⚠️  Google OAuth disabled (missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET)');
+    }
+
+    // ==========================================
+    // FACEBOOK OAUTH STRATEGY
+    // ==========================================
+    const facebookAppId = process.env.FACEBOOK_APP_ID;
+    const facebookAppSecret = process.env.FACEBOOK_APP_SECRET;
+
+    if (facebookAppId && facebookAppSecret) {
+        passport.use(
+            new FacebookStrategy(
+                {
+                    clientID: facebookAppId,
+                    clientSecret: facebookAppSecret,
+                    callbackURL: `${baseUrl}/api/auth/facebook/callback`,
+                    profileFields: ['id', 'displayName', 'emails'],
+                    enableProof: true,
+                },
+                async (accessToken: string, refreshToken: string, profile: any, done: any) => {
+                    try {
+                        logger.info('[FacebookOAuth] Profile received:', profile.id);
+                        const user: Express.User = {
+                            openId: `fb_${profile.id}`,
+                            name: profile.displayName,
+                            email: profile.emails?.[0]?.value,
+                            platform: 'facebook',
+                        };
+                        done(null, user);
+                    } catch (error) {
+                        done(error as Error, undefined);
+                    }
+                }
+            )
+        );
+
+        // Facebook Login Route
+        app.get(
+            '/api/auth/facebook',
+            passport.authenticate('facebook', {
+                scope: ['email'],
+            })
+        );
+
+        // Facebook Callback Route
+        app.get(
+            '/api/auth/facebook/callback',
+            passport.authenticate('facebook', { failureRedirect: '/login?error=facebook_auth_failed' }),
+            async (req: Request, res: Response) => {
+                try {
+                    const user = req.user as Express.User;
+                    if (!user || !user.openId) {
+                        return res.redirect('/login?error=no_user_data');
+                    }
+
+                    let provisionedUser;
+                    try {
+                        provisionedUser = await db.resolveProvisionedOAuthUser(user.openId, user.email || null);
+                    } catch (error: any) {
+                        if (error?.code === 'AMBIGUOUS_TENANT') {
+                            return res.redirect('/login?error=ambiguous_tenant');
+                        }
+                        throw error;
+                    }
+
+                    if (!provisionedUser) {
+                        return res.redirect('/login?error=not_provisioned');
+                    }
+
+                    const ownerEmail = process.env.OWNER_EMAIL;
+                    const isOwner = ownerEmail && user.email && user.email.toLowerCase() === ownerEmail.toLowerCase();
+
+                    await db.upsertUser({
+                        tenantId: provisionedUser.tenantId,
+                        openId: provisionedUser.openId,
+                        name: user.name || provisionedUser.name || null,
+                        email: user.email || provisionedUser.email || null,
+                        loginMethod: 'facebook',
+                        lastSignedIn: new Date(),
+                        role: isOwner ? 'owner' : provisionedUser.role,
+                    });
+
+                    // Create session token
+                    const sessionToken = await sdk.createSessionToken(provisionedUser.openId, {
+                        name: user.name || '',
+                        expiresInMs: ONE_YEAR_MS,
+                        ipAddress: req.ip,
+                        userAgent: req.headers['user-agent'] as string,
+                    });
+
+                    // Set cookie
+                    const cookieOptions = getSessionCookieOptions(req);
+                    res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+
+                    res.redirect('/');
+                } catch (error) {
+                    logger.error('[OAuth] Facebook callback failed:', error);
+                    res.redirect('/login?error=callback_failed');
+                }
+            }
+        );
+
+        logger.info('✅ Facebook OAuth enabled');
+    } else {
+        logger.info('⚠️  Facebook OAuth disabled (missing FACEBOOK_APP_ID or FACEBOOK_APP_SECRET)');
     }
 
     // ==========================================

@@ -247,6 +247,10 @@ export const signupRouter = router({
                             <p style="color: #666; font-size: 12px;">Si no creaste esta cuenta, ignora este email.</p>
                         </div>
                     `,
+                }).then(result => {
+                    if (!result.sent) {
+                        logger.warn({ tenantId, email: input.email, reason: result.reason }, "[Signup] Verification email NOT sent");
+                    }
                 }).catch(err => logger.error({ err }, "[Signup] Failed to send verification email"));
 
                 return {
