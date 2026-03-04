@@ -10,7 +10,7 @@ import {
     SelectValue
 } from "@/components/ui/select";
 import { useOnboarding } from "@/hooks/useOnboarding";
-import { X, Plus, UserPlus, Mail } from "lucide-react";
+import { X, Plus, UserPlus, Mail, Loader2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useToast } from "@/hooks/use-toast";
 
@@ -29,6 +29,8 @@ export default function Step2Team() {
     const [invites, setInvites] = useState<Invite[]>([
         { email: "", role: "agent" }
     ]);
+    const [isSending, setIsSending] = useState(false);
+    const inviteMutation = trpc.team.invite.useMutation();
 
     const addInvite = () => setInvites([...invites, { email: "", role: "agent" }]);
     const removeInvite = (index: number) => {
@@ -47,8 +49,36 @@ export default function Step2Team() {
         const validInvites = invites.filter(i => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(i.email));
 
         if (validInvites.length > 0) {
-            // Note: Use teamRouter.invite to send actual emails
-            toast({ title: "Invitaciones enviadas", description: `${validInvites.length} miembros invitados.` });
+            setIsSending(true);
+            let successCount = 0;
+            let failCount = 0;
+
+            for (const inv of validInvites) {
+                try {
+                    const result = await inviteMutation.mutateAsync({
+                        name: inv.email.split('@')[0],
+                        email: inv.email,
+                        role: inv.role as "admin" | "supervisor" | "agent" | "viewer",
+                    });
+                    successCount++;
+                    // If SMTP wasn't configured, show the manual invite link
+                    if ((result as any).smtpWarning) {
+                        toast({ title: "Usuario creado", description: `${inv.email} fue creado pero el email no se envió (SMTP no configurado). Comparte el link de invitación manualmente desde Configuración → Equipo.`, variant: "destructive" });
+                    }
+                } catch (err: any) {
+                    failCount++;
+                    console.warn(`[Onboarding] Failed to invite ${inv.email}:`, err.message);
+                }
+            }
+
+            setIsSending(false);
+
+            if (successCount > 0) {
+                toast({ title: "Invitaciones enviadas", description: `${successCount} miembro(s) invitado(s) correctamente.` });
+            }
+            if (failCount > 0) {
+                toast({ title: "Algunas invitaciones fallaron", description: `${failCount} invitación(es) no se pudieron enviar. Puedes reintentarlas desde Configuración → Equipo.`, variant: "destructive" });
+            }
         }
 
         await nextStep(validInvites);
@@ -117,9 +147,10 @@ export default function Step2Team() {
                 <Button
                     className="w-full bg-blue-600 hover:bg-blue-700 h-12 text-lg"
                     onClick={handleContinue}
+                    disabled={isSending}
                 >
-                    <UserPlus className="w-5 h-5 mr-2" />
-                    Enviar e Invitar
+                    {isSending ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <UserPlus className="w-5 h-5 mr-2" />}
+                    {isSending ? "Enviando invitaciones..." : "Enviar e Invitar"}
                 </Button>
                 <Button
                     variant="ghost"

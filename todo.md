@@ -44,14 +44,14 @@
 - [x] Tema visual consistente
 
 ## Integración WhatsApp Business API
-- [ ] Configurar credenciales de Meta (Access Token, Phone Number ID, Business Account ID)
-- [ ] Crear servicio de WhatsApp Business API en el backend
-- [ ] Implementar envío de mensajes de texto
-- [ ] Implementar envío de mensajes con plantillas
-- [ ] Sincronizar estados de conexión de números
-- [ ] Recibir webhooks de estado de mensajes (enviado, entregado, leído)
-- [ ] Actualizar interfaz de campañas para enviar mensajes reales
-- [ ] Actualizar monitoreo con estados en tiempo real
+- [x] Configurar credenciales de Meta (Access Token, Phone Number ID, Business Account ID)
+- [x] Crear servicio de WhatsApp Business API en el backend
+- [x] Implementar envío de mensajes de texto
+- [x] Implementar envío de mensajes con plantillas
+- [x] Sincronizar estados de conexión de números
+- [x] Recibir webhooks de estado de mensajes (enviado, entregado, leído)
+- [x] Actualizar interfaz de campañas para enviar mensajes reales
+- [x] Actualizar monitoreo con estados en tiempo real
 
 ## Mejoras Visuales v2
 - [x] Botón de cambio Dark/Light mode en header

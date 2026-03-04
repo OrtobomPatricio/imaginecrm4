@@ -239,7 +239,7 @@ async function processEmailCampaignBatch(campaign: typeof campaigns.$inferSelect
                 notes: lead.notes,
             });
 
-            const ok = await sendEmail({
+            const result = await sendEmail({
                 tenantId: campaign.tenantId,
                 to: String(lead.email),
                 subject: campaign.name,
@@ -247,8 +247,8 @@ async function processEmailCampaignBatch(campaign: typeof campaigns.$inferSelect
                 text: html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
             });
 
-            if (!ok) {
-                await updateRecipientStatus(db, recipient.id, "failed", "SMTP no configurado");
+            if (!result.sent) {
+                await updateRecipientStatus(db, recipient.id, "failed", result.reason === "NO_SMTP_CONFIG" ? "SMTP no configurado" : "Error al enviar email");
                 await db.update(campaigns)
                     .set({ messagesFailed: sql`${campaigns.messagesFailed} + 1` })
                     .where(eq(campaigns.id, campaign.id));

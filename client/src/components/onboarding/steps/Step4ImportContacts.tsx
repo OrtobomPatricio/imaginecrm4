@@ -1,24 +1,99 @@
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { useOnboarding } from "@/hooks/useOnboarding";
-import { UploadCloud, FileSpreadsheet, Check, AlertCircle, Trash2, Database } from "lucide-react";
+import { UploadCloud, FileSpreadsheet, Check, AlertCircle, Trash2, Database, Loader2 } from "lucide-react";
+import { trpc } from "@/lib/trpc";
+import { useToast } from "@/hooks/use-toast";
 
 /**
  * Step 4: Import Contacts (CSV)
+ *
+ * Parses CSV client-side to show preview stats,
+ * then sends to backend via trpc.backup.importLeadsCSV for actual import.
  */
+
+/** Simple CSV parser — splits lines and detects rows with phone-like data */
+function parseCSVPreview(text: string): { valid: number; invalid: number; totalRows: number } {
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) return { valid: 0, invalid: 0, totalRows: 0 }; // header + at least 1 row
+
+    const header = lines[0].toLowerCase();
+    const hasPhoneCol = /phone|telefono|teléfono|celular|whatsapp|número|numero|tel/.test(header);
+    const hasNameCol = /name|nombre|first|last|contacto/.test(header);
+
+    let valid = 0;
+    let invalid = 0;
+
+    for (let i = 1; i < lines.length; i++) {
+        const cells = lines[i].split(/[,;\t]/);
+        // A row is "valid" if it has at least 2 non-empty cells and one looks like a phone number
+        const hasPhone = cells.some(c => /\+?\d[\d\s\-()]{6,}/.test(c.trim()));
+        const hasNonEmpty = cells.filter(c => c.trim()).length >= 2;
+        if (hasPhone && hasNonEmpty) {
+            valid++;
+        } else if (lines[i].trim()) {
+            invalid++;
+        }
+    }
+
+    return { valid, invalid, totalRows: lines.length - 1 };
+}
 
 export default function Step4ImportContacts() {
     const { nextStep, skipStep, prevStep } = useOnboarding();
+    const { toast } = useToast();
     const [file, setFile] = useState<File | null>(null);
+    const [csvContent, setCsvContent] = useState<string>("");
     const [stats, setStats] = useState({ valid: 0, invalid: 0 });
+    const [isImporting, setIsImporting] = useState(false);
+    const [imported, setImported] = useState(false);
+
+    const importMutation = trpc.backup.importLeadsCSV.useMutation({
+        onSuccess: (result) => {
+            setImported(true);
+            setIsImporting(false);
+            toast({ title: "¡Contactos importados!", description: `${(result as any).created ?? stats.valid} leads creados correctamente.` });
+        },
+        onError: (err) => {
+            setIsImporting(false);
+            toast({ title: "Error al importar", description: err.message, variant: "destructive" });
+        }
+    });
 
     const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
         const f = e.target.files?.[0];
-        if (f) {
-            setFile(f);
-            // Simular análisis de CSV
-            setStats({ valid: 45, invalid: 2 });
+        if (!f) return;
+
+        setFile(f);
+        setImported(false);
+
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const text = ev.target?.result as string;
+            setCsvContent(text);
+            const preview = parseCSVPreview(text);
+            setStats({ valid: preview.valid, invalid: preview.invalid });
+        };
+        reader.readAsText(f);
+    };
+
+    const handleImport = async () => {
+        if (!csvContent) return;
+        setIsImporting(true);
+        importMutation.mutate({ csvContent });
+    };
+
+    const handleImportAndContinue = async () => {
+        if (imported) {
+            nextStep({ fileName: file?.name, imported: true });
+        } else if (csvContent) {
+            setIsImporting(true);
+            try {
+                await importMutation.mutateAsync({ csvContent });
+                nextStep({ fileName: file?.name, imported: true });
+            } catch {
+                // Error handled by onError above
+            }
         }
     };
 
@@ -26,7 +101,7 @@ export default function Step4ImportContacts() {
         <div className="space-y-6">
             <div className="text-center mb-8">
                 <h2 className="text-2xl font-bold">Importa tus Prospectos</h2>
-                <p className="text-slate-500 text-sm">No empieces de cero. Carga un archivo CSV o Excel con tus contactos.</p>
+                <p className="text-slate-500 text-sm">No empieces de cero. Carga un archivo CSV con tus contactos.</p>
             </div>
 
             {!file ? (
@@ -40,11 +115,12 @@ export default function Step4ImportContacts() {
                     <h3 className="font-bold text-lg mb-1">Click para subir CSV</h3>
                     <p className="text-xs text-slate-400 max-w-xs mx-auto">
                         Asegúrate de que el archivo tenga columnas de nombre y teléfono.
+                        Separadores aceptados: coma, punto y coma, o tabulación.
                     </p>
                     <input
                         id="csv-upload"
                         type="file"
-                        accept=".csv,.xlsx"
+                        accept=".csv"
                         className="hidden"
                         onChange={handleFile}
                     />
@@ -57,9 +133,9 @@ export default function Step4ImportContacts() {
                         </div>
                         <div className="flex-1 min-w-0">
                             <p className="font-bold truncate">{file.name}</p>
-                            <p className="text-xs text-slate-500">{(file.size / 1024).toFixed(1)} KB</p>
+                            <p className="text-xs text-slate-500">{(file.size / 1024).toFixed(1)} KB — {stats.valid + stats.invalid} filas detectadas</p>
                         </div>
-                        <Button variant="ghost" size="icon" onClick={() => setFile(null)}>
+                        <Button variant="ghost" size="icon" onClick={() => { setFile(null); setCsvContent(""); setStats({ valid: 0, invalid: 0 }); setImported(false); }}>
                             <Trash2 className="w-4 h-4 text-slate-400" />
                         </Button>
                     </div>
@@ -75,11 +151,17 @@ export default function Step4ImportContacts() {
                         <div className="p-4 bg-red-50 dark:bg-red-900/10 rounded-xl border border-red-100 dark:border-red-800">
                             <div className="flex items-center gap-2 text-red-700 dark:text-red-400 mb-1">
                                 <AlertCircle className="w-4 h-4" />
-                                <span className="text-xs font-bold uppercase">Errores</span>
+                                <span className="text-xs font-bold uppercase">Con errores</span>
                             </div>
                             <span className="text-2xl font-bold">{stats.invalid}</span>
                         </div>
                     </div>
+
+                    {imported && (
+                        <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl text-center">
+                            <p className="text-sm font-semibold text-green-700 dark:text-green-300">✓ Contactos importados correctamente</p>
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -99,10 +181,18 @@ export default function Step4ImportContacts() {
             <div className="flex flex-col gap-3 pt-6">
                 <Button
                     className="w-full bg-blue-600 hover:bg-blue-700 h-12 text-lg"
-                    disabled={!file}
-                    onClick={() => nextStep({ fileName: file?.name })}
+                    disabled={!file || isImporting || stats.valid === 0}
+                    onClick={handleImportAndContinue}
                 >
-                    {file ? `Importar ${stats.valid} Contactos` : "Seleccionar Archivo"}
+                    {isImporting ? (
+                        <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Importando...</>
+                    ) : imported ? (
+                        "Continuar"
+                    ) : file && stats.valid > 0 ? (
+                        `Importar ${stats.valid} Contactos`
+                    ) : (
+                        "Seleccionar Archivo"
+                    )}
                 </Button>
                 <Button
                     variant="ghost"

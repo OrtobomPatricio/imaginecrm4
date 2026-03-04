@@ -33,21 +33,20 @@ export async function getSmtpConfig(tenantId: number) {
     };
 }
 
-export async function sendEmail({ tenantId, to, subject, html, text }: SendEmailOptions) {
+export async function sendEmail({ tenantId, to, subject, html, text }: SendEmailOptions): Promise<{ sent: boolean; reason?: string }> {
     // Basic email format validation
     if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
         logger.warn({ to }, "[Email Service] Invalid 'to' address, skipping");
-        return false;
+        return { sent: false, reason: "INVALID_ADDRESS" };
     }
 
     const config = await getSmtpConfig(tenantId);
 
-    // If no SMTP config, we just log it (in dev/preview)
+    // If no SMTP config, log and return explicit reason
     if (!config) {
-        logger.info(`[Email Service] No SMTP config found. Mock sending to ${to}`);
+        logger.info(`[Email Service] No SMTP config found for tenant ${tenantId}. Cannot send to ${to}`);
         logger.info(`[Email Service] Subject: ${subject}`);
-        logger.info(`[Email Service] Content length: ${html?.length ?? text?.length ?? 0}`);
-        return false;
+        return { sent: false, reason: "NO_SMTP_CONFIG" };
     }
 
     const transporter = nodemailer.createTransport({
@@ -69,7 +68,7 @@ export async function sendEmail({ tenantId, to, subject, html, text }: SendEmail
             ...(text ? { text } : {}),
         });
         logger.info(`[Email Service] Email sent: ${info.messageId}`);
-        return true;
+        return { sent: true };
     } catch (error) {
         logger.error('[Email Service] Error sending email:', error);
         throw error;

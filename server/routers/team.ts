@@ -178,7 +178,7 @@ export const teamRouter = router({
             const baseUrl = process.env.VITE_API_URL || "http://localhost:3000";
             const inviteLink = `${baseUrl}/setup-account?token=${token}`;
 
-            await sendEmail({
+            const emailResult = await sendEmail({
                 tenantId: ctx.tenantId,
                 to: input.email,
                 subject: "Welcome to Imagine CRM - Setup your account",
@@ -191,7 +191,12 @@ export const teamRouter = router({
           `,
             });
 
-            return { success: true };
+            return {
+                success: true,
+                emailSent: emailResult.sent,
+                smtpWarning: emailResult.reason === "NO_SMTP_CONFIG" ? "El usuario fue creado pero el email no se pudo enviar porque SMTP no está configurado. Comparte el link manualmente." : undefined,
+                inviteLink: !emailResult.sent ? inviteLink : undefined,
+            };
         }),
 
     delete: permissionProcedure("users.manage")

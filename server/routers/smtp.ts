@@ -129,13 +129,13 @@ export const smtpRouter = router({
     verifySmtpTest: permissionProcedure("settings.manage")
         .input(z.object({ email: z.string().includes("@") }))
         .mutation(async ({ input, ctx }) => {
-            const sent = await sendEmail({
+            const result = await sendEmail({
                 tenantId: ctx.tenantId,
                 to: input.email,
                 subject: "Test SMTP Connection - Imagine CRM",
                 html: "<p>If you see this, your SMTP configuration is working correctly! 🚀</p>",
             });
-            if (!sent) throw new Error("Failed to send email. Check server logs.");
+            if (!result.sent) throw new Error(result.reason === "NO_SMTP_CONFIG" ? "SMTP no está configurado. Ve a Configuración → Email para agregar tus credenciales SMTP." : "Error al enviar email. Revisa los logs del servidor.");
             return { success: true };
         }),
 });
