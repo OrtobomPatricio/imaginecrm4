@@ -56,6 +56,7 @@ export function BillingSettings() {
     };
 
     const planNames: Record<string, string> = {
+        free: 'Gratis',
         starter: 'Starter',
         pro: 'Pro',
         enterprise: 'Enterprise',
@@ -230,14 +231,29 @@ export function BillingSettings() {
                             description="API oficial de Meta"
                         />
                         <FeatureRow 
+                            name="Campañas Multicanal" 
+                            included={true}
+                            description="WhatsApp y Email marketing"
+                        />
+                        <FeatureRow 
+                            name="Automatizaciones" 
+                            included={true}
+                            description="Flujos y triggers automáticos"
+                        />
+                        <FeatureRow 
                             name="Webhooks" 
                             included={license.plan === 'pro' || license.plan === 'enterprise'}
                             description="Integraciones con n8n, Zapier"
                         />
                         <FeatureRow 
+                            name="Inteligencia Artificial" 
+                            included={license.plan === 'pro' || license.plan === 'enterprise'}
+                            description="Asistente IA con OpenAI, Anthropic o Gemini"
+                        />
+                        <FeatureRow 
                             name="Reportes Avanzados" 
-                            included={license.plan === 'enterprise'}
-                            description="Analytics y exportación"
+                            included={license.plan === 'pro' || license.plan === 'enterprise'}
+                            description="Analytics y exportación CSV"
                         />
                         <FeatureRow 
                             name="Soporte Prioritario" 
@@ -296,6 +312,7 @@ function BillingActions({ isActive }: { isActive: boolean }) {
         const success = params.get("success");
         const plan = params.get("plan");
         const storedSubId = sessionStorage.getItem("pp_sub_id");
+        const cleanUrl = `${window.location.pathname}?tab=billing`;
 
         if (success === "true" && plan && storedSubId) {
             sessionStorage.removeItem("pp_sub_id");
@@ -303,12 +320,12 @@ function BillingActions({ isActive }: { isActive: boolean }) {
                 subscriptionId: storedSubId,
                 plan: plan as "starter" | "pro" | "enterprise",
             });
-            window.history.replaceState({}, "", window.location.pathname);
+            window.history.replaceState({}, "", cleanUrl);
         } else if (params.get("cancelled") === "true") {
             sessionStorage.removeItem("pp_sub_id");
             setCancelled(true);
             setShowPlans(true);
-            window.history.replaceState({}, "", window.location.pathname);
+            window.history.replaceState({}, "", cleanUrl);
         }
     }, []);
 

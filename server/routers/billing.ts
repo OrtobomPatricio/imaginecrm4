@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
-import { tenants } from "../../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { tenants, license } from "../../drizzle/schema";
+import { eq, and } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { logger } from "../_core/logger";
 
@@ -146,8 +146,8 @@ export const billingRouter = router({
                             locale: "es-ES",
                             shipping_preference: "NO_SHIPPING",
                             user_action: "SUBSCRIBE_NOW",
-                            return_url: `${returnBase}/settings/billing?success=true&plan=${input.plan}&tenantId=${ctx.tenantId}`,
-                            cancel_url: `${returnBase}/settings/billing?cancelled=true`,
+                            return_url: `${returnBase}/settings?tab=billing&success=true&plan=${input.plan}&tenantId=${ctx.tenantId}`,
+                            cancel_url: `${returnBase}/settings?tab=billing&cancelled=true`,
                         },
                         custom_id: `${ctx.tenantId}|${input.plan}`,
                     }),
@@ -246,6 +246,22 @@ export const billingRouter = router({
                     plan: input.plan,
                     paypalSubscriptionId: input.subscriptionId,
                 } as any).where(eq(tenants.id, ctx.tenantId));
+
+                // Sync license limits with the new plan
+                const planLimits = PLANS[input.plan];
+                const [existingLicense] = await db.select().from(license)
+                    .where(eq(license.tenantId, ctx.tenantId)).limit(1);
+
+                if (existingLicense) {
+                    await db.update(license).set({
+                        status: 'active',
+                        plan: input.plan,
+                        maxUsers: planLimits.maxUsers,
+                        maxWhatsappNumbers: planLimits.maxWaNumbers,
+                        maxMessagesPerMonth: planLimits.maxMessages,
+                        updatedAt: new Date(),
+                    }).where(and(eq(license.tenantId, ctx.tenantId), eq(license.id, existingLicense.id)));
+                }
 
                 logger.info(
                     { tenantId: ctx.tenantId, plan: input.plan, subscriptionId: input.subscriptionId },
