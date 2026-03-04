@@ -30,6 +30,7 @@ export async function checkSLA() {
             .where(and(
                 eq(conversations.tenantId, settings.tenantId),
                 eq(conversations.status, 'active'),
+                lte(conversations.lastMessageAt, thresholdDate),
             ));
 
         logger.info({ tenantId: settings.tenantId, count: breached.length }, `[SLA] Checked tenant threshold: ${thresholdDate.toISOString()}`);

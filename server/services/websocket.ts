@@ -93,6 +93,7 @@ export interface SocketData {
     userId?: number;
     userRole?: string;
     userName?: string;
+    tenantId?: number;
     authenticated: boolean;
 }
 

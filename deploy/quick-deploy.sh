@@ -6,14 +6,10 @@ set -e
 
 echo "🚀 Starting auto-deployment..."
 
-# Git config
-git config --global user.name "OrtobomPatricio"
-git config --global user.email "ortobompatricio@gmail.com"
-
 # Commit and push
 echo "📝 Committing changes..."
 git add .
-git commit -m "fix: WhatsApp messaging - DB schema + React Hooks fixes" || echo "No changes to commit"
+git commit -m "chore: auto-deploy update" || echo "No changes to commit"
 
 echo "⬆️  Pushing to GitHub..."
 git push origin main

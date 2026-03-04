@@ -155,7 +155,7 @@ async function sendReminderMessage(reminder: typeof leadReminders.$inferSelect):
             fromMe: true,
             createdAt: new Date(),
             reminderId: reminder.id,
-        });
+        }, reminder.tenantId);
 
         logger.info(`[RemindersWorker] Sent reminder ${reminder.id} to lead ${reminder.leadId}`);
         return { success: true };

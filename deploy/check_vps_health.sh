@@ -16,7 +16,7 @@ echo "\n🧪 Prueba Curl Local (App:3000):"
 curl -I http://localhost:3000
 
 echo "\n🧪 Prueba Curl Local (Caddy:80):"
-curl -I -H "Host: 168.231.98.244.nip.io" http://localhost:80
+curl -I http://localhost:80
 
 echo "\n📝 Logs Recientes (App):"
 docker compose logs --tail=20 app

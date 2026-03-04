@@ -99,7 +99,7 @@ export const MessageHandler = {
                     messageId: messages[0].id,
                     status,
                     timestamp: new Date(),
-                });
+                }, tenantId);
             }
         }
     },
@@ -291,7 +291,7 @@ export const MessageHandler = {
                 content: text,
                 fromMe,
                 createdAt: messageTimestamp,
-            });
+            }, tenantId);
         } catch (error) {
             logger.error("Error handling incoming message:", error);
         }

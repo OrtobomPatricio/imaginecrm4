@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 # Colores
 GREEN='\033[0;32m'

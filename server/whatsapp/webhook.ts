@@ -366,7 +366,7 @@ export async function processMetaWebhookPayload(payload: any, _opts: { skipSigna
             content,
             fromMe: false,
             createdAt: ts,
-          });
+          }, tenantId);
 
         } catch (e) {
           logger.error({ err: safeError(e), phoneNumberId }, "failed processing inbound message");

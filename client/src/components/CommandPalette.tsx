@@ -142,7 +142,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                     <>
                         <CommandSeparator />
                         <CommandGroup heading="Navegación rápida">
-                            <CommandItem onSelect={() => handleSelect("/dashboard")}>
+                            <CommandItem onSelect={() => handleSelect("/")}>
                                 <BarChart3 className="mr-2 h-4 w-4" />
                                 Dashboard
                                 <span className="ml-auto text-xs text-muted-foreground">Alt+D</span>
@@ -151,9 +151,9 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                                 <User className="mr-2 h-4 w-4" />
                                 Leads
                             </CommandItem>
-                            <CommandItem onSelect={() => handleSelect("/kanban")}>
+                            <CommandItem onSelect={() => handleSelect("/settings/pipelines")}>
                                 <LayoutGrid className="mr-2 h-4 w-4" />
-                                Pipeline Kanban
+                                Pipelines
                             </CommandItem>
                             <CommandItem onSelect={() => handleSelect("/chat")}>
                                 <MessageSquare className="mr-2 h-4 w-4" />
@@ -163,9 +163,9 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                                 <Calendar className="mr-2 h-4 w-4" />
                                 Agenda
                             </CommandItem>
-                            <CommandItem onSelect={() => handleSelect("/whatsapp")}>
+                            <CommandItem onSelect={() => handleSelect("/integrations")}>
                                 <Phone className="mr-2 h-4 w-4" />
-                                WhatsApp
+                                Integraciones
                             </CommandItem>
                             <CommandItem onSelect={() => handleSelect("/settings")}>
                                 <Settings className="mr-2 h-4 w-4" />

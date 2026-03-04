@@ -37,7 +37,7 @@ services:
     networks:
       - app_network
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: [ "CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme}", "ping" ]
       interval: 5s
       timeout: 3s
       retries: 3
@@ -65,7 +65,7 @@ services:
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: mysql://${MYSQL_USER:-crm}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-chin_crm}
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:-changeme}@redis:6379
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       OWNER_OPEN_ID: ${OWNER_OPEN_ID:-}
       OWNER_EMAIL: ${OWNER_EMAIL:-}

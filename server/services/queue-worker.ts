@@ -259,10 +259,10 @@ export class MessageQueueWorker {
         const db = await getDb();
         if (!db) throw new Error("Database not available");
 
-        // Get connection details
+        // Get connection details (tenant-scoped)
         const [connection] = await db.select()
             .from(whatsappConnections)
-            .where(eq(whatsappConnections.whatsappNumberId, conversation.whatsappNumberId));
+            .where(and(eq(whatsappConnections.whatsappNumberId, conversation.whatsappNumberId), eq(whatsappConnections.tenantId, item.tenantId)));
 
         if (!connection || !connection.isConnected) {
             throw new Error("WhatsApp Cloud API not connected");

@@ -18,7 +18,9 @@ apt-get install -y nginx ufw
 
 echo "🔵 Installing Docker Engine + Docker Compose..."
 if ! command -v docker &> /dev/null; then
-    curl -fsSL https://get.docker.com | sh
+    curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+    sh /tmp/get-docker.sh
+    rm -f /tmp/get-docker.sh
     echo "✅ Docker installed successfully."
 else
     echo "✅ Docker is already installed."

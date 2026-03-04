@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 # Script de actualización para Imagine CRM Pro (DOCKER version)
 # Colores

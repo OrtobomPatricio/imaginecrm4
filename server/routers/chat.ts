@@ -562,7 +562,7 @@ export const chatRouter = router({
                 content: input.content ?? (input.templateName ? `Template: ${input.templateName}` : ""),
                 fromMe: true,
                 createdAt: now,
-            });
+            }, ctx.tenantId);
 
             if (isFacebook) {
                 // --- FACEBOOK SEND LOGIC ---
