@@ -57,6 +57,8 @@ export async function getDb() {
         queueLimit: 0,
         enableKeepAlive: true,
         keepAliveInitialDelay: 0,
+        // Enable SSL/TLS in production for encrypted DB connections
+        ...(isProd && process.env.DB_SSL !== "0" ? { ssl: { rejectUnauthorized: true } } : {}),
       });
     }
 

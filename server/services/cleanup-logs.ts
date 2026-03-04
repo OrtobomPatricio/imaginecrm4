@@ -18,6 +18,8 @@ export function startLogCleanup() {
             const cutoffDate = new Date();
             cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
 
+            // NOTA: Política de retención GLOBAL de la plataforma (90 días).
+            // Aplica a TODOS los tenants por igual. No es configurable por tenant.
             // Delete old access logs
             const deletedAccess = await db
                 .delete(accessLogs)

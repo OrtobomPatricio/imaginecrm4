@@ -55,7 +55,10 @@ export const users = mysqlTable("users", {
   marketingConsent: boolean("marketingConsent").default(false).notNull(),
   marketingConsentAt: timestamp("marketingConsentAt"),
   dataRetentionUntil: timestamp("dataRetentionUntil"), // Scheduled deletion date
-});
+}, (t) => ({
+  idxTenantEmail: index("idx_users_tenant_email").on(t.tenantId, t.email),
+  idxTenantActive: index("idx_users_tenant_active").on(t.tenantId, t.isActive),
+}));
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
@@ -297,6 +300,9 @@ export const leads = mysqlTable("leads", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (t) => ({
   uniqPhone: uniqueIndex("uniq_leads_phone").on(t.tenantId, t.phone),
+  idxTenantStage: index("idx_leads_tenant_stage").on(t.tenantId, t.pipelineStageId, t.kanbanOrder),
+  idxTenantAssigned: index("idx_leads_tenant_assigned").on(t.tenantId, t.assignedToId),
+  idxTenantDeleted: index("idx_leads_tenant_deleted").on(t.tenantId, t.deletedAt),
 }));
 
 export type Lead = typeof leads.$inferSelect;
@@ -387,7 +393,9 @@ export const activityLogs = mysqlTable("activity_logs", {
   entityId: int("entityId"),
   details: json("details"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (t) => ({
+  idxTenantCreated: index("idx_activity_logs_tenant_created").on(t.tenantId, t.createdAt),
+}));
 
 export type ActivityLog = typeof activityLogs.$inferSelect;
 export type InsertActivityLog = typeof activityLogs.$inferInsert;
@@ -512,7 +520,9 @@ export const appointments = mysqlTable("appointments", {
   createdById: int("createdById").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (t) => ({
+  idxTenantDateStatus: index("idx_appointments_tenant_date_status").on(t.tenantId, t.appointmentDate, t.status),
+}));
 
 export type Appointment = typeof appointments.$inferSelect;
 export type InsertAppointment = typeof appointments.$inferInsert;
@@ -595,6 +605,9 @@ export const conversations = mysqlTable("conversations", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (t) => ({
   idxWhatsappLast: index("idx_conversations_whatsapp_last").on(t.whatsappNumberId, t.lastMessageAt),
+  idxTenantStatusLast: index("idx_conversations_tenant_status").on(t.tenantId, t.status, t.lastMessageAt),
+  idxTenantAssigned: index("idx_conversations_tenant_assigned").on(t.tenantId, t.assignedToId),
+  idxTenantLead: index("idx_conversations_tenant_lead").on(t.tenantId, t.leadId),
 }));
 
 export type Conversation = typeof conversations.$inferSelect;

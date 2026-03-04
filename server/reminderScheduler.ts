@@ -12,6 +12,7 @@ import { processScheduledDeletions } from "./services/gdpr-delete";
 import { logger } from "./_core/logger";
 
 interface ReminderJob {
+    tenantId: number;
     appointmentId: number;
     phone: string;
     firstName: string;
@@ -45,17 +46,18 @@ async function sendReminder(job: ReminderJob): Promise<boolean> {
             return false;
         }
 
-        // Get first available WhatsApp number with active connection
+        // Get first available WhatsApp number for THIS tenant
         const whatsappData = await db
             .select({
                 phoneNumberId: whatsappNumbers.id,
-                cloudPhoneNumberId: whatsappConnections.phoneNumberId, // Use connection's phone number ID
+                cloudPhoneNumberId: whatsappConnections.phoneNumberId,
                 accessToken: whatsappConnections.accessToken,
             })
             .from(whatsappNumbers)
             .leftJoin(whatsappConnections, eq(whatsappNumbers.id, whatsappConnections.whatsappNumberId))
             .where(
                 and(
+                    eq(whatsappNumbers.tenantId, job.tenantId),
                     eq(whatsappNumbers.status, "active"),
                     eq(whatsappConnections.isConnected, true)
                 )
@@ -106,7 +108,7 @@ async function sendReminder(job: ReminderJob): Promise<boolean> {
 }
 
 /**
- * Process reminders for a specific daysBefore value
+ * Process reminders for a specific daysBefore value, scoped by tenantId
  */
 async function processReminders(daysBefore: number): Promise<void> {
     try {
@@ -116,7 +118,7 @@ async function processReminders(daysBefore: number): Promise<void> {
             return;
         }
 
-        // Get active templates for this daysBefore
+        // Get active templates grouped by tenant to ensure tenant isolation
         const templates = await db
             .select()
             .from(reminderTemplates)
@@ -132,56 +134,63 @@ async function processReminders(daysBefore: number): Promise<void> {
             return;
         }
 
-        // Use the first active template
-        const template = templates[0];
-
         // Calculate target date (e.g., if daysBefore=1, target is tomorrow)
         const targetDate = addDays(new Date(), daysBefore);
         const targetDateStr = format(targetDate, "yyyy-MM-dd");
 
-        // Get appointments for target date
-        const upcomingAppointments = await db
-            .select({
-                id: appointments.id,
-                firstName: appointments.firstName,
-                phone: appointments.phone,
-                appointmentDate: appointments.appointmentDate,
-                appointmentTime: appointments.appointmentTime,
-            })
-            .from(appointments)
-            .where(
-                and(
-                    eq(appointments.status, "scheduled"),
-                    sql`DATE(${appointments.appointmentDate}) = ${targetDateStr}`
-                )
+        // Process each template within its own tenant context
+        for (const template of templates) {
+            const tenantId = template.tenantId;
+            if (!tenantId) continue;
+
+            // Get appointments ONLY for this template's tenant
+            const upcomingAppointments = await db
+                .select({
+                    id: appointments.id,
+                    firstName: appointments.firstName,
+                    phone: appointments.phone,
+                    appointmentDate: appointments.appointmentDate,
+                    appointmentTime: appointments.appointmentTime,
+                })
+                .from(appointments)
+                .where(
+                    and(
+                        eq(appointments.tenantId, tenantId),
+                        eq(appointments.status, "scheduled"),
+                        sql`DATE(${appointments.appointmentDate}) = ${targetDateStr}`
+                    )
+                );
+
+            logger.info(
+                { tenantId, daysBefore, targetDate: targetDateStr, count: upcomingAppointments.length },
+                "[Reminders] Processing appointments for tenant"
             );
 
-        logger.info(
-            `[Reminders] Found ${upcomingAppointments.length} appointments for ${targetDateStr} (${daysBefore} days from now)`
-        );
+            // Send reminders
+            let successCount = 0;
+            for (const apt of upcomingAppointments) {
+                const job: ReminderJob = {
+                    tenantId,
+                    appointmentId: apt.id,
+                    phone: apt.phone,
+                    firstName: apt.firstName,
+                    appointmentDate: new Date(apt.appointmentDate),
+                    appointmentTime: apt.appointmentTime,
+                    templateContent: template.content,
+                };
 
-        // Send reminders
-        let successCount = 0;
-        for (const apt of upcomingAppointments) {
-            const job: ReminderJob = {
-                appointmentId: apt.id,
-                phone: apt.phone,
-                firstName: apt.firstName,
-                appointmentDate: new Date(apt.appointmentDate),
-                appointmentTime: apt.appointmentTime,
-                templateContent: template.content,
-            };
+                const success = await sendReminder(job);
+                if (success) successCount++;
 
-            const success = await sendReminder(job);
-            if (success) successCount++;
+                // Wait 1 second between messages to avoid rate limits
+                await new Promise((resolve) => setTimeout(resolve, 1000));
+            }
 
-            // Wait 1 second between messages to avoid rate limits
-            await new Promise((resolve) => setTimeout(resolve, 1000));
+            logger.info(
+                { tenantId, daysBefore, total: upcomingAppointments.length, sent: successCount },
+                "[Reminders] Reminders sent for tenant"
+            );
         }
-
-        logger.info(
-            `[Reminders] Processed ${upcomingAppointments.length} appointments, sent ${successCount} reminders`
-        );
     } catch (error) {
         logger.error(`[Reminders] Error processing reminders for daysBefore=${daysBefore}:`, error);
     }

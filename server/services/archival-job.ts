@@ -59,6 +59,9 @@ export function startArchivalJob(): void {
             }
 
             // Archive old chat messages in batches
+            // NOTA: Esta es una política de retención GLOBAL de la plataforma.
+            // Aplica a TODOS los tenants por igual (no es configurable por tenant).
+            // Si se necesita retención personalizada por tenant, refactorizar para iterar por tenantId.
             let totalArchived = 0;
             let batchCount = 0;
 
