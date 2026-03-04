@@ -15,6 +15,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -188,13 +189,6 @@ function SettingsContent() {
     };
   }, [settingsQuery.data]);
 
-  const availablePermissionRoles = useMemo(() => {
-    const matrix = settingsQuery.data?.permissionsMatrix ?? initialMatrix;
-    return Object.keys(matrix ?? {}).sort();
-  }, [settingsQuery.data, initialMatrix]);
-
-  const [matrixText, setMatrixText] = useState("{");
-
   const customRoleKeys = useMemo(() => {
     try {
       return Object.keys(initialMatrix ?? {});
@@ -231,7 +225,7 @@ function SettingsContent() {
       },
     });
 
-    setMatrixText(JSON.stringify(initialMatrix, null, 2));
+
   }, [settingsQuery.data, initialMatrix]);
 
   const saveGeneral = () => {
@@ -255,14 +249,7 @@ function SettingsContent() {
     });
   };
 
-  const saveMatrix = () => {
-    try {
-      const parsed = JSON.parse(matrixText);
-      updatePerms.mutate({ permissionsMatrix: parsed });
-    } catch {
-      toast.error("JSON inválido en permisos");
-    }
-  };
+
 
   const search = useSearch();
   const [activeTab, setActiveTab] = useState("general");
@@ -642,7 +629,9 @@ function SettingsContent() {
                               </DialogDescription>
                             </DialogHeader>
                             <DialogFooter>
-                              <Button variant="outline">Cancelar</Button>
+                              <DialogClose asChild>
+                                <Button variant="outline">Cancelar</Button>
+                              </DialogClose>
                               <Button
                                 variant="destructive"
                                 onClick={() => deleteUser.mutate({ userId: u.id })}

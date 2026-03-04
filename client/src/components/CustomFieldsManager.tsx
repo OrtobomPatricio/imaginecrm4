@@ -186,6 +186,17 @@ export function CustomFieldsManager() {
                                         </SelectContent>
                                     </Select>
                                 </div>
+
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="checkbox"
+                                        id="isRequired"
+                                        checked={form.isRequired}
+                                        onChange={(e) => setForm(p => ({ ...p, isRequired: e.target.checked }))}
+                                        className="h-4 w-4 rounded border-gray-300"
+                                    />
+                                    <Label htmlFor="isRequired">Campo obligatorio</Label>
+                                </div>
                             </div>
 
                             <DialogFooter>
