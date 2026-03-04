@@ -34,7 +34,7 @@ server/routers/
 ├── analytics.ts            ✅ Presente
 ├── auth.ts                 ✅ Presente (Auth completo)
 ├── backup.ts               ✅ Presente
-├── billing.ts              ✅ Presente (Stripe)
+├── billing.ts              ✅ Presente (PayPal)
 ├── campaigns.ts            ✅ Presente
 ├── chat.ts                 ✅ Presente
 ├── custom-fields.ts        ✅ Presente
@@ -59,7 +59,7 @@ server/routers/
 ├── settings.ts             ✅ Presente
 ├── signup.ts               ✅ Presente
 ├── smtp.ts                 ✅ Presente
-├── stripe-webhook.ts       ✅ Presente
+├── paypal-webhook.ts       ✅ Presente
 ├── superadmin.ts           ✅ Presente
 ├── tags.ts                 ✅ Presente
 ├── team.ts                 ✅ Presente
@@ -234,12 +234,12 @@ server/_core/
 | `server/routers/facebook.ts` | ✅ Presente | Router de Facebook |
 | `server/_core/facebook.ts` | ✅ Presente | Core de Facebook |
 
-### Stripe ✅
+### PayPal ✅
 
 | Componente | Estado | Descripción |
 |------------|--------|-------------|
 | `server/routers/billing.ts` | ✅ Presente | Facturación |
-| `server/routers/stripe-webhook.ts` | ✅ Presente | Webhooks de Stripe |
+| `server/routers/paypal-webhook.ts` | ✅ Presente | Webhooks de PayPal |
 
 ### OAuth (Google/Microsoft) ✅
 
@@ -465,7 +465,7 @@ deploy/
 - [x] Campañas masivas
 - [x] Workflows/Automatizaciones
 - [x] Calendario/Agendamiento
-- [x] Facturación (Stripe)
+- [x] Facturación (PayPal)
 - [x] Reportes y analytics
 - [x] Helpdesk/Soporte
 - [x] GDPR (export/delete)
@@ -475,7 +475,7 @@ deploy/
 
 - [x] WhatsApp Business API
 - [x] Meta/Facebook
-- [x] Stripe
+- [x] PayPal
 - [x] Google OAuth
 - [x] Microsoft OAuth
 - [x] n8n

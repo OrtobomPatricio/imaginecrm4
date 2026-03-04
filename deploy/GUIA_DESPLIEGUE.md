@@ -7,7 +7,7 @@ Esta guía cubre los pasos para desplegar ImagineCRM en un servidor Linux (Ubunt
 * **Cloudflare** (Recomendado): Para gestionar DNS y obtener certificados SSL para subdominios wildcard (`*.micrm.com`) de forma automática.
 
 **Cuentas de servicios:**
-* Stripe (para pagos)
+* PayPal (para pagos)
 * Servidor SMTP (ej: SendGrid, Mailgun) para enviar emails.
 * (Opcional) WhatsApp Cloud API.
 
@@ -41,7 +41,7 @@ cd /opt/imaginecrm
 cp deploy/production.env.example .env
 nano .env
 ```
-Completa todas las variables requeridas, especialmente `APP_DOMAIN`, `JWT_SECRET`, `DATA_ENCRYPTION_KEY`, `MYSQL_PASSWORD`, `STRIPE_SECRET_KEY` y las de `SMTP`.
+Completa todas las variables requeridas, especialmente `APP_DOMAIN`, `JWT_SECRET`, `DATA_ENCRYPTION_KEY`, `MYSQL_PASSWORD`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` y las de `SMTP`.
 
 Configurar Caddy (HTTPS Automático):
 1. Crea un token de API en Cloudflare con permisos para editar DNS.

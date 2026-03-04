@@ -6,7 +6,7 @@
 ## Acciones por Nivel de Riesgo:
 
 ### 🔴 CRÍTICO (Pago Fallido):
-* **Disparador:** Alerta del sistema de monitoreo de Stripe o revisión manual de webhooks fallidos.
+* **Disparador:** Alerta del sistema de monitoreo de PayPal o revisión manual de webhooks fallidos.
 * **Acción Inmediata:**
   1. **Contacto Telefónico:** El ejecutivo de cuenta asignado debe llamar al owner del tenant inmediatamente.
   2. **Email Personalizado:** Enviar un email con el asunto "Acción Urgente Requerida: Problema con tu Pago en ImagineCRM", explicando que la cuenta será suspendida y ofreciendo ayuda para actualizar el método de pago.

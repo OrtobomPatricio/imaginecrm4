@@ -408,8 +408,8 @@ La autenticación se realiza mediante **cookies JWT** (`HttpOnly`, `Secure`, `Sa
 
 | Endpoint | Acceso | Parámetros |
 |---|---|---|
-| `billing.createCheckoutSession` | Autenticado | `plan`: enum |
-| `billing.getBillingPortal` | Autenticado | — |
+| `billing.createSubscription` | Autenticado | `plan`: enum |
+| `billing.getManageUrl` | Autenticado | — |
 
 ---
 

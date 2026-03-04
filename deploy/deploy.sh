@@ -98,7 +98,7 @@ ${BOLD}VARIABLES DE ENTORNO REQUERIDAS:${NC}
   JWT_SECRET        Secreto para tokens JWT (mínimo 32 chars)
   DATA_ENCRYPTION_KEY Clave de cifrado de datos (32 chars hex)
   MYSQL_PASSWORD    Contraseña de MySQL
-  STRIPE_SECRET_KEY Clave secreta de Stripe (para billing)
+  PAYPAL_CLIENT_ID  Client ID de PayPal (para billing)
   SMTP_HOST         Servidor SMTP para emails
 
 ${BOLD}EJEMPLOS:${NC}
@@ -279,12 +279,14 @@ WHATSAPP_APP_SECRET=
 WHATSAPP_GRAPH_VERSION=v19.0
 WHATSAPP_GRAPH_BASE_URL=https://graph.facebook.com
 
-# ─── Stripe (Billing) ───────────────────────────────────────
-STRIPE_SECRET_KEY=
-STRIPE_WEBHOOK_SECRET=
-STRIPE_PRICE_STARTER=
-STRIPE_PRICE_PRO=
-STRIPE_PRICE_ENTERPRISE=
+# ─── PayPal (Billing) ───────────────────────────────────────
+PAYPAL_CLIENT_ID=
+PAYPAL_CLIENT_SECRET=
+PAYPAL_MODE=sandbox
+PAYPAL_WEBHOOK_ID=
+PAYPAL_PLAN_STARTER=
+PAYPAL_PLAN_PRO=
+PAYPAL_PLAN_ENTERPRISE=
 
 # ─── Email (SMTP) ───────────────────────────────────────────
 SMTP_HOST=
@@ -307,10 +309,10 @@ BOOTSTRAP_ADMIN_PASSWORD=$(openssl rand -base64 16 | tr -d '/+=' | head -c 16)
 EOF
 
   log INFO "Archivo .env generado en: $ENV_FILE"
-  log WARN "IMPORTANTE: Completa las variables de Stripe y SMTP antes de continuar"
+  log WARN "IMPORTANTE: Completa las variables de PayPal y SMTP antes de continuar"
   echo ""
   echo -e "${YELLOW}${BOLD}Variables que debes completar manualmente:${NC}"
-  echo "  STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_*"
+  echo "  PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, PAYPAL_WEBHOOK_ID, PAYPAL_PLAN_*"
   echo "  SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS"
   echo ""
 }
@@ -585,7 +587,7 @@ do_full_deploy() {
     generate_env
     echo ""
     echo -e "${YELLOW}${BOLD}⚠️  Se generó un nuevo .env en: $ENV_FILE${NC}"
-    echo -e "${YELLOW}Completa las variables de Stripe y SMTP antes de continuar.${NC}"
+    echo -e "${YELLOW}Completa las variables de PayPal y SMTP antes de continuar.${NC}"
     echo ""
     read -rp "¿Deseas continuar con el despliegue ahora? [s/N]: " confirm
     if [[ ! "$confirm" =~ ^[sS]$ ]]; then
@@ -643,7 +645,7 @@ do_full_deploy() {
   echo "  Rollback:      ./deploy/deploy.sh --rollback"
   echo ""
   echo -e "${YELLOW}⚠️  Guarda las credenciales del admin en un lugar seguro.${NC}"
-  echo -e "${YELLOW}⚠️  Configura Stripe y SMTP en .env si aún no lo hiciste.${NC}"
+  echo -e "${YELLOW}⚠️  Configura PayPal y SMTP en .env si aún no lo hiciste.${NC}"
   echo ""
   log INFO "Log completo disponible en: $LOG_FILE"
 }

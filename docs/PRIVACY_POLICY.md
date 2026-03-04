@@ -39,7 +39,7 @@ Puede ejercer los siguientes derechos a través de la sección de Privacidad en 
 ## 6. Subprocesadores
 Para operar el servicio, utilizamos los siguientes proveedores de confianza:
 - **AWS (Amazon Web Services):** Almacenamiento y hosting (Región: Frankfurt/París).
-- **Stripe:** Procesamiento de pagos y suscripciones.
+- **PayPal:** Procesamiento de pagos y suscripciones.
 - **Meta (Facebook/WhatsApp):** Conectividad de mensajería API.
 - **Sentry:** Monitoreo de errores y rendimiento.
 

@@ -178,7 +178,7 @@ export default function PrivacyPage() {
                         <h2>3. Transferencias Internacionales</h2>
                         <p>
                             Sus datos se almacenan principalmente en servidores dentro de la Unión Europea.
-                            Sin embargo, al utilizar integraciones como Meta (WhatsApp) o Stripe, algunos datos
+                            Sin embargo, al utilizar integraciones como Meta (WhatsApp) o PayPal, algunos datos
                             pueden procesarse en los EE.UU. bajo Cláusulas Contractuales Estándar (SCC).
                         </p>
                     </section>

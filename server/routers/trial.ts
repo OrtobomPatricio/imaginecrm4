@@ -10,7 +10,6 @@ import { logger } from "../_core/logger";
  * Free Trial & Proration Service
  *
  * - 14-day free trial on Pro plan for new tenants
- * - Proration on mid-cycle plan changes via Stripe
  * - Churn survey data collection on cancellation
  */
 
@@ -101,9 +100,5 @@ export const trialRouter = router({
                 success: true,
                 message: "Gracias por tu feedback. Lo usaremos para mejorar.",
             };
-        }),
-
-    // Prorate plan change is not supported with PayPal subscriptions. Use the PayPal dashboard to manage plan changes.
-                // Code related to Stripe proration has been removed.
         }),
 });

@@ -41,7 +41,7 @@ Seguimos la especificación de [Conventional Commits](https://www.conventionalco
 `<tipo>(<scope opcional>): <descripción corta>`
 
 **Tipos Permitidos:**
-- `feat`: Añade una nueva característica o módulo (ej: `feat(billing): add stripe payment gateway`).
+- `feat`: Añade una nueva característica o módulo (ej: `feat(billing): add paypal payment gateway`).
 - `fix`: Resuelve un bug o parchea seguridad (ej: `fix(security): enforce tenant filtering in lead deletion`).
 - `docs`: Solo cambios de documentación (ej: `docs: update setup guide in README`).
 - `style`: Estilizado de código sin efecto en la lógica (espacios, comas, etc.).

@@ -41,7 +41,7 @@ CRM PRO V4 es una plataforma SaaS (Software como Servicio) de gestión de relaci
 
 - Los precios están sujetos a cambios con aviso previo de 30 días.
 - Las suscripciones se renuevan automáticamente al final de cada período de facturación.
-- Los pagos son procesados por Stripe y están sujetos a sus términos de servicio.
+- Los pagos son procesados por PayPal y están sujetos a sus términos de servicio.
 - Las pruebas gratuitas de 14 días otorgan acceso completo al plan Pro sin requerir tarjeta de crédito.
 - El prorrateo se aplica automáticamente al cambiar de plan a mitad de ciclo.
 - No se ofrecen reembolsos por períodos parciales, excepto en casos excepcionales a discreción del proveedor.
