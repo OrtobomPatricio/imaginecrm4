@@ -91,7 +91,7 @@ export const accountRouter = router({
                 .set({ emailVerifyToken: newToken })
                 .where(eq(users.id, user.id));
 
-            const appUrl = process.env.APP_URL || "https://app.imaginecrm.com";
+            const appUrl = process.env.APP_URL || process.env.CLIENT_URL || "https://crm-imagine-crm.yk50nb.easypanel.host";
             const verifyUrl = `${appUrl}/verify-email?token=${newToken}`;
 
             const result = await sendEmail({
@@ -161,7 +161,7 @@ export const accountRouter = router({
                 })
                 .where(eq(users.id, user.id));
 
-            const appUrl = process.env.APP_URL || "https://app.imaginecrm.com";
+            const appUrl = process.env.APP_URL || process.env.CLIENT_URL || "https://crm-imagine-crm.yk50nb.easypanel.host";
             const resetUrl = `${appUrl}/reset-password?token=${resetToken}`;
 
             const emailResult = await sendEmail({
