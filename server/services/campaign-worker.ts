@@ -60,8 +60,15 @@ async function ensureCampaignSchema(): Promise<boolean> {
 export function startCampaignWorker() {
     logger.info("[CampaignWorker] Starting worker...");
 
+    let isProcessing = false;
+
     // Run every minute
     cron.schedule("* * * * *", async () => {
+        if (isProcessing) {
+            logger.debug("[CampaignWorker] Skipping tick — previous run still in progress");
+            return;
+        }
+        isProcessing = true;
         try {
             const isReady = await ensureCampaignSchema();
             if (!isReady) return;
@@ -69,6 +76,8 @@ export function startCampaignWorker() {
             await processRunningCampaigns();
         } catch (err) {
             logger.error({ err: safeError(err) }, "[CampaignWorker] Error in cron job");
+        } finally {
+            isProcessing = false;
         }
     });
 }
@@ -158,10 +167,15 @@ async function processRunningCampaigns() {
     }
 }
 
+const HTML_ESCAPE_MAP: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+function escapeHtml(str: string): string {
+    return str.replace(/[&<>"']/g, c => HTML_ESCAPE_MAP[c] || c);
+}
+
 function renderMessage(template: string, vars: Record<string, any>) {
     return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_m, key) => {
         const v = (vars as any)[key];
-        return v === undefined || v === null ? "" : String(v);
+        return v === undefined || v === null ? "" : escapeHtml(String(v));
     });
 }
 

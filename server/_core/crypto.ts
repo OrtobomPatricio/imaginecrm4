@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { ENV } from "./env";
+import { logger } from "./logger";
 
 const PREFIX = "enc:v1";
 
@@ -71,7 +72,8 @@ export function decryptSecret(maybeEncrypted: string | null | undefined): string
     decipher.setAuthTag(tag);
     const plaintext = Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
     return plaintext;
-  } catch {
+  } catch (err) {
+    logger.warn({ err }, "[Crypto] Decryption failed — possible data tampering or key mismatch");
     return null;
   }
 }

@@ -216,11 +216,12 @@ export async function initWebSocket(server: HttpServer): Promise<SocketIOServer>
             }
         }
 
-        // Join conversation room (with tenant prefix for isolation)
+        // Join conversation room (with mandatory tenant prefix for isolation)
         socket.on("conversation:join", (conversationId: number) => {
             try {
                 if (typeof conversationId !== "number" || !Number.isFinite(conversationId)) return;
-                const room = tenantId ? `tenant:${tenantId}:conversation:${conversationId}` : `conversation:${conversationId}`;
+                if (!tenantId) return; // Reject joins without tenant context
+                const room = `tenant:${tenantId}:conversation:${conversationId}`;
                 socket.join(room);
                 logger.info({ userId, tenantId, conversationId, socketId: socket.id }, "websocket: client joined conversation");
             } catch (e) {
@@ -232,7 +233,8 @@ export async function initWebSocket(server: HttpServer): Promise<SocketIOServer>
         socket.on("conversation:leave", (conversationId: number) => {
             try {
                 if (typeof conversationId !== "number" || !Number.isFinite(conversationId)) return;
-                const room = tenantId ? `tenant:${tenantId}:conversation:${conversationId}` : `conversation:${conversationId}`;
+                if (!tenantId) return;
+                const room = `tenant:${tenantId}:conversation:${conversationId}`;
                 socket.leave(room);
                 logger.debug({ userId, tenantId, conversationId }, "websocket: left conversation");
             } catch (e) {
@@ -320,20 +322,19 @@ export function emitToUser(userId: number, event: keyof ServerToClientEvents, da
     }
 }
 
-// Emit to conversation participants
+// Emit to conversation participants (tenant-scoped only)
 export function emitToConversation(conversationId: number, event: keyof ServerToClientEvents, data: any, tenantId?: number): void {
     if (!io) {
         logger.warn("[emitToConversation] IO not initialized");
         return;
     }
-    // Use tenant-prefixed room (matches what clients join) with fallback for backwards compat
-    const room = tenantId ? `tenant:${tenantId}:conversation:${conversationId}` : `conversation:${conversationId}`;
+    if (!tenantId) {
+        logger.warn({ conversationId }, "[emitToConversation] Missing tenantId, skipping emission");
+        return;
+    }
+    const room = `tenant:${tenantId}:conversation:${conversationId}`;
     logger.info(`[emitToConversation] Emitting ${event} to room ${room}`);
     io.to(room).emit(event, data);
-    // Also emit to non-prefixed room for any legacy clients
-    if (tenantId) {
-        io.to(`conversation:${conversationId}`).emit(event, data);
-    }
 }
 
 // Broadcast to all connected clients in a tenant

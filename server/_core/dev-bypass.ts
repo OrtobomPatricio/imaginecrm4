@@ -29,8 +29,8 @@ const DEV_USER = {
 };
 
 export function registerDevBypass(app: Express) {
-  // SECURITY FIX (MT-03): Triple-check to prevent accidental production activation
-  const isDev = process.env.NODE_ENV !== "production";
+  // SECURITY FIX: Positive match (only allow in explicit "development" mode)
+  const isDev = process.env.NODE_ENV === "development";
   const bypassEnabled = process.env.ENABLE_DEV_BYPASS === "1";
 
   if (!isDev || !bypassEnabled) {

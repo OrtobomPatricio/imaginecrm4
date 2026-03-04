@@ -5,7 +5,12 @@ import {
     leads,
     chatMessages,
     accessLogs,
-    sessions
+    sessions,
+    activityLogs,
+    leadNotes,
+    leadTasks,
+    conversations,
+    fileUploads
 } from "../../drizzle/schema";
 import { logger } from "../_core/logger";
 
@@ -39,7 +44,7 @@ export async function processScheduledDeletions() {
     for (const user of expiredUsers) {
         try {
             await purgeUserData(user.id, user.tenantId);
-            logger.info({ userId: user.id, email: user.email }, "[GDPR] User purged successfully");
+            logger.info({ userId: user.id }, "[GDPR] User purged successfully");
         } catch (err) {
             logger.error({ userId: user.id, err }, "[GDPR] Failed to purge user");
         }
@@ -72,15 +77,43 @@ export async function purgeUserData(userId: number, tenantId: number) {
             } as any)
             .where(and(eq(chatMessages.tenantId, tenantId), eq((chatMessages as any).userId, userId)));
 
-        // 3. Delete Logs
+        // 3. Delete activity logs (contain action details that may include PII)
+        await tx.delete(activityLogs)
+            .where(and(eq(activityLogs.tenantId, tenantId), eq(activityLogs.userId, userId)));
+
+        // 4. Delete access logs
         await tx.delete(accessLogs)
             .where(and(eq(accessLogs.tenantId, tenantId), eq(accessLogs.userId, userId)));
 
-        // 4. Delete Sessions
+        // 5. Anonymize lead notes created by this user
+        await tx.update(leadNotes)
+            .set({ content: "[NOTE PURGED BY GDPR REQUEST]", createdById: null } as any)
+            .where(and(eq(leadNotes.tenantId, tenantId), eq(leadNotes.createdById, userId)));
+
+        // 6. Unassign lead tasks from this user
+        await tx.update(leadTasks)
+            .set({ assignedToId: null } as any)
+            .where(and(eq(leadTasks.tenantId, tenantId), eq(leadTasks.assignedToId, userId)));
+
+        // 7. Unassign conversations from this user
+        await tx.update(conversations)
+            .set({ assignedToId: null } as any)
+            .where(and(eq(conversations.tenantId, tenantId), eq(conversations.assignedToId, userId)));
+
+        // 8. Nullify file upload ownership (files retained for business records)
+        await tx.update(fileUploads)
+            .set({ userId: null } as any)
+            .where(and(eq(fileUploads.tenantId, tenantId), eq(fileUploads.userId, userId)));
+
+        // 9. Delete Sessions
         await tx.delete(sessions)
             .where(and(eq(sessions.tenantId, tenantId), eq(sessions.userId, userId)));
 
-        // 5. Finally delete the user account
+        // 10. Finally delete the user account
+        // Tables with onDelete:"cascade" (supportUserQueues, leadReminders, termsAcceptance,
+        // goals, achievements, internalMessages.senderId) are auto-deleted.
+        // Tables with onDelete:"set null" (campaigns.createdById, integrations.createdById,
+        // appointments.createdById, quotations.createdById) are auto-nullified.
         await tx.delete(users)
             .where(and(eq(users.id, userId), eq(users.tenantId, tenantId)));
     });

@@ -114,6 +114,11 @@ export async function _executeWorkflowInstance(
     jobId?: number
 ): Promise<void> {
     const actions: WorkflowAction[] = Array.isArray(workflow.actions) ? workflow.actions : [];
+    const MAX_ACTIONS = 50;
+    if (actions.length > MAX_ACTIONS) {
+        logger.error({ workflowId: workflow.id, actionsCount: actions.length, max: MAX_ACTIONS }, "[Workflows] Workflow exceeds max actions limit");
+        return;
+    }
     let executionDetails: string[] = [];
     let overallStatus: "success" | "failed" | "suspended" = "success";
 
