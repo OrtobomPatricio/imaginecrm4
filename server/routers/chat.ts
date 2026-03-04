@@ -653,7 +653,13 @@ export const chatRouter = router({
                         // --- BAILEYS (QR) SEND ---
                         const baileysSocket = BaileysService.getSocket(whatsappNumberId);
                         if (!baileysSocket) {
-                            throw new Error("Baileys no está conectado. Escanea el QR primero.");
+                            await db.update(chatMessages)
+                                .set({ status: 'failed', errorMessage: "WhatsApp no conectado", failedAt: now })
+                                .where(and(eq(chatMessages.tenantId, ctx.tenantId), eq(chatMessages.id, id)));
+                            throw new TRPCError({
+                                code: "PRECONDITION_FAILED",
+                                message: "WhatsApp no está conectado. Escanea el código QR primero desde Configuración → WhatsApp.",
+                            });
                         }
 
                         // Format phone number for Baileys

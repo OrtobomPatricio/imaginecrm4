@@ -216,7 +216,22 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
     await ensureColumn("appointments", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "appointments.tenantId column");
     await ensureColumn("support_queues", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "support_queues.tenantId column");
     await ensureColumn("support_user_queues", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "support_user_queues.tenantId column");
+    if (!(await hasTable("quick_answers"))) {
+        await connection.query(`
+            CREATE TABLE quick_answers (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL DEFAULT 1,
+              shortcut TEXT NOT NULL,
+              message TEXT NOT NULL,
+              attachments JSON NULL,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        logger.warn("[Migration] Created missing quick_answers table");
+    }
     await ensureColumn("quick_answers", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "quick_answers.tenantId column");
+    await ensureColumn("quick_answers", "attachments", "`attachments` JSON NULL", "quick_answers.attachments column");
     await ensureColumn("message_queue", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "message_queue.tenantId column");
     await ensureColumn("whatsapp_connections", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "whatsapp_connections.tenantId column");
     await ensureColumn("facebook_pages", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "facebook_pages.tenantId column");
@@ -991,18 +1006,19 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     // --- Production Performance Indexes ---
     // These composite indexes cover the most frequent query patterns.
-    // Each uses IF NOT EXISTS or catches ER_DUP_KEYNAME for idempotency.
+    // Uses plain CREATE INDEX + catches ER_DUP_KEYNAME (1061) for idempotency
+    // (MySQL < 8.0.29 does NOT support CREATE INDEX IF NOT EXISTS).
     const performanceIndexes = [
-        `CREATE INDEX IF NOT EXISTS idx_leads_tenant_assigned ON leads(tenantId, assignedToId)`,
-        `CREATE INDEX IF NOT EXISTS idx_leads_tenant_stage ON leads(tenantId, pipelineStageId)`,
-        `CREATE INDEX IF NOT EXISTS idx_leads_tenant_deleted ON leads(tenantId, deletedAt)`,
-        `CREATE INDEX IF NOT EXISTS idx_conv_tenant_assigned ON conversations(tenantId, assignedToId)`,
-        `CREATE INDEX IF NOT EXISTS idx_conv_tenant_status_last ON conversations(tenantId, status, lastMessageAt)`,
-        `CREATE INDEX IF NOT EXISTS idx_conv_tenant_phone ON conversations(tenantId, contactPhone)`,
-        `CREATE INDEX IF NOT EXISTS idx_mq_status_priority ON message_queue(status, nextAttemptAt, priority)`,
-        `CREATE INDEX IF NOT EXISTS idx_appt_tenant_date ON appointments(tenantId, appointmentDate)`,
-        `CREATE INDEX IF NOT EXISTS idx_activity_tenant_created ON activity_logs(tenantId, createdAt)`,
-        `CREATE INDEX IF NOT EXISTS idx_access_tenant_created ON access_logs(tenantId, createdAt)`,
+        `CREATE INDEX idx_leads_tenant_assigned ON leads(tenantId, assignedToId)`,
+        `CREATE INDEX idx_leads_tenant_stage ON leads(tenantId, pipelineStageId)`,
+        `CREATE INDEX idx_leads_tenant_deleted ON leads(tenantId, deletedAt)`,
+        `CREATE INDEX idx_conv_tenant_assigned ON conversations(tenantId, assignedToId)`,
+        `CREATE INDEX idx_conv_tenant_status_last ON conversations(tenantId, status, lastMessageAt)`,
+        `CREATE INDEX idx_conv_tenant_phone ON conversations(tenantId, contactPhone)`,
+        `CREATE INDEX idx_mq_status_priority ON message_queue(status, nextAttemptAt, priority)`,
+        `CREATE INDEX idx_appt_tenant_date ON appointments(tenantId, appointmentDate)`,
+        `CREATE INDEX idx_activity_tenant_created ON activity_logs(tenantId, createdAt)`,
+        `CREATE INDEX idx_access_tenant_created ON access_logs(tenantId, createdAt)`,
     ];
 
     let idxCreated = 0;
