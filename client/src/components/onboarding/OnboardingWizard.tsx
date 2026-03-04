@@ -3,7 +3,6 @@ import {
     CardContent,
     CardHeader,
     CardTitle,
-    CardDescription
 } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useOnboarding } from "@/hooks/useOnboarding";

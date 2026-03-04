@@ -24,7 +24,7 @@ interface Invite {
 }
 
 export default function Step2Team() {
-    const { nextStep, skipStep } = useOnboarding();
+    const { nextStep, skipStep, prevStep, isFirst } = useOnboarding();
     const { toast } = useToast();
     const [invites, setInvites] = useState<Invite[]>([
         { email: "", role: "agent" }
@@ -128,6 +128,15 @@ export default function Step2Team() {
                 >
                     Omitir por ahora
                 </Button>
+                {!isFirst && (
+                    <Button
+                        variant="ghost"
+                        className="w-full text-slate-400"
+                        onClick={prevStep}
+                    >
+                        ← Volver al paso anterior
+                    </Button>
+                )}
             </div>
         </div>
     );

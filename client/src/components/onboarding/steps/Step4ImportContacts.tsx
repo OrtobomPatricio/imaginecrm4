@@ -9,7 +9,7 @@ import { UploadCloud, FileSpreadsheet, Check, AlertCircle, Trash2, Database } fr
  */
 
 export default function Step4ImportContacts() {
-    const { nextStep, skipStep } = useOnboarding();
+    const { nextStep, skipStep, prevStep } = useOnboarding();
     const [file, setFile] = useState<File | null>(null);
     const [stats, setStats] = useState({ valid: 0, invalid: 0 });
 
@@ -110,6 +110,13 @@ export default function Step4ImportContacts() {
                     onClick={() => skipStep('import')}
                 >
                     Agregar manualmente después
+                </Button>
+                <Button
+                    variant="ghost"
+                    className="w-full text-slate-400"
+                    onClick={prevStep}
+                >
+                    ← Volver al paso anterior
                 </Button>
             </div>
         </div>

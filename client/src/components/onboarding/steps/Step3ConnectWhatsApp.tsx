@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useOnboarding } from "@/hooks/useOnboarding";
+import { trpc } from "@/lib/trpc";
 import {
     QrCode,
     MessageCircle,
@@ -18,8 +19,19 @@ import { WhatsAppConnectionsList } from "@/components/WhatsAppConnectionsList";
  */
 
 export default function Step3ConnectWhatsApp() {
-    const { nextStep, skipStep } = useOnboarding();
+    const { nextStep, skipStep, prevStep } = useOnboarding();
     const [connected, setConnected] = useState(false);
+
+    // Check if any WhatsApp connection exists (covers both QR and Cloud API)
+    const connectionsQuery = trpc.whatsapp.list.useQuery(undefined, {
+        refetchInterval: connected ? false : 5000, // Poll every 5s until connected
+    });
+
+    useEffect(() => {
+        if (connectionsQuery.data?.some((c: any) => c.isConnected)) {
+            setConnected(true);
+        }
+    }, [connectionsQuery.data]);
 
     return (
         <div className="space-y-6">
@@ -100,6 +112,13 @@ export default function Step3ConnectWhatsApp() {
                     onClick={() => skipStep('whatsapp')}
                 >
                     Configurar más tarde (No recomendado)
+                </Button>
+                <Button
+                    variant="ghost"
+                    className="w-full text-slate-400"
+                    onClick={prevStep}
+                >
+                    ← Volver al paso anterior
                 </Button>
             </div>
         </div>

@@ -17,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
  */
 
 export default function Step5FirstMessage() {
-    const { nextStep } = useOnboarding();
+    const { nextStep, prevStep } = useOnboarding();
     const { toast } = useToast();
     const [sending, setSending] = useState(false);
     const [sent, setSent] = useState(false);
@@ -87,13 +87,20 @@ export default function Step5FirstMessage() {
                 </div>
             </div>
 
-            <div className="pt-6">
+            <div className="pt-6 space-y-3">
                 <Button
                     className="w-full bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-800 hover:to-indigo-800 h-14 text-lg font-bold shadow-lg group"
                     onClick={() => nextStep()}
                 >
                     ¡Lanzar mi CRM!
                     <Rocket className="w-5 h-5 ml-2 group-hover:animate-bounce" />
+                </Button>
+                <Button
+                    variant="ghost"
+                    className="w-full text-slate-400"
+                    onClick={prevStep}
+                >
+                    ← Volver al paso anterior
                 </Button>
             </div>
         </div>

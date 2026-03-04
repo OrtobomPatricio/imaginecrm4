@@ -17,8 +17,8 @@ export function OnboardingChecklist() {
 
     const steps = [
         { id: 'company', label: 'Configurar Empresa', done: progress.companyCompleted },
-        { id: 'whatsapp', label: 'Conectar WhatsApp', done: progress.whatsappCompleted },
         { id: 'team', label: 'Invitar Equipo', done: progress.teamCompleted },
+        { id: 'whatsapp', label: 'Conectar WhatsApp', done: progress.whatsappCompleted },
         { id: 'import', label: 'Importar Leads', done: progress.importCompleted },
         { id: 'first-message', label: 'Enviar Primer Mensaje', done: progress.firstMessageCompleted },
     ];
