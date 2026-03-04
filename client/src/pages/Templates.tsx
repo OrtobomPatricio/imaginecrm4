@@ -28,7 +28,8 @@ import {
     XCircle,
     Clock,
     RefreshCw,
-    Globe
+    Globe,
+    Pencil
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -42,6 +43,7 @@ export default function Templates() {
         content: "",
         type: "whatsapp",
     });
+    const [editingTemplate, setEditingTemplate] = useState<{ id: number; name: string; content: string } | null>(null);
 
     const utils = trpc.useUtils();
 
@@ -66,6 +68,15 @@ export default function Templates() {
             setIsOpen(false);
             setFormData({ name: "", content: "", type: "whatsapp" });
             toast.success("Plantilla creada");
+        },
+        onError: (err) => toast.error(err.message),
+    });
+
+    const updateTemplate = trpc.templates.update.useMutation({
+        onSuccess: () => {
+            utils.templates.list.invalidate();
+            setEditingTemplate(null);
+            toast.success("Plantilla actualizada");
         },
         onError: (err) => toast.error(err.message),
     });
@@ -188,15 +199,25 @@ export default function Templates() {
                                 <Card key={tpl.id} className="relative group hover:border-primary/50 transition-colors">
                                     <CardHeader className="pb-2">
                                         <div className="flex justify-between items-start">
-                                            <CardTitle className="text-base truncate pr-6" title={tpl.name}>{tpl.name}</CardTitle>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-destructive absolute top-4 right-4"
-                                                onClick={() => deleteTemplate.mutate({ id: tpl.id })}
-                                            >
-                                                <Trash2 className="h-4 w-4" />
-                                            </Button>
+                                            <CardTitle className="text-base truncate pr-12" title={tpl.name}>{tpl.name}</CardTitle>
+                                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity absolute top-4 right-4">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-6 w-6"
+                                                    onClick={() => setEditingTemplate({ id: tpl.id, name: tpl.name, content: tpl.content })}
+                                                >
+                                                    <Pencil className="h-3.5 w-3.5" />
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-6 w-6 text-destructive"
+                                                    onClick={() => deleteTemplate.mutate({ id: tpl.id })}
+                                                >
+                                                    <Trash2 className="h-3.5 w-3.5" />
+                                                </Button>
+                                            </div>
                                         </div>
                                         <CardDescription className="text-xs uppercase font-semibold text-primary">{tpl.type}</CardDescription>
                                     </CardHeader>
@@ -281,6 +302,51 @@ export default function Templates() {
                     </div>
                 </TabsContent>
             </Tabs>
+
+            {/* Edit Template Dialog */}
+            <Dialog open={!!editingTemplate} onOpenChange={(open) => { if (!open) setEditingTemplate(null); }}>
+                <DialogContent className="sm:max-w-[600px]">
+                    <DialogHeader>
+                        <DialogTitle>Editar Plantilla</DialogTitle>
+                        <DialogDescription>Modifica el nombre o contenido de la plantilla.</DialogDescription>
+                    </DialogHeader>
+                    {editingTemplate && (
+                        <div className="grid gap-4 py-4">
+                            <div className="grid gap-2">
+                                <Label>Nombre</Label>
+                                <Input
+                                    value={editingTemplate.name}
+                                    onChange={(e) => setEditingTemplate({ ...editingTemplate, name: e.target.value })}
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label>Contenido</Label>
+                                <Textarea
+                                    value={editingTemplate.content}
+                                    onChange={(e) => setEditingTemplate({ ...editingTemplate, content: e.target.value })}
+                                    rows={6}
+                                />
+                            </div>
+                        </div>
+                    )}
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setEditingTemplate(null)}>Cancelar</Button>
+                        <Button
+                            onClick={() => {
+                                if (!editingTemplate) return;
+                                updateTemplate.mutate({
+                                    id: editingTemplate.id,
+                                    name: editingTemplate.name,
+                                    content: editingTemplate.content,
+                                });
+                            }}
+                            disabled={updateTemplate.isPending}
+                        >
+                            {updateTemplate.isPending ? "Guardando..." : "Guardar"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

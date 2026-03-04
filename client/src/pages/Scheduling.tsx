@@ -24,7 +24,8 @@ import {
   Search,
   MessageSquare,
   Clock,
-  Pencil
+  Pencil,
+  Download
 } from "lucide-react";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths } from "date-fns";
 import { es } from "date-fns/locale";
@@ -184,6 +185,24 @@ function SchedulingContent() {
     setIsDayViewOpen(true);
   };
 
+  const handleExportCSV = () => {
+    if (!appointments.length) { toast.error("No hay citas para exportar"); return; }
+    const header = "Nombre,Apellido,Teléfono,Email,Fecha,Hora,Estado,Notas";
+    const rows = appointments.map((a) =>
+      [a.firstName, a.lastName, a.phone, a.email || "",
+       format(new Date(a.appointmentDate), "yyyy-MM-dd"), a.appointmentTime,
+       a.status || "pending", (a.notes || "").replace(/[\n,]/g, " ")].map(v => `"${v}"`).join(",")
+    );
+    const csv = [header, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `citas_${format(new Date(), "yyyy-MM-dd")}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const openNewAppointment = (date?: Date) => {
     if (date) setSelectedDate(date);
     // If no date selected, default to today or keep previous
@@ -225,6 +244,10 @@ function SchedulingContent() {
             <Button variant="outline" size="sm" onClick={() => setIsReasonsDialogOpen(true)}>
               <div className="w-4 h-4 mr-2 rounded-full border border-current" />
               Motivos
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleExportCSV}>
+              <Download className="w-4 h-4 mr-2" />
+              Exportar
             </Button>
           </div>
         </div>

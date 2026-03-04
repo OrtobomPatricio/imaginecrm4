@@ -158,4 +158,28 @@ export const campaignsRouter = router({
             await db.delete(campaigns).where(and(eq(campaigns.tenantId, ctx.tenantId), eq(campaigns.id, input.id)));
             return { success: true };
         }),
+
+    update: permissionProcedure("campaigns.manage")
+        .input(z.object({
+            id: z.number(),
+            name: z.string().min(1).max(200).optional(),
+            message: z.string().max(10000).optional(),
+            audienceConfig: z.record(z.string(), z.unknown()).optional(),
+        }))
+        .mutation(async ({ input, ctx }) => {
+            const db = await getDb();
+            if (!db) throw new Error("Database not available");
+
+            const [campaign] = await db.select().from(campaigns)
+                .where(and(eq(campaigns.tenantId, ctx.tenantId), eq(campaigns.id, input.id)))
+                .limit(1);
+
+            if (!campaign) throw new Error("Campaign not found");
+            if (campaign.status !== "draft") throw new Error("Solo se pueden editar campañas en borrador");
+
+            const { id, ...updates } = input;
+            await db.update(campaigns).set(updates)
+                .where(and(eq(campaigns.tenantId, ctx.tenantId), eq(campaigns.id, id)));
+            return { success: true };
+        }),
 });

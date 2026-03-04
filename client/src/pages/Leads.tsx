@@ -7,6 +7,7 @@ import {
   ArrowUpDown,
   ChevronLeft,
   ChevronRight,
+  Download,
   Filter,
   Loader2,
   Mail,
@@ -50,6 +51,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useLocation } from "wouter";
+import { trpc } from "@/lib/trpc";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useLeadsController, type Lead } from "@/hooks/useLeadsController";
@@ -106,6 +108,21 @@ export default function Leads() {
   const controller = useLeadsController();
   const [, setLocation] = useLocation();
 
+  const exportLeads = trpc.leads.export.useQuery(undefined, { enabled: false });
+
+  const handleExport = async () => {
+    const result = await exportLeads.refetch();
+    if (result.data?.csv) {
+      const blob = new Blob([result.data.csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `leads_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  };
+
   if (controller.isLoading) {
     return (
       <div className="space-y-6">
@@ -153,7 +170,12 @@ export default function Leads() {
           <p className="text-muted-foreground">Gestiona y contacta a tus clientes potenciales.</p>
         </div>
 
-        <Dialog open={controller.isAddDialogOpen} onOpenChange={controller.setIsAddDialogOpen}>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleExport} disabled={exportLeads.isFetching}>
+            <Download className="h-4 w-4 mr-2" />
+            {exportLeads.isFetching ? "Exportando..." : "Exportar CSV"}
+          </Button>
+          <Dialog open={controller.isAddDialogOpen} onOpenChange={controller.setIsAddDialogOpen}>
           <DialogTrigger asChild>
             <Button className="shrink-0">
               <Plus className="h-4 w-4 mr-2" />
@@ -281,6 +303,7 @@ export default function Leads() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       {/* Filters */}

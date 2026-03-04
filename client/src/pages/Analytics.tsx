@@ -16,11 +16,13 @@ import {
 import {
   TrendingUp, TrendingDown, Users, MessageCircle,
   CheckCircle, Target, Clock, BarChart3, Zap,
-  Trophy, Medal, Award, Phone,
+  Trophy, Medal, Award, Phone, Download,
 } from "lucide-react";
 import Reports from "./Reports";
 
-// ─── Tipos ───────────────────────────────────────────────────────────────────
+import { Button } from "@/components/ui/button";
+
+// ── Tipos ───────────────────────────────────────────────────────────────────
 
 type Period = "7d" | "30d" | "90d" | "this_month" | "last_month";
 
@@ -615,6 +617,40 @@ function AnalyticsContent() {
   const searchParams = new URLSearchParams(window.location.search);
   const defaultTab = searchParams.get("tab") || "overview";
 
+  // Export data
+  const { data: agentData } = trpc.analytics.agentPerformance.useQuery({ period });
+  const { data: overviewData } = trpc.analytics.overview.useQuery({ period });
+
+  const handleExportCSV = () => {
+    const lines: string[] = [];
+    // Overview KPIs
+    if (overviewData) {
+      lines.push("M\u00e9trica,Valor,Cambio %");
+      const kpis = overviewData as any;
+      for (const [key, val] of Object.entries(kpis)) {
+        if (val && typeof val === "object" && "value" in (val as any)) {
+          lines.push(`"${key}",${(val as any).value},${(val as any).change ?? 0}`);
+        }
+      }
+      lines.push("");
+    }
+    // Agent performance
+    if (agentData?.length) {
+      lines.push("Agente,Conversaciones,Resueltas,Pendientes,Tasa %,Mensajes");
+      agentData.forEach((a) => {
+        lines.push(`"${a.agentName}",${a.totalConversations},${a.resolvedConversations},${a.pendingConversations},${a.resolutionRate},${a.messagesSent}`);
+      });
+    }
+    if (!lines.length) return;
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `analytics_${period}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -625,7 +661,13 @@ function AnalyticsContent() {
             Métricas y estadísticas de rendimiento de tu equipo
           </p>
         </div>
-        <PeriodSelector value={period} onChange={setPeriod} />
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={handleExportCSV}>
+            <Download className="h-4 w-4 mr-2" />
+            Exportar
+          </Button>
+          <PeriodSelector value={period} onChange={setPeriod} />
+        </div>
       </div>
 
       <Tabs defaultValue={defaultTab} className="w-full">

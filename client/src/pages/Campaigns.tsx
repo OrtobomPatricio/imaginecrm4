@@ -32,11 +32,23 @@ import {
   Trash2,
   Users,
   FileText,
-  MessageSquare
+  MessageSquare,
+  Pencil
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 
 export default function Campaigns() {
   const [, setLocation] = useLocation();
@@ -44,6 +56,7 @@ export default function Campaigns() {
   const { data: campaigns, isLoading } = trpc.campaigns.list.useQuery();
   const [campaignToDelete, setCampaignToDelete] = React.useState<number | null>(null);
   const [campaignToLaunch, setCampaignToLaunch] = React.useState<number | null>(null);
+  const [editingCampaign, setEditingCampaign] = React.useState<{ id: number; name: string; message: string } | null>(null);
 
   const deleteCampaign = trpc.campaigns.delete.useMutation({
     onSuccess: () => {
@@ -58,6 +71,15 @@ export default function Campaigns() {
     onSuccess: (data) => {
       toast.success(`Campaña lanzada a ${data.recipientsCount} destinatarios`);
       setCampaignToLaunch(null);
+      utils.campaigns.list.invalidate();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const updateCampaign = trpc.campaigns.update.useMutation({
+    onSuccess: () => {
+      toast.success("Campaña actualizada");
+      setEditingCampaign(null);
       utils.campaigns.list.invalidate();
     },
     onError: (err) => toast.error(err.message),
@@ -199,6 +221,15 @@ export default function Campaigns() {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           {campaign.status === "draft" && (
+                            <DropdownMenuItem onClick={() => setEditingCampaign({
+                              id: campaign.id,
+                              name: campaign.name,
+                              message: (campaign as any).message || "",
+                            })}>
+                              <Pencil className="mr-2 h-4 w-4" /> Editar
+                            </DropdownMenuItem>
+                          )}
+                          {campaign.status === "draft" && (
                             <DropdownMenuItem onClick={() => setCampaignToLaunch(campaign.id)}>
                               <Play className="mr-2 h-4 w-4" /> Lanzar
                             </DropdownMenuItem>
@@ -216,6 +247,72 @@ export default function Campaigns() {
           )}
         </CardContent>
       </Card>
+
+      {/* Edit Campaign Dialog */}
+      <Dialog open={!!editingCampaign} onOpenChange={(open) => { if (!open) setEditingCampaign(null); }}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Editar Campaña</DialogTitle>
+            <DialogDescription>Modifica los datos de la campaña (solo borradores).</DialogDescription>
+          </DialogHeader>
+          {editingCampaign && (
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label>Nombre</Label>
+                <Input
+                  value={editingCampaign.name}
+                  onChange={(e) => setEditingCampaign({ ...editingCampaign, name: e.target.value })}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Mensaje</Label>
+                <Textarea
+                  value={editingCampaign.message}
+                  onChange={(e) => setEditingCampaign({ ...editingCampaign, message: e.target.value })}
+                  rows={4}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingCampaign(null)}>Cancelar</Button>
+            <Button
+              onClick={() => {
+                if (!editingCampaign) return;
+                updateCampaign.mutate({
+                  id: editingCampaign.id,
+                  name: editingCampaign.name,
+                  message: editingCampaign.message,
+                });
+              }}
+              disabled={updateCampaign.isPending}
+            >
+              {updateCampaign.isPending ? "Guardando..." : "Guardar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm Delete */}
+      <ConfirmDialog
+        open={campaignToDelete !== null}
+        onOpenChange={(open) => { if (!open) setCampaignToDelete(null); }}
+        title="Eliminar Campaña"
+        description="¿Estás seguro de eliminar esta campaña? Esta acción no se puede deshacer."
+        onConfirm={() => { if (campaignToDelete) deleteCampaign.mutate({ id: campaignToDelete }); }}
+        confirmText="Eliminar"
+        variant="destructive"
+      />
+
+      {/* Confirm Launch */}
+      <ConfirmDialog
+        open={campaignToLaunch !== null}
+        onOpenChange={(open) => { if (!open) setCampaignToLaunch(null); }}
+        title="Lanzar Campaña"
+        description="¿Estás seguro de lanzar esta campaña? Se enviará a todos los destinatarios configurados."
+        onConfirm={() => { if (campaignToLaunch) launchCampaign.mutate({ campaignId: campaignToLaunch }); }}
+        confirmText="Lanzar"
+      />
     </div>
   );
 }
