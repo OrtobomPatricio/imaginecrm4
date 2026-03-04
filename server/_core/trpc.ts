@@ -6,9 +6,26 @@ import { getDb } from "../db";
 import { appSettings } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { computeEffectiveRole } from "./rbac";
+import { logger, safeError } from "./logger";
+
+const isProd = process.env.NODE_ENV === "production";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
+  errorFormatter({ shape, error }) {
+    return {
+      ...shape,
+      message:
+        error.code === "INTERNAL_SERVER_ERROR" && isProd
+          ? "Error interno del servidor"
+          : shape.message,
+      data: {
+        ...shape.data,
+        // Never leak stack traces in production
+        stack: isProd ? undefined : (shape.data as any)?.stack,
+      },
+    };
+  },
 });
 
 export const router = t.router;

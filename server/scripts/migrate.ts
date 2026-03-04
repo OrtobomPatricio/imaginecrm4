@@ -988,6 +988,38 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
     }
 
     logger.info("[Migration] Schema compatibility checks completed");
+
+    // --- Production Performance Indexes ---
+    // These composite indexes cover the most frequent query patterns.
+    // Each uses IF NOT EXISTS or catches ER_DUP_KEYNAME for idempotency.
+    const performanceIndexes = [
+        `CREATE INDEX IF NOT EXISTS idx_leads_tenant_assigned ON leads(tenantId, assignedToId)`,
+        `CREATE INDEX IF NOT EXISTS idx_leads_tenant_stage ON leads(tenantId, pipelineStageId)`,
+        `CREATE INDEX IF NOT EXISTS idx_leads_tenant_deleted ON leads(tenantId, deletedAt)`,
+        `CREATE INDEX IF NOT EXISTS idx_conv_tenant_assigned ON conversations(tenantId, assignedToId)`,
+        `CREATE INDEX IF NOT EXISTS idx_conv_tenant_status_last ON conversations(tenantId, status, lastMessageAt)`,
+        `CREATE INDEX IF NOT EXISTS idx_conv_tenant_phone ON conversations(tenantId, contactPhone)`,
+        `CREATE INDEX IF NOT EXISTS idx_mq_status_priority ON message_queue(status, nextAttemptAt, priority)`,
+        `CREATE INDEX IF NOT EXISTS idx_appt_tenant_date ON appointments(tenantId, appointmentDate)`,
+        `CREATE INDEX IF NOT EXISTS idx_activity_tenant_created ON activity_logs(tenantId, createdAt)`,
+        `CREATE INDEX IF NOT EXISTS idx_access_tenant_created ON access_logs(tenantId, createdAt)`,
+    ];
+
+    let idxCreated = 0;
+    for (const stmt of performanceIndexes) {
+        try {
+            await connection.query(stmt);
+            idxCreated++;
+        } catch (err: any) {
+            // ER_DUP_KEYNAME (1061) = index already exists — safe to ignore
+            if (err?.errno !== 1061 && !err?.message?.includes("Duplicate")) {
+                logger.warn({ err: err?.message, stmt }, "[Migration] Index creation failed (non-fatal)");
+            }
+        }
+    }
+    if (idxCreated > 0) {
+        logger.info({ count: idxCreated }, "[Migration] Performance indexes ensured");
+    }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

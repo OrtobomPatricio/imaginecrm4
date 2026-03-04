@@ -6,7 +6,7 @@
  * - Runs every 30 minutes to check
  */
 
-import { eq, and, lt, sql } from "drizzle-orm";
+import { eq, and, lt, sql, inArray } from "drizzle-orm";
 import { conversations } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { logger } from "../_core/logger";
@@ -61,7 +61,7 @@ export async function checkStaleTickets(): Promise<number> {
             .where(
                 and(
                     eq(conversations.ticketStatus, 'open'),
-                    sql`${conversations.id} IN (${ids.join(',')})`
+                    inArray(conversations.id, ids)
                 )
             );
 

@@ -217,34 +217,54 @@ export async function initWebSocket(server: HttpServer): Promise<SocketIOServer>
 
         // Join conversation room (with tenant prefix for isolation)
         socket.on("conversation:join", (conversationId: number) => {
-            const room = tenantId ? `tenant:${tenantId}:conversation:${conversationId}` : `conversation:${conversationId}`;
-            socket.join(room);
-            logger.info({ userId, tenantId, conversationId, socketId: socket.id }, "websocket: client joined conversation");
+            try {
+                if (typeof conversationId !== "number" || !Number.isFinite(conversationId)) return;
+                const room = tenantId ? `tenant:${tenantId}:conversation:${conversationId}` : `conversation:${conversationId}`;
+                socket.join(room);
+                logger.info({ userId, tenantId, conversationId, socketId: socket.id }, "websocket: client joined conversation");
+            } catch (e) {
+                logger.error({ err: safeError(e), userId, conversationId }, "websocket: error joining conversation");
+            }
         });
 
         // Leave conversation room
         socket.on("conversation:leave", (conversationId: number) => {
-            const room = tenantId ? `tenant:${tenantId}:conversation:${conversationId}` : `conversation:${conversationId}`;
-            socket.leave(room);
-            logger.debug({ userId, tenantId, conversationId }, "websocket: left conversation");
+            try {
+                if (typeof conversationId !== "number" || !Number.isFinite(conversationId)) return;
+                const room = tenantId ? `tenant:${tenantId}:conversation:${conversationId}` : `conversation:${conversationId}`;
+                socket.leave(room);
+                logger.debug({ userId, tenantId, conversationId }, "websocket: left conversation");
+            } catch (e) {
+                logger.error({ err: safeError(e), userId, conversationId }, "websocket: error leaving conversation");
+            }
         });
 
         // Typing indicator
         socket.on("conversation:typing", (data: { conversationId: number; isTyping: boolean }) => {
-            const room = tenantId ? `tenant:${tenantId}:conversation:${data.conversationId}` : `conversation:${data.conversationId}`;
-            socket.to(room).emit("conversation:typing", {
-                conversationId: data.conversationId,
-                userId: userId!,
-                userName: userName!,
-                isTyping: data.isTyping,
-            });
+            try {
+                if (!data || typeof data.conversationId !== "number") return;
+                const room = tenantId ? `tenant:${tenantId}:conversation:${data.conversationId}` : `conversation:${data.conversationId}`;
+                socket.to(room).emit("conversation:typing", {
+                    conversationId: data.conversationId,
+                    userId: userId!,
+                    userName: userName!,
+                    isTyping: data.isTyping,
+                });
+            } catch (e) {
+                logger.error({ err: safeError(e), userId }, "websocket: error broadcasting typing");
+            }
         });
 
         // Mark messages as read
         socket.on("message:read", async (conversationId: number) => {
-            // Broadcast to other participants in conversation
-            const room = `conversation:${conversationId}`;
-            socket.to(room).emit("message:read", { conversationId, userId });
+            try {
+                if (typeof conversationId !== "number" || !Number.isFinite(conversationId)) return;
+                // Broadcast to other participants in conversation
+                const room = `conversation:${conversationId}`;
+                socket.to(room).emit("message:read", { conversationId, userId });
+            } catch (e) {
+                logger.error({ err: safeError(e), userId, conversationId }, "websocket: error on message:read");
+            }
         });
 
         // Disconnect handler
@@ -318,14 +338,18 @@ export function broadcast(event: keyof ServerToClientEvents, data: any): void {
 export async function emitToRole(role: string, event: keyof ServerToClientEvents, data: any): Promise<void> {
     if (!io) return;
 
-    const db = await getDb();
-    if (!db) return;
+    try {
+        const db = await getDb();
+        if (!db) return;
 
-    const userRows = await db.select({ id: users.id })
-        .from(users)
-        .where(eq(users.role, role as any));
+        const userRows = await db.select({ id: users.id })
+            .from(users)
+            .where(eq(users.role, role as any));
 
-    userRows.forEach(row => {
-        emitToUser(row.id, event, data);
-    });
+        userRows.forEach(row => {
+            emitToUser(row.id, event, data);
+        });
+    } catch (err) {
+        logger.error({ err: safeError(err), role, event }, "websocket: emitToRole failed");
+    }
 }

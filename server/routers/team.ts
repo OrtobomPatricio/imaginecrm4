@@ -104,7 +104,7 @@ export const teamRouter = router({
         .input(z.object({
             name: z.string().min(1),
             email: z.string().email(),
-            password: z.string().min(6), // Password required for manual creation
+            password: z.string().min(8), // Password required for manual creation
             role: z.enum(["admin", "supervisor", "agent", "viewer"]), // Owner cannot be created this way
         }))
         .mutation(async ({ input, ctx }) => {
@@ -121,7 +121,7 @@ export const teamRouter = router({
                 throw new Error("User with this email already exists");
             }
 
-            const hashedPassword = await bcrypt.hash(input.password, 10);
+            const hashedPassword = await bcrypt.hash(input.password, 12);
             const openId = `local_${nanoid(16)}`; // Generate unique openId for local users
 
             const result = await db.insert(users).values({

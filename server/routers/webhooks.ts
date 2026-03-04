@@ -4,6 +4,7 @@ import { webhooks, webhookDeliveries } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { permissionProcedure, router } from "../_core/trpc";
 import { randomBytes, createHmac } from "crypto";
+import { assertSafeOutboundUrl } from "../_core/urlSafety";
 
 // Generate webhook secret
 function generateSecret(): string {
@@ -47,6 +48,9 @@ export const webhooksRouter = router({
             const db = await getDb();
             if (!db) throw new Error("Database not available");
 
+            // SSRF protection: validate outbound URL
+            await assertSafeOutboundUrl(input.url);
+
             const secret = generateSecret();
             const result = await db.insert(webhooks).values({
                 tenantId: ctx.tenantId,
@@ -73,6 +77,9 @@ export const webhooksRouter = router({
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
             if (!db) throw new Error("Database not available");
+
+            // SSRF protection: validate outbound URL if provided
+            if (input.url) await assertSafeOutboundUrl(input.url);
 
             const { id, ...updates } = input;
             await db.update(webhooks).set(updates).where(and(eq(webhooks.tenantId, ctx.tenantId), eq(webhooks.id, id)));

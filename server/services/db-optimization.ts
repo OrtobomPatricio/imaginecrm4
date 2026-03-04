@@ -25,13 +25,13 @@ export async function optimizeDatabaseIndexes(): Promise<void> {
     const indexStatements = [
         // ── Covering Indexes for Frequent Queries ──
 
-        // Leads list: filtered by tenantId + status, covering fullName, phone, createdAt
+        // Leads list: filtered by tenantId + status, covering name, phone, createdAt
         `CREATE INDEX IF NOT EXISTS idx_leads_tenant_status_covering
-         ON leads(tenantId, status, createdAt, fullName, phoneNumber)`,
+         ON leads(tenantId, status, createdAt, name, phone)`,
 
         // Leads search by phone (exact lookup)
         `CREATE INDEX IF NOT EXISTS idx_leads_tenant_phone
-         ON leads(tenantId, phoneNumber)`,
+         ON leads(tenantId, phone)`,
 
         // Chat messages: conversation lookup sorted by timestamp
         `CREATE INDEX IF NOT EXISTS idx_chatmsg_conv_timestamp
@@ -66,9 +66,6 @@ export async function optimizeDatabaseIndexes(): Promise<void> {
          ON access_logs(tenantId, createdAt DESC)`,
 
         // ── CHECK Constraints ──
-
-        // Ensure positive values on numeric fields
-        `ALTER TABLE leads ADD CONSTRAINT IF NOT EXISTS chk_leads_score_positive CHECK (score >= 0)`,
 
         // Ensure valid email format (basic check)
         `ALTER TABLE leads ADD CONSTRAINT IF NOT EXISTS chk_leads_email_format

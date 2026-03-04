@@ -126,7 +126,7 @@ export function registerStripeWebhookRoutes(app: Express): void {
 
         } catch (err: any) {
             logger.error({ err }, "[StripeWebhook] Verification failed");
-            res.status(400).send(`Webhook error: ${err.message}`);
+            res.status(400).send("Webhook verification failed");
         }
     });
 

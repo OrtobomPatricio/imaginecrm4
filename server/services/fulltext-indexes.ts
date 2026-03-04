@@ -19,16 +19,16 @@ export async function createFulltextIndexes(): Promise<void> {
     }
 
     try {
-        // FULLTEXT index on leads (fullName, email, company, notes)
+        // FULLTEXT index on leads (name, email, notes)
         await db.execute(sql`
             CREATE FULLTEXT INDEX IF NOT EXISTS idx_leads_fulltext
-            ON leads(fullName, email, company, notes)
+            ON leads(name, email, notes)
         `);
 
-        // FULLTEXT index on chatMessages (body)
+        // FULLTEXT index on chatMessages (content)
         await db.execute(sql`
             CREATE FULLTEXT INDEX IF NOT EXISTS idx_chatmessages_fulltext
-            ON chat_messages(body)
+            ON chat_messages(content)
         `);
 
         logger.info("FULLTEXT indexes created/verified successfully");

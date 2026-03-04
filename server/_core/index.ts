@@ -247,6 +247,20 @@ export async function createApp() {
     createExpressMiddleware({
       router: appRouter,
       createContext,
+      onError({ error, path, req }) {
+        const requestId = (req as any).requestId;
+        logger.error(
+          { requestId, err: safeError(error), path, code: error.code },
+          `tRPC error on ${path ?? "unknown"}`
+        );
+        if (process.env.SENTRY_DSN) {
+          try {
+            Sentry.captureException(error, {
+              tags: { requestId, tRPCPath: path },
+            });
+          } catch { /* ignore */ }
+        }
+      },
     })
   );
 
@@ -298,6 +312,49 @@ async function startServer() {
 
   // Initialize WebSocket server
   await initWebSocket(httpServer);
+
+  // --- Graceful Shutdown ---
+  let isShuttingDown = false;
+  const gracefulShutdown = async (signal: string) => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    logger.info({ signal }, "Received shutdown signal — starting graceful shutdown");
+
+    // Stop accepting new connections
+    httpServer.close(() => {
+      logger.info("HTTP server closed");
+    });
+
+    // Give in-flight requests up to 10s to finish
+    const forceShutdownTimer = setTimeout(() => {
+      logger.warn("Graceful shutdown timed out — forcing exit");
+      process.exit(1);
+    }, 10_000);
+    forceShutdownTimer.unref();
+
+    try {
+      // Close DB pool
+      const db = await getDb();
+      if (db) {
+        const pool = (db as any)?._.pool ?? (db as any)?.$pool;
+        if (pool?.end) await pool.end();
+        logger.info("Database pool closed");
+      }
+    } catch (e) {
+      logger.error({ err: safeError(e) }, "Error closing DB pool during shutdown");
+    }
+
+    // Flush Sentry
+    if (process.env.SENTRY_DSN) {
+      try { await Sentry.close(2000); } catch { /* ignore */ }
+    }
+
+    logger.info("Graceful shutdown complete");
+    process.exit(0);
+  };
+
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
   httpServer.listen(port, "0.0.0.0", () => {
     logger.info({ port }, "server listening");
@@ -351,7 +408,7 @@ async function startServer() {
       await createMaterializedViews();
       await refreshMaterializedViews();
       // Refresh every 15 minutes
-      setInterval(() => refreshMaterializedViews().catch(() => { }), 15 * 60 * 1000);
+      setInterval(() => refreshMaterializedViews().catch(err => logger.warn({ err: safeError(err) }, "[MV] periodic refresh failed")), 15 * 60 * 1000);
     }).catch(err => logger.error({ err: safeError(err) }, "[MV] startup failed"));
 
     // APM (Sentry performance monitoring)
@@ -475,6 +532,26 @@ async function bootstrapAdmin() {
 const run = async () => {
   logger.info("startup: server version modular-v2");
   assertEnv();
+
+  // --- Process-level crash handlers ---
+  process.on("uncaughtException", (err) => {
+    logger.fatal({ err: safeError(err) }, "Uncaught exception — shutting down");
+    if (process.env.SENTRY_DSN) {
+      try { Sentry.captureException(err); } catch { /* ignore */ }
+    }
+    process.exit(1);
+  });
+
+  process.on("unhandledRejection", (reason) => {
+    logger.fatal({ err: safeError(reason) }, "Unhandled rejection");
+    if (process.env.SENTRY_DSN) {
+      try { Sentry.captureException(reason); } catch { /* ignore */ }
+    }
+    // In production, exit to let PM2/Docker restart the process
+    if (process.env.NODE_ENV === "production") {
+      process.exit(1);
+    }
+  });
 
   if (process.env.RUN_MIGRATIONS === "1") {
     try {

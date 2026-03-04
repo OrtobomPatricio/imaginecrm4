@@ -161,7 +161,7 @@ export const authRouter = router({
 
             if (!user[0] || !user[0].password) {
                 logger.warn({ email: normalizedEmail, tenantId: tenantId ?? 1, ip, userFound: !!user[0], hasPassword: !!user[0]?.password }, "[Auth] Login failed: user not found or no password");
-                return { success: false, error: "Credenciales inválidas — usuario no encontrado" };
+                return { success: false, error: "Credenciales inválidas" };
             }
 
             // Check if user account is active
@@ -177,7 +177,7 @@ export const authRouter = router({
             }
             if (!valid) {
                 logger.warn({ email: normalizedEmail, userId: user[0].id, ip, passwordLength: input.password.length, trimmedLength: trimmedPassword.length }, "[Auth] Login failed: invalid password");
-                return { success: false, error: "Credenciales inválidas — contraseña incorrecta" };
+                return { success: false, error: "Credenciales inválidas" };
             }
 
             // Limpiar rate limit después de login exitoso
@@ -201,7 +201,7 @@ export const authRouter = router({
     acceptInvitation: publicProcedure
         .input(z.object({
             token: z.string(),
-            password: z.string().min(6),
+            password: z.string().min(8),
             termsVersion: z.string().optional(), // Match request for termsVersion
         }))
         .mutation(async ({ input, ctx }) => {
@@ -215,7 +215,7 @@ export const authRouter = router({
                 throw new Error("Token expired");
             }
 
-            const hashedPassword = await bcrypt.hash(input.password, 10);
+            const hashedPassword = await bcrypt.hash(input.password, 12);
 
             // Transaction to ensure both user update and terms acceptance are recorded
             await db.transaction(async (tx) => {
