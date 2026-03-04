@@ -17,11 +17,11 @@ export const campaignsRouter = router({
 
     create: permissionProcedure("campaigns.manage")
         .input(z.object({
-            name: z.string().min(1),
+            name: z.string().min(1).max(200),
             type: z.enum(["whatsapp", "email"]),
             templateId: z.number().optional(),
-            message: z.string(), // Fallback or override
-            audienceConfig: z.any().optional(),
+            message: z.string().max(10000), // Fallback or override
+            audienceConfig: z.record(z.string(), z.unknown()).optional(),
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();

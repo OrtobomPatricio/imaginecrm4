@@ -76,7 +76,7 @@ export const backupRouter = router({
         }),
 
     importLeadsCSV: permissionProcedure("leads.create")
-        .input(z.object({ csvContent: z.string() }))
+        .input(z.object({ csvContent: z.string().max(10_000_000) }))
         .mutation(async ({ input, ctx }) => {
             const parsedData = parseCSV(input.csvContent);
             const result = await importLeadsFromCSV(parsedData, ctx.tenantId);

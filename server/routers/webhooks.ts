@@ -23,7 +23,7 @@ export const webhooksRouter = router({
             const db = await getDb();
             if (!db) return [];
 
-            return db.select().from(webhooks).where(eq(webhooks.tenantId, ctx.tenantId)).orderBy(desc(webhooks.createdAt));
+            return db.select().from(webhooks).where(eq(webhooks.tenantId, ctx.tenantId)).orderBy(desc(webhooks.createdAt)).limit(200);
         }),
 
     // Create webhook

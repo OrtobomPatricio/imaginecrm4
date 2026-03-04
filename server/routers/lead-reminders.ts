@@ -22,7 +22,8 @@ export const leadRemindersRouter = router({
                 .select()
                 .from(leadReminders)
                 .where(and(eq(leadReminders.tenantId, ctx.tenantId), eq(leadReminders.leadId, input.leadId)))
-                .orderBy(desc(leadReminders.scheduledAt));
+                .orderBy(desc(leadReminders.scheduledAt))
+                .limit(200);
         }),
 
     // Get single reminder

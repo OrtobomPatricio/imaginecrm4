@@ -104,7 +104,7 @@ export const teamRouter = router({
         .input(z.object({
             name: z.string().min(1),
             email: z.string().email(),
-            password: z.string().min(8), // Password required for manual creation
+            password: z.string().min(8).max(128), // Password required for manual creation
             role: z.enum(["admin", "supervisor", "agent", "viewer"]), // Owner cannot be created this way
         }))
         .mutation(async ({ input, ctx }) => {

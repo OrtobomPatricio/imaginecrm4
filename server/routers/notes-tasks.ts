@@ -119,7 +119,7 @@ export const notesTasksRouter = router({
                 query = query.where(and(...conditions)) as any;
             }
 
-            return query.orderBy(asc(leadTasks.dueDate), desc(leadTasks.createdAt));
+            return query.orderBy(asc(leadTasks.dueDate), desc(leadTasks.createdAt)).limit(500);
         }),
 
     createTask: permissionProcedure("leads.edit")

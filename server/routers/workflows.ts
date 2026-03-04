@@ -34,11 +34,11 @@ export const workflowsRouter = router({
 
     create: permissionProcedure("campaigns.manage")
         .input(z.object({
-            name: z.string().min(1),
-            description: z.string().optional(),
+            name: z.string().min(1).max(200),
+            description: z.string().max(1000).optional(),
             triggerType: z.enum(["lead_created", "lead_updated", "msg_received", "campaign_link_clicked"]),
-            triggerConfig: z.any().optional(),
-            actions: z.array(z.any()).optional(),
+            triggerConfig: z.record(z.string(), z.unknown()).optional(),
+            actions: z.array(z.record(z.string(), z.unknown())).optional(),
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
@@ -55,11 +55,11 @@ export const workflowsRouter = router({
     update: permissionProcedure("campaigns.manage")
         .input(z.object({
             id: z.number(),
-            name: z.string().optional(),
-            description: z.string().optional(),
+            name: z.string().max(200).optional(),
+            description: z.string().max(1000).optional(),
             triggerType: z.enum(["lead_created", "lead_updated", "msg_received", "campaign_link_clicked"]).optional(),
-            triggerConfig: z.any().optional(),
-            actions: z.array(z.any()).optional(),
+            triggerConfig: z.record(z.string(), z.unknown()).optional(),
+            actions: z.array(z.record(z.string(), z.unknown())).optional(),
             isActive: z.boolean().optional(),
         }))
         .mutation(async ({ input, ctx }) => {

@@ -13,7 +13,8 @@ export const integrationsRouter = router({
         return db.select()
             .from(integrations)
             .where(eq(integrations.tenantId, ctx.tenantId))
-            .orderBy(desc(integrations.createdAt));
+            .orderBy(desc(integrations.createdAt))
+            .limit(200);
     }),
 
     getById: permissionProcedure("integrations.view")
