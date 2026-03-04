@@ -28,6 +28,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import {
@@ -39,7 +41,13 @@ import {
   Trash2,
   Send,
   Activity,
-  ArrowRight
+  ArrowRight,
+  Code2,
+  Plus,
+  RefreshCw,
+  Eye,
+  Copy,
+  EyeOff
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PermissionGuard } from "@/components/PermissionGuard";
@@ -131,6 +139,7 @@ function IntegrationsContent() {
         {/* AUTOMATION TAB */}
         <TabsContent value="automation" className="space-y-4 mt-4">
           <WebhookIntegrations />
+          <DeveloperWebhooks />
         </TabsContent>
 
         {/* SYSTEM TAB */}
@@ -570,5 +579,264 @@ function IntegrationForm({ id, onSuccess }: { id: number | null, onSuccess: () =
         </Button>
       </DialogFooter>
     </div>
+  );
+}
+
+// --- Developer Webhooks (webhooks router with HMAC signing & delivery logs) ---
+
+function DeveloperWebhooks() {
+  const { data: webhooks = [], refetch } = trpc.webhooks.list.useQuery();
+  const { data: eventTypes = [] } = trpc.webhooks.getEventTypes.useQuery();
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingWebhook, setEditingWebhook] = useState<any>(null);
+  const [viewingDeliveries, setViewingDeliveries] = useState<number | null>(null);
+  const [revealedSecrets, setRevealedSecrets] = useState<Record<number, string>>({});
+
+  const createWebhook = trpc.webhooks.create.useMutation({
+    onSuccess: () => { toast.success("Webhook creado"); refetch(); closeForm(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const updateWebhook = trpc.webhooks.update.useMutation({
+    onSuccess: () => { toast.success("Webhook actualizado"); refetch(); closeForm(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteWebhook = trpc.webhooks.delete.useMutation({
+    onSuccess: () => { toast.success("Webhook eliminado"); refetch(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const testWebhook = trpc.webhooks.test.useMutation({
+    onSuccess: (data) => {
+      if (data.success) toast.success(`Test exitoso (${data.statusCode})`);
+      else toast.error(`Test falló: ${data.statusCode}`);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const regenerateSecret = trpc.webhooks.regenerateSecret.useMutation({
+    onSuccess: (data) => {
+      toast.success("Secreto regenerado");
+      if (data.secret) setRevealedSecrets(prev => ({ ...prev, [data.id]: data.secret }));
+      refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const [form, setForm] = useState({ name: "", url: "", events: [] as string[], active: true });
+
+  const closeForm = () => {
+    setIsFormOpen(false);
+    setEditingWebhook(null);
+    setForm({ name: "", url: "", events: [], active: true });
+  };
+
+  const openEdit = (wh: any) => {
+    setEditingWebhook(wh);
+    setForm({ name: wh.name, url: wh.url, events: wh.events || [], active: wh.active });
+    setIsFormOpen(true);
+  };
+
+  const handleSubmit = () => {
+    if (!form.name || !form.url || form.events.length === 0) {
+      toast.error("Completá nombre, URL y al menos un evento");
+      return;
+    }
+    if (editingWebhook) {
+      updateWebhook.mutate({ id: editingWebhook.id, ...form });
+    } else {
+      createWebhook.mutate(form);
+    }
+  };
+
+  const toggleEvent = (evt: string) => {
+    setForm(p => ({
+      ...p,
+      events: p.events.includes(evt)
+        ? p.events.filter(e => e !== evt)
+        : [...p.events, evt],
+    }));
+  };
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <Code2 className="w-5 h-5" />
+            Webhooks API (Desarrolladores)
+          </CardTitle>
+          <CardDescription>
+            Webhooks con firma HMAC-SHA256 y registro de entregas. Para integraciones personalizadas.
+          </CardDescription>
+        </div>
+        <Button size="sm" onClick={() => { setEditingWebhook(null); setForm({ name: "", url: "", events: [], active: true }); setIsFormOpen(true); }}>
+          <Plus className="w-4 h-4 mr-2" /> Nuevo Webhook
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {webhooks.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-lg">
+            <Code2 className="w-10 h-10 mx-auto mb-2 opacity-50" />
+            <p>No hay webhooks API configurados.</p>
+            <p className="text-sm">Creá uno para recibir eventos con firma HMAC.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {webhooks.map((wh: any) => (
+              <div key={wh.id} className="border rounded-lg p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`p-1.5 rounded-md ${wh.active ? 'bg-green-100 text-green-600 dark:bg-green-900/30' : 'bg-muted text-muted-foreground'}`}>
+                      <Code2 className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-sm">{wh.name}</h4>
+                      <p className="text-xs text-muted-foreground font-mono truncate max-w-[350px]" title={wh.url}>{wh.url}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={wh.active}
+                      onCheckedChange={(active) => updateWebhook.mutate({ id: wh.id, active })}
+                    />
+                    <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => testWebhook.mutate({ id: wh.id })} title="Test">
+                      <Send className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => openEdit(wh)} title="Editar">
+                      <Activity className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setViewingDeliveries(viewingDeliveries === wh.id ? null : wh.id)} title="Entregas">
+                      <Eye className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                      onClick={() => { if (confirm("¿Eliminar este webhook?")) deleteWebhook.mutate({ id: wh.id }); }}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-1">
+                  {(wh.events as string[] || []).map((evt: string) => (
+                    <Badge key={evt} variant="secondary" className="text-[10px] font-mono">{evt}</Badge>
+                  ))}
+                </div>
+
+                {/* Secret display line */}
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-muted-foreground">Secret:</span>
+                  {revealedSecrets[wh.id] ? (
+                    <>
+                      <code className="bg-muted px-2 py-0.5 rounded font-mono text-[11px]">{revealedSecrets[wh.id]}</code>
+                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { navigator.clipboard.writeText(revealedSecrets[wh.id]); toast.success("Copiado"); }}>
+                        <Copy className="w-3 h-3" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setRevealedSecrets(prev => { const n = { ...prev }; delete n[wh.id]; return n; })}>
+                        <EyeOff className="w-3 h-3" />
+                      </Button>
+                    </>
+                  ) : (
+                    <span className="font-mono text-muted-foreground">whsec_••••••••</span>
+                  )}
+                  <Button variant="outline" size="sm" className="h-6 text-[10px]" onClick={() => {
+                    if (confirm("¿Regenerar el secreto? Las firmas anteriores dejarán de funcionar.")) {
+                      regenerateSecret.mutate({ id: wh.id });
+                    }
+                  }}>
+                    <RefreshCw className="w-3 h-3 mr-1" /> Regenerar
+                  </Button>
+                </div>
+
+                {/* Delivery history */}
+                {viewingDeliveries === wh.id && <WebhookDeliveries webhookId={wh.id} />}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Create/Edit Dialog */}
+        <Dialog open={isFormOpen} onOpenChange={(v) => { if (!v) closeForm(); else setIsFormOpen(true); }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{editingWebhook ? "Editar Webhook" : "Nuevo Webhook API"}</DialogTitle>
+              <DialogDescription>Configurá el endpoint y los eventos. Se firmará con HMAC-SHA256.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="grid gap-2">
+                <Label>Nombre</Label>
+                <Input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="Ej: CRM Sync" />
+              </div>
+              <div className="grid gap-2">
+                <Label>URL</Label>
+                <Input value={form.url} onChange={e => setForm(p => ({ ...p, url: e.target.value }))} placeholder="https://api.example.com/webhook" />
+              </div>
+              <div className="grid gap-2">
+                <Label>Eventos</Label>
+                <div className="grid grid-cols-2 gap-2 border rounded-md p-3 max-h-[200px] overflow-y-auto">
+                  {eventTypes.map((et: any) => (
+                    <div key={et.event} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`dev-evt-${et.event}`}
+                        checked={form.events.includes(et.event)}
+                        onCheckedChange={() => toggleEvent(et.event)}
+                      />
+                      <Label htmlFor={`dev-evt-${et.event}`} className="cursor-pointer font-normal text-sm">
+                        <span>{et.label}</span>
+                        {et.description && <span className="block text-[10px] text-muted-foreground">{et.description}</span>}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch checked={form.active} onCheckedChange={(v) => setForm(p => ({ ...p, active: v }))} />
+                <Label>Activo</Label>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={closeForm}>Cancelar</Button>
+              <Button onClick={handleSubmit} disabled={createWebhook.isPending || updateWebhook.isPending}>
+                {createWebhook.isPending || updateWebhook.isPending ? "Guardando..." : "Guardar"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </CardContent>
+    </Card>
+  );
+}
+
+function WebhookDeliveries({ webhookId }: { webhookId: number }) {
+  const { data: deliveries = [], isLoading } = trpc.webhooks.getDeliveries.useQuery({ webhookId });
+
+  if (isLoading) return <div className="text-xs text-center py-2 text-muted-foreground">Cargando entregas...</div>;
+  if (deliveries.length === 0) return <div className="text-xs text-center py-2 text-muted-foreground">Sin entregas registradas.</div>;
+
+  return (
+    <ScrollArea className="h-[200px] border rounded-md">
+      <table className="w-full text-xs">
+        <thead className="bg-muted/50 sticky top-0">
+          <tr>
+            <th className="p-2 text-left font-medium">Evento</th>
+            <th className="p-2 text-left font-medium">Status</th>
+            <th className="p-2 text-left font-medium">Fecha</th>
+            <th className="p-2 text-left font-medium">Respuesta</th>
+          </tr>
+        </thead>
+        <tbody>
+          {deliveries.map((d: any) => (
+            <tr key={d.id} className="border-b last:border-0 hover:bg-muted/30">
+              <td className="p-2 font-mono">{d.event || "-"}</td>
+              <td className="p-2">
+                <Badge variant={d.statusCode >= 200 && d.statusCode < 300 ? "default" : "destructive"} className="text-[10px]">
+                  {d.statusCode || "ERR"}
+                </Badge>
+              </td>
+              <td className="p-2 text-muted-foreground">{d.createdAt ? new Date(d.createdAt).toLocaleString() : "-"}</td>
+              <td className="p-2 text-muted-foreground truncate max-w-[150px]" title={d.responseBody}>{d.responseBody || "-"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </ScrollArea>
   );
 }

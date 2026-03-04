@@ -113,6 +113,7 @@ function OverviewTab({ period }: { period: Period }) {
   const { data: messageVolume, isLoading: loadingMsgs } = trpc.analytics.messageVolume.useQuery({ period });
   const { data: leadSources, isLoading: loadingSources } = trpc.analytics.leadSources.useQuery({ period });
   const { data: funnel, isLoading: loadingFunnel } = trpc.analytics.conversionFunnel.useQuery({ period });
+  const { data: activity } = trpc.analytics.activitySummary.useQuery({});
 
   const kpis = overview?.kpis;
 
@@ -120,6 +121,28 @@ function OverviewTab({ period }: { period: Period }) {
 
   return (
     <div className="space-y-6">
+      {/* Resumen de actividad (últimos 7 días) */}
+      {activity && (
+        <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
+          <Card className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">Conversaciones Abiertas</div>
+            <div className="text-2xl font-bold">{activity.openConversations}</div>
+          </Card>
+          <Card className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">Leads Sin Asignar</div>
+            <div className="text-2xl font-bold">{activity.unassignedLeads}</div>
+          </Card>
+          <Card className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">Leads (7 días)</div>
+            <div className="text-2xl font-bold">{activity.leadsByDay?.reduce((s: number, d: any) => s + (d.count || 0), 0) ?? 0}</div>
+          </Card>
+          <Card className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">Mensajes (7 días)</div>
+            <div className="text-2xl font-bold">{activity.msgsByDay?.reduce((s: number, d: any) => s + (d.count || 0), 0) ?? 0}</div>
+          </Card>
+        </div>
+      )}
+
       {/* KPIs */}
       <div className="grid gap-4 grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <KpiCard

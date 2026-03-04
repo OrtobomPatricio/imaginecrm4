@@ -7,7 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Plus, Settings2, Trash2, GripVertical, Check, X } from "lucide-react";
+import { Plus, Settings2, Trash2, GripVertical, Check, X, Pencil, MoreVertical } from "lucide-react";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
     Dialog,
     DialogContent,
@@ -148,12 +154,33 @@ function PipelineSettingsContent() {
 
     const reorderStages = trpc.pipelines.reorderStages.useMutation();
 
+    const renamePipeline = trpc.pipelines.renamePipeline.useMutation({
+        onSuccess: () => {
+            toast.success("Pipeline renombrado");
+            refetch();
+            setRenamingPipeline(null);
+            setRenameName("");
+        },
+        onError: (e) => toast.error(e.message),
+    });
+
+    const deletePipeline = trpc.pipelines.deletePipeline.useMutation({
+        onSuccess: () => {
+            toast.success("Pipeline eliminado");
+            setSelectedPipelineId(null);
+            refetch();
+        },
+        onError: (e) => toast.error(e.message),
+    });
+
     const [isOpen, setIsOpen] = useState(false);
     const [isAddStageOpen, setIsAddStageOpen] = useState(false);
     const [newPipelineName, setNewPipelineName] = useState("");
     const [newStageName, setNewStageName] = useState("");
     const [newStageType, setNewStageType] = useState("open");
     const [selectedPipelineId, setSelectedPipelineId] = useState<number | null>(null);
+    const [renamingPipeline, setRenamingPipeline] = useState<number | null>(null);
+    const [renameName, setRenameName] = useState("");
 
     const selectedPipeline = pipelines?.find(p => p.id === selectedPipelineId) || pipelines?.[0];
 
@@ -271,16 +298,64 @@ function PipelineSettingsContent() {
                     </CardHeader>
                     <CardContent className="grid gap-2">
                         {pipelines?.map(pipeline => (
-                            <Button
-                                key={pipeline.id}
-                                variant={selectedPipeline?.id === pipeline.id ? "secondary" : "ghost"}
-                                className="w-full justify-start"
-                                onClick={() => setSelectedPipelineId(pipeline.id)}
-                            >
-                                <Settings2 className="mr-2 h-4 w-4" />
-                                {pipeline.name}
-                                {pipeline.isDefault && <Badge variant="outline" className="ml-auto text-[10px]">Default</Badge>}
-                            </Button>
+                            <div key={pipeline.id} className="flex items-center gap-1">
+                                {renamingPipeline === pipeline.id ? (
+                                    <div className="flex items-center gap-1 flex-1">
+                                        <Input
+                                            value={renameName}
+                                            onChange={e => setRenameName(e.target.value)}
+                                            className="h-8 flex-1"
+                                            autoFocus
+                                            onKeyDown={e => {
+                                                if (e.key === 'Enter' && renameName.trim()) renamePipeline.mutate({ id: pipeline.id, name: renameName.trim() });
+                                                if (e.key === 'Escape') setRenamingPipeline(null);
+                                            }}
+                                        />
+                                        <Button size="icon" variant="ghost" className="h-8 w-8 text-green-600" onClick={() => renameName.trim() && renamePipeline.mutate({ id: pipeline.id, name: renameName.trim() })}>
+                                            <Check className="h-4 w-4" />
+                                        </Button>
+                                        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setRenamingPipeline(null)}>
+                                            <X className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <Button
+                                            variant={selectedPipeline?.id === pipeline.id ? "secondary" : "ghost"}
+                                            className="flex-1 justify-start"
+                                            onClick={() => setSelectedPipelineId(pipeline.id)}
+                                        >
+                                            <Settings2 className="mr-2 h-4 w-4" />
+                                            {pipeline.name}
+                                            {pipeline.isDefault && <Badge variant="outline" className="ml-auto text-[10px]">Default</Badge>}
+                                        </Button>
+                                        {!pipeline.isDefault && (
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
+                                                        <MoreVertical className="h-4 w-4" />
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    <DropdownMenuItem onClick={() => { setRenamingPipeline(pipeline.id); setRenameName(pipeline.name); }}>
+                                                        <Pencil className="mr-2 h-4 w-4" /> Renombrar
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuItem
+                                                        className="text-red-600 focus:text-red-600"
+                                                        onClick={() => {
+                                                            if (confirm("¿Eliminar este pipeline y todas sus etapas?")) {
+                                                                deletePipeline.mutate({ id: pipeline.id });
+                                                            }
+                                                        }}
+                                                    >
+                                                        <Trash2 className="mr-2 h-4 w-4" /> Eliminar
+                                                    </DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        )}
+                                    </>
+                                )}
+                            </div>
                         ))}
                     </CardContent>
                 </Card>

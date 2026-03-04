@@ -23,7 +23,8 @@ import {
   ChevronsUpDown,
   Search,
   MessageSquare,
-  Clock
+  Clock,
+  Pencil
 } from "lucide-react";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths } from "date-fns";
 import { es } from "date-fns/locale";
@@ -90,6 +91,25 @@ function SchedulingContent() {
       refetchReasons();
     },
   });
+
+  const updateAppointment = trpc.scheduling.update.useMutation({
+    onSuccess: () => {
+      toast.success("Cita actualizada");
+      refetchAppointments();
+      setEditingAppointment(null);
+    },
+    onError: (e) => toast.error("Error: " + e.message),
+  });
+
+  const deleteAppointment = trpc.scheduling.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Cita eliminada");
+      refetchAppointments();
+    },
+    onError: (e) => toast.error("Error: " + e.message),
+  });
+
+  const [editingAppointment, setEditingAppointment] = useState<any>(null);
 
   const resetForm = () => {
     setFirstName("");
@@ -350,13 +370,15 @@ function SchedulingContent() {
                       <th className="p-3 font-medium">Hora</th>
                       <th className="p-3 font-medium">Cliente</th>
                       <th className="p-3 font-medium">Motivo</th>
+                      <th className="p-3 font-medium">Estado</th>
                       <th className="p-3 font-medium">Notas</th>
+                      <th className="p-3 font-medium w-20"></th>
                     </tr>
                   </thead>
                   <tbody>
                     {selectedDateAppointments.length === 0 ? (
                       <tr>
-                        <td colSpan={4} className="p-8 text-center text-muted-foreground">
+                        <td colSpan={6} className="p-8 text-center text-muted-foreground">
                           No hay citas para este día.
                         </td>
                       </tr>
@@ -365,6 +387,14 @@ function SchedulingContent() {
                         .sort((a, b) => a.appointmentTime.localeCompare(b.appointmentTime))
                         .map(apt => {
                           const reason = reasons.find(r => r.id === apt.reasonId);
+                          const statusLabels: Record<string, { label: string; color: string }> = {
+                            scheduled: { label: "Agendada", color: "#3b82f6" },
+                            confirmed: { label: "Confirmada", color: "#10b981" },
+                            completed: { label: "Completada", color: "#22c55e" },
+                            cancelled: { label: "Cancelada", color: "#ef4444" },
+                            no_show: { label: "No asistió", color: "#f59e0b" },
+                          };
+                          const st = statusLabels[apt.status || "scheduled"] || statusLabels.scheduled;
                           return (
                             <tr key={apt.id} className="border-b last:border-0 hover:bg-muted/50">
                               <td className="p-3 font-medium">{apt.appointmentTime}</td>
@@ -380,8 +410,60 @@ function SchedulingContent() {
                                   </span>
                                 )}
                               </td>
-                              <td className="p-3 text-muted-foreground max-w-[200px] truncate">
+                              <td className="p-3">
+                                <Select
+                                  value={apt.status || "scheduled"}
+                                  onValueChange={(val) => updateAppointment.mutate({ id: apt.id, status: val as any })}
+                                >
+                                  <SelectTrigger className="h-7 w-[130px] text-xs">
+                                    <span style={{ color: st.color }}>{st.label}</span>
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {Object.entries(statusLabels).map(([k, v]) => (
+                                      <SelectItem key={k} value={k}>
+                                        <span style={{ color: v.color }}>{v.label}</span>
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </td>
+                              <td className="p-3 text-muted-foreground max-w-[150px] truncate">
                                 {apt.notes || "-"}
+                              </td>
+                              <td className="p-3">
+                                <div className="flex gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    onClick={() => setEditingAppointment({
+                                      id: apt.id,
+                                      firstName: apt.firstName,
+                                      lastName: apt.lastName,
+                                      phone: apt.phone,
+                                      email: apt.email || "",
+                                      reasonId: apt.reasonId?.toString() || "",
+                                      appointmentDate: apt.appointmentDate,
+                                      appointmentTime: apt.appointmentTime,
+                                      notes: apt.notes || "",
+                                      status: apt.status || "scheduled",
+                                    })}
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                    onClick={() => {
+                                      if (confirm("¿Eliminar esta cita?")) {
+                                        deleteAppointment.mutate({ id: apt.id });
+                                      }
+                                    }}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
                               </td>
                             </tr>
                           )
@@ -391,6 +473,96 @@ function SchedulingContent() {
                 </table>
               </div>
             </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Edit Appointment Dialog */}
+        <Dialog open={!!editingAppointment} onOpenChange={(open) => { if (!open) setEditingAppointment(null); }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Editar Cita</DialogTitle>
+            </DialogHeader>
+            {editingAppointment && (
+              <div className="grid gap-4 py-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Nombre</Label>
+                    <Input value={editingAppointment.firstName} onChange={e => setEditingAppointment({ ...editingAppointment, firstName: e.target.value })} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Apellido</Label>
+                    <Input value={editingAppointment.lastName} onChange={e => setEditingAppointment({ ...editingAppointment, lastName: e.target.value })} />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Teléfono</Label>
+                  <Input value={editingAppointment.phone} onChange={e => setEditingAppointment({ ...editingAppointment, phone: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Email</Label>
+                  <Input value={editingAppointment.email} onChange={e => setEditingAppointment({ ...editingAppointment, email: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Motivo</Label>
+                  <Select value={editingAppointment.reasonId} onValueChange={val => setEditingAppointment({ ...editingAppointment, reasonId: val })}>
+                    <SelectTrigger><SelectValue placeholder="Seleccionar..." /></SelectTrigger>
+                    <SelectContent>
+                      {reasons.map((r: any) => (
+                        <SelectItem key={r.id} value={r.id.toString()}>
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: r.color || "#3b82f6" }} />
+                            {r.name}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Hora</Label>
+                  <Input type="time" value={editingAppointment.appointmentTime} onChange={e => setEditingAppointment({ ...editingAppointment, appointmentTime: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Estado</Label>
+                  <Select value={editingAppointment.status} onValueChange={val => setEditingAppointment({ ...editingAppointment, status: val })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="scheduled">Agendada</SelectItem>
+                      <SelectItem value="confirmed">Confirmada</SelectItem>
+                      <SelectItem value="completed">Completada</SelectItem>
+                      <SelectItem value="cancelled">Cancelada</SelectItem>
+                      <SelectItem value="no_show">No asistió</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Notas</Label>
+                  <Textarea value={editingAppointment.notes} onChange={e => setEditingAppointment({ ...editingAppointment, notes: e.target.value })} />
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditingAppointment(null)}>Cancelar</Button>
+              <Button
+                onClick={() => {
+                  if (!editingAppointment) return;
+                  updateAppointment.mutate({
+                    id: editingAppointment.id,
+                    firstName: editingAppointment.firstName,
+                    lastName: editingAppointment.lastName,
+                    phone: editingAppointment.phone,
+                    email: editingAppointment.email || undefined,
+                    reasonId: editingAppointment.reasonId ? parseInt(editingAppointment.reasonId) : undefined,
+                    appointmentTime: editingAppointment.appointmentTime,
+                    notes: editingAppointment.notes || undefined,
+                    status: editingAppointment.status as any,
+                  });
+                }}
+                disabled={updateAppointment.isPending}
+              >
+                {updateAppointment.isPending ? "Guardando..." : "Guardar"}
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
 
