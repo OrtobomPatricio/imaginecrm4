@@ -178,7 +178,7 @@ export async function refreshMaterializedViews(): Promise<void> {
         logger.info({ elapsedMs: elapsed }, "[MV] All materialized views refreshed");
 
     } catch (err: any) {
-        logger.error({ err: err.message, stack: err.stack }, "[MV] Failed to refresh materialized views");
+        logger.error({ err }, "[MV] Failed to refresh materialized views");
     }
 }
 

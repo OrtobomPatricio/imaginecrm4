@@ -1,10 +1,12 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { appSettings } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { permissionProcedure, adminProcedure, router, protectedProcedure } from "../_core/trpc";
 import { sanitizeAppSettings } from "../_core/security-helpers";
 import { getOrCreateAppSettings, updateAppSettings } from "../services/app-settings";
 import { encryptSecret } from "../_core/crypto";
+import { logAccess } from "../services/security";
 
 export const settingsRouter = router({
     get: permissionProcedure("settings.view").query(async ({ ctx }) => {
@@ -68,7 +70,7 @@ export const settingsRouter = router({
         )
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
             // Fetch current settings for secure merge (especially for secrets)
             const currentSettings = await getOrCreateAppSettings(db, ctx.tenantId);
@@ -109,12 +111,15 @@ export const settingsRouter = router({
         .input(z.object({ permissionsMatrix: z.record(z.string(), z.array(z.string())) }))
         .mutation(async ({ input, ctx }) => {
             if ((ctx.user as any).role !== "owner") {
-                throw new Error("Only owner can change permissions");
+                throw new TRPCError({ code: "FORBIDDEN", message: "Only owner can change permissions" });
             }
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
             await updateAppSettings(db, ctx.tenantId, { permissionsMatrix: input.permissionsMatrix });
+
+            await logAccess({ userId: (ctx.user as any).id, action: "updatePermissionsMatrix", entityType: "appSettings" });
+
             return { success: true } as const;
         }),
 
@@ -128,7 +133,7 @@ export const settingsRouter = router({
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
             await updateAppSettings(db, ctx.tenantId, { securityConfig: input.securityConfig });
             return { success: true };
         }),
@@ -137,7 +142,7 @@ export const settingsRouter = router({
         .input(z.record(z.string(), z.boolean()))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
             // Merge with existing config
             const currentSettings = await getOrCreateAppSettings(db, ctx.tenantId);
             const current = (currentSettings.dashboardConfig as Record<string, any>) || {};
@@ -153,7 +158,7 @@ export const settingsRouter = router({
         .input(z.object({ layout: z.array(z.any()) }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
             const currentSettings = await getOrCreateAppSettings(db, ctx.tenantId);
             const current = (currentSettings.dashboardConfig as Record<string, any>) || {};
 
@@ -175,7 +180,7 @@ export const settingsRouter = router({
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
             const currentSettings = await getOrCreateAppSettings(db, ctx.tenantId);
             const prev = (currentSettings.smtpConfig as Record<string, any>) ?? {};
@@ -207,7 +212,7 @@ export const settingsRouter = router({
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
             const currentSettings = await getOrCreateAppSettings(db, ctx.tenantId);
             const prev = (currentSettings.storageConfig as Record<string, any>) ?? {};
@@ -237,7 +242,7 @@ export const settingsRouter = router({
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
             const currentSettings = await getOrCreateAppSettings(db, ctx.tenantId);
             const prev = (currentSettings.aiConfig as Record<string, any>) ?? {};
@@ -260,7 +265,7 @@ export const settingsRouter = router({
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
             const currentSettings = await getOrCreateAppSettings(db, ctx.tenantId);
             const prev = (currentSettings.mapsConfig as Record<string, any>) ?? {};
@@ -281,7 +286,7 @@ export const settingsRouter = router({
         if (!db || !ctx.user) return { role: ctx.user?.role ?? "agent", baseRole: ctx.user?.role ?? "agent", permissions: [] };
 
         // Use context tenant if available, throw if missing for safety
-        if (!ctx.tenantId) throw new Error("Missing tenantId");
+        if (!ctx.tenantId) throw new TRPCError({ code: "BAD_REQUEST", message: "Missing tenantId" });
         const matrix = (await getOrCreateAppSettings(db, ctx.tenantId)).permissionsMatrix ?? {};
         const baseRole = (ctx.user as any).role ?? "agent";
         const customRole = (ctx.user as any).customRole as string | undefined;

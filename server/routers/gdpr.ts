@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { users } from "../../drizzle/schema";
@@ -29,10 +30,10 @@ export const gdprRouter = router({
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
             if (input.confirmEmail !== ctx.user!.email) {
-                throw new Error("Email confirmation mismatch");
+                throw new TRPCError({ code: "BAD_REQUEST", message: "Email confirmation mismatch" });
             }
 
             // Set retention until 30 days from now (Grace period)
@@ -61,7 +62,7 @@ export const gdprRouter = router({
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
             const updatePayload: any = { ...input };
             if (input.marketingConsent !== undefined) {
@@ -80,7 +81,7 @@ export const gdprRouter = router({
         .input(z.object({ restricted: z.boolean() }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
             await db.update(users)
                 .set({ isActive: !input.restricted })
@@ -92,7 +93,7 @@ export const gdprRouter = router({
     // Right to Object (Art. 21) - Specifically object to marketing
     objectToMarketing: protectedProcedure.mutation(async ({ ctx }) => {
         const db = await getDb();
-        if (!db) throw new Error("Database not available");
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
         await db.update(users)
             .set({

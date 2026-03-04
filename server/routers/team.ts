@@ -2,10 +2,12 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { nanoid } from "nanoid";
 import { eq, desc, and } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
 import { users, appSettings } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { permissionProcedure, router } from "../_core/trpc";
 import { sendEmail } from "../_core/email";
+import { logAccess } from "../services/security";
 
 export const teamRouter = router({
     listUsers: permissionProcedure("users.view").query(async ({ ctx }) => {
@@ -30,20 +32,22 @@ export const teamRouter = router({
         .input(z.object({ userId: z.number(), role: z.enum(["owner", "admin", "supervisor", "agent", "viewer"]) }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
             // Only owner can assign owner role
             if (input.role === "owner" && (ctx.user as any).role !== "owner") {
-                throw new Error("Only owner can assign owner");
+                throw new TRPCError({ code: "FORBIDDEN", message: "Only owner can assign owner" });
             }
 
             // Nobody can downgrade owner except owner itself
             const target = await db.select().from(users).where(and(eq(users.tenantId, ctx.tenantId), eq(users.id, input.userId))).limit(1);
             if (target[0]?.role === "owner" && (ctx.user as any).role !== "owner") {
-                throw new Error("Only owner can change another owner");
+                throw new TRPCError({ code: "FORBIDDEN", message: "Only owner can change another owner" });
             }
 
             await db.update(users).set({ role: input.role }).where(and(eq(users.tenantId, ctx.tenantId), eq(users.id, input.userId)));
+
+            await logAccess({ userId: (ctx.user as any).id, action: "updateRole", entityType: "user", entityId: input.userId, metadata: { newRole: input.role } });
 
             // Safety check: Ensure at least one owner remains
             if (target[0]?.role === "owner" && input.role !== "owner") {
@@ -61,23 +65,23 @@ export const teamRouter = router({
         .input(z.object({ userId: z.number(), customRole: z.string().max(64).optional().nullable() }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
             // Protect owner (only owner can change another owner)
             const target = await db.select().from(users).where(and(eq(users.tenantId, ctx.tenantId), eq(users.id, input.userId))).limit(1);
             if (target[0]?.role === "owner" && (ctx.user as any).role !== "owner") {
-                throw new Error("Only owner can change another owner");
+                throw new TRPCError({ code: "FORBIDDEN", message: "Only owner can change another owner" });
             }
 
             const value = input.customRole ? input.customRole.trim() : null;
-            if (value === "owner") throw new Error("Forbidden role"); // BLOCK OWNER ESCALATION
+            if (value === "owner") throw new TRPCError({ code: "FORBIDDEN", message: "Forbidden role" }); // BLOCK OWNER ESCALATION
 
             // Validate customRole (blocks reserved roles + checks matrix)
             if (value) {
                 const settings = await db.select().from(appSettings).where(eq(appSettings.tenantId, ctx.tenantId)).limit(1);
                 const matrix = settings[0]?.permissionsMatrix ?? {};
                 if (!Object.prototype.hasOwnProperty.call(matrix, value)) {
-                    throw new Error("Role does not exist in permissions matrix");
+                    throw new TRPCError({ code: "BAD_REQUEST", message: "Role does not exist in permissions matrix" });
                 }
             }
 
@@ -89,14 +93,16 @@ export const teamRouter = router({
         .input(z.object({ userId: z.number(), isActive: z.boolean() }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
             const target = await db.select().from(users).where(and(eq(users.tenantId, ctx.tenantId), eq(users.id, input.userId))).limit(1);
             if (target[0]?.role === "owner" && (ctx.user as any).role !== "owner") {
-                throw new Error("Only owner can disable owner");
+                throw new TRPCError({ code: "FORBIDDEN", message: "Only owner can disable owner" });
             }
 
             await db.update(users).set({ isActive: input.isActive }).where(and(eq(users.tenantId, ctx.tenantId), eq(users.id, input.userId)));
+
+            await logAccess({ userId: (ctx.user as any).id, action: "setActive", entityType: "user", entityId: input.userId, metadata: { isActive: input.isActive } });
             return { success: true } as const;
         }),
 
@@ -113,12 +119,12 @@ export const teamRouter = router({
             await enforceUserLimit(ctx.tenantId);
 
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
             // Check if email already exists
             const existing = await db.select().from(users).where(and(eq(users.tenantId, ctx.tenantId), eq(users.email, input.email))).limit(1);
             if (existing.length > 0) {
-                throw new Error("User with this email already exists");
+                throw new TRPCError({ code: "CONFLICT", message: "User with this email already exists" });
             }
 
             const hashedPassword = await bcrypt.hash(input.password, 12);
@@ -151,11 +157,11 @@ export const teamRouter = router({
             await enforceUserLimit(ctx.tenantId);
 
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
             const existing = await db.select().from(users).where(and(eq(users.tenantId, ctx.tenantId), eq(users.email, input.email))).limit(1);
             if (existing.length > 0) {
-                throw new Error("User already exists");
+                throw new TRPCError({ code: "CONFLICT", message: "User already exists" });
             }
 
             const token = nanoid(32);
@@ -203,32 +209,35 @@ export const teamRouter = router({
         .input(z.object({ userId: z.number() }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
             // Get target user
             const target = await db.select().from(users).where(and(eq(users.tenantId, ctx.tenantId), eq(users.id, input.userId))).limit(1);
-            if (!target[0]) throw new Error("User not found");
+            if (!target[0]) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
 
             // Prevent deleting owner (only owner can delete owner accounts)
             if (target[0].role === "owner" && (ctx.user as any).role !== "owner") {
-                throw new Error("Only owner can delete another owner");
+                throw new TRPCError({ code: "FORBIDDEN", message: "Only owner can delete another owner" });
             }
 
             // Prevent self-deletion
             if (target[0].id === (ctx.user as any).id) {
-                throw new Error("Cannot delete yourself");
+                throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot delete yourself" });
             }
 
             // Prevent deleting the last owner
             if (target[0].role === "owner") {
                 const owners = await db.select().from(users).where(and(eq(users.tenantId, ctx.tenantId), eq(users.role, "owner")));
                 if (owners.length <= 1) {
-                    throw new Error("Cannot delete the last owner allowed in the system");
+                    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Cannot delete the last owner allowed in the system" });
                 }
             }
 
             // Delete user
             await db.delete(users).where(and(eq(users.tenantId, ctx.tenantId), eq(users.id, input.userId)));
+
+            await logAccess({ userId: (ctx.user as any).id, action: "deleteUser", entityType: "user", entityId: input.userId });
+
             return { success: true };
         }),
 });

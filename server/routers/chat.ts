@@ -69,7 +69,7 @@ export const chatRouter = router({
                 const { leads } = await import("../../drizzle/schema"); // Lazy load schema circular dependency? No, leads is in schema
                 // But we need to import leads table.
                 const lead = await tx.select().from(leads).where(and(eq(leads.tenantId, ctx.tenantId), eq(leads.id, input.leadId))).limit(1);
-                if (!lead[0]) throw new Error("Lead not found");
+                if (!lead[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Lead not found" });
 
                 // 3. Try to find conversation by phone (in case it wasn't linked yet)
                 const byPhone = await tx.select()
@@ -91,7 +91,7 @@ export const chatRouter = router({
                 const defaultChannelId = channels[0]?.whatsappNumberId;
                 const defaultConnType = (channels[0]?.connectionType as any) ?? "api";
 
-                if (!defaultChannelId) throw new Error("No active WhatsApp channel found to start conversation");
+                if (!defaultChannelId) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "No active WhatsApp channel found to start conversation" });
 
                 const result = await tx.insert(conversations).values({
                     tenantId: ctx.tenantId,
@@ -362,7 +362,7 @@ export const chatRouter = router({
         .mutation(async ({ input, ctx }) => {
             await assertConversationAccess(ctx, input.conversationId);
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
             // Update local messages status
             await db.update(chatMessages)
@@ -425,7 +425,7 @@ export const chatRouter = router({
         .mutation(async ({ input, ctx }) => {
             await assertConversationAccess(ctx, input.conversationId);
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
             await db.update(conversations).set({ status: input.status }).where(and(eq(conversations.tenantId, ctx.tenantId), eq(conversations.id, input.conversationId)));
             return { success: true };
         }),
@@ -435,7 +435,7 @@ export const chatRouter = router({
         .mutation(async ({ input, ctx }) => {
             await assertConversationAccess(ctx, input.conversationId);
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
             // FIX (FUNC-02): Delete messages first, then conversation (cascade)
             await db.transaction(async (tx) => {
@@ -454,7 +454,7 @@ export const chatRouter = router({
         .input(z.object({ conversationIds: z.array(z.number()).min(1).max(200) }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
             await db.transaction(async (tx) => {
                 // Verify ownership
@@ -463,7 +463,7 @@ export const chatRouter = router({
                     .where(and(eq(conversations.tenantId, ctx.tenantId), inArray(conversations.id, input.conversationIds)));
 
                 if (valid.length !== input.conversationIds.length) {
-                    throw new Error("Algunas conversaciones no pertenecen a tu empresa.");
+                    throw new TRPCError({ code: "FORBIDDEN", message: "Algunas conversaciones no pertenecen a tu empresa." });
                 }
 
                 await tx.delete(chatMessages)
@@ -480,7 +480,7 @@ export const chatRouter = router({
         .mutation(async ({ input, ctx }) => {
             await assertConversationAccess(ctx, input.conversationId);
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
             await db.update(conversations).set({ assignedToId: input.assignedToId }).where(and(eq(conversations.tenantId, ctx.tenantId), eq(conversations.id, input.conversationId)));
             return { success: true };
         }),
@@ -508,7 +508,7 @@ export const chatRouter = router({
         .mutation(async ({ input, ctx }) => {
             await assertConversationAccess(ctx, input.conversationId);
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
             const now = new Date();
 
@@ -518,7 +518,7 @@ export const chatRouter = router({
                     .where(and(eq(conversations.tenantId, ctx.tenantId), eq(conversations.id, input.conversationId)))
                     .limit(1);
                 const conv = convRows[0];
-                if (!conv) throw new Error("Conversation not found");
+                if (!conv) throw new TRPCError({ code: "NOT_FOUND", message: "Conversation not found" });
 
                 const isFacebook = conv.channel === 'facebook';
 
@@ -567,25 +567,25 @@ export const chatRouter = router({
             if (isFacebook) {
                 // --- FACEBOOK SEND LOGIC ---
                 const pageId = input.facebookPageId || conv.facebookPageId;
-                if (!pageId) throw new Error("Falta facebookPageId");
+                if (!pageId) throw new TRPCError({ code: "BAD_REQUEST", message: "Falta facebookPageId" });
 
                 // Get Page Access Token
                 const pageRows = await db.select().from(facebookPages).where(and(eq(facebookPages.tenantId, ctx.tenantId), eq(facebookPages.id, pageId))).limit(1);
                 const page = pageRows[0];
 
-                if (!page || !page.accessToken) throw new Error("Página de Facebook no conectada o sin token");
+                if (!page || !page.accessToken) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Página de Facebook no conectada o sin token" });
 
                 const accessToken = decryptSecret(page.accessToken) || page.accessToken;
-                if (!accessToken) throw new Error("Error desencriptando token de Facebook");
+                if (!accessToken) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Error desencriptando token de Facebook" });
 
                 // Construct message payload
                 let messagePayload: any = {};
 
                 if (input.messageType === 'text') {
-                    if (!input.content) throw new Error("Mensaje vacío");
+                    if (!input.content) throw new TRPCError({ code: "BAD_REQUEST", message: "Mensaje vacío" });
                     messagePayload = { text: input.content };
                 } else if (['image', 'video', 'audio', 'document'].includes(input.messageType)) {
-                    if (!input.mediaUrl) throw new Error("Falta URL de multimedia");
+                    if (!input.mediaUrl) throw new TRPCError({ code: "BAD_REQUEST", message: "Falta URL de multimedia" });
                     messagePayload = {
                         attachment: {
                             // Facebook Messenger uses `file` for generic documents
@@ -594,7 +594,7 @@ export const chatRouter = router({
                         }
                     };
                 } else {
-                    throw new Error(`Tipo de mensaje no soportado para Facebook: ${input.messageType}`);
+                    throw new TRPCError({ code: "BAD_REQUEST", message: `Tipo de mensaje no soportado para Facebook: ${input.messageType}` });
                 }
 
                 try {
@@ -626,7 +626,7 @@ export const chatRouter = router({
                     await db.update(chatMessages)
                         .set({ status: 'failed', errorMessage: "Falta whatsappNumberId", failedAt: now })
                         .where(and(eq(chatMessages.tenantId, ctx.tenantId), eq(chatMessages.id, id)));
-                    throw new Error("Falta whatsappNumberId");
+                    throw new TRPCError({ code: "BAD_REQUEST", message: "Falta whatsappNumberId" });
                 }
 
                 // Lookup WhatsApp connection
@@ -640,7 +640,7 @@ export const chatRouter = router({
                     await db.update(chatMessages)
                         .set({ status: 'failed', errorMessage: "WhatsApp no configurado", failedAt: now })
                         .where(and(eq(chatMessages.tenantId, ctx.tenantId), eq(chatMessages.id, id)));
-                    throw new Error("WhatsApp no configurado para este número");
+                    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "WhatsApp no configurado para este número" });
                 }
 
                 // Update connection type in conversation if needed
@@ -678,7 +678,7 @@ export const chatRouter = router({
 
                             // Verify file exists
                             if (!fs.existsSync(filePath)) {
-                                throw new Error(`Archivo no encontrado: ${filePath}`);
+                                throw new TRPCError({ code: "NOT_FOUND", message: `Archivo no encontrado: ${filePath}` });
                             }
                         }
 
@@ -692,7 +692,7 @@ export const chatRouter = router({
                         } else if (input.messageType === 'audio' && filePath) {
                             baileysContent = { audio: { url: filePath }, ptt: true };
                         } else {
-                            throw new Error(`Tipo de mensaje no soportado para Baileys: ${input.messageType}`);
+                            throw new TRPCError({ code: "BAD_REQUEST", message: `Tipo de mensaje no soportado para Baileys: ${input.messageType}` });
                         }
 
                         const result = await BaileysService.sendMessage(whatsappNumberId, jid, baileysContent);
@@ -710,7 +710,7 @@ export const chatRouter = router({
                     } else if (conn.connectionType === 'api') {
                         // --- CLOUD API SEND ---
                         if (!conn.accessToken || !conn.phoneNumberId) {
-                            throw new Error("WhatsApp Cloud API no configurado correctamente");
+                            throw new TRPCError({ code: "PRECONDITION_FAILED", message: "WhatsApp Cloud API no configurado correctamente" });
                         }
 
                         const accessToken = decryptSecret(conn.accessToken) || conn.accessToken;
@@ -733,7 +733,7 @@ export const chatRouter = router({
 
                         return { id, success: true, sent: true, via: 'cloud-api' };
                     } else {
-                        throw new Error(`Tipo de conexión no soportado: ${conn.connectionType}`);
+                        throw new TRPCError({ code: "BAD_REQUEST", message: `Tipo de conexión no soportado: ${conn.connectionType}` });
                     }
                 } catch (err: any) {
                     await db.update(chatMessages)
@@ -754,7 +754,7 @@ export const chatRouter = router({
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
-            if (!db) throw new Error("Database not available");
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 
             logger.info("[CreateConversation] Input:", JSON.stringify(input));
 
@@ -763,11 +763,11 @@ export const chatRouter = router({
             // Validate required ID based on channel
             if (channel === 'whatsapp' && !input.whatsappNumberId) {
                 logger.error("[CreateConversation] Missing whatsappNumberId");
-                throw new Error("Falta whatsappNumberId");
+                throw new TRPCError({ code: "BAD_REQUEST", message: "Falta whatsappNumberId" });
             }
             if (channel === 'facebook' && !input.facebookPageId) {
                 logger.error("[CreateConversation] Missing facebookPageId");
-                throw new Error("Falta facebookPageId");
+                throw new TRPCError({ code: "BAD_REQUEST", message: "Falta facebookPageId" });
             }
 
             try {
@@ -800,7 +800,7 @@ export const chatRouter = router({
                 return { id: newConvId, success: true };
             } catch (error: any) {
                 logger.error("[CreateConversation] Error:", error);
-                throw new Error(`Error al crear conversación: ${error.message}`);
+                throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Error al crear conversación" });
             }
         }),
 });

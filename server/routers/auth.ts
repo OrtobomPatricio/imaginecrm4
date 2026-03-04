@@ -176,7 +176,7 @@ export const authRouter = router({
                 valid = await bcrypt.compare(input.password, user[0].password);
             }
             if (!valid) {
-                logger.warn({ email: normalizedEmail, userId: user[0].id, ip, passwordLength: input.password.length, trimmedLength: trimmedPassword.length }, "[Auth] Login failed: invalid password");
+                logger.warn({ email: normalizedEmail, userId: user[0].id, ip }, "[Auth] Login failed: invalid password");
                 return { success: false, error: "Credenciales inválidas" };
             }
 

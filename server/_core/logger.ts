@@ -29,6 +29,8 @@ const baseLogger = pino({
       "refreshToken",
       "*.refreshToken",
       "DATA_ENCRYPTION_KEY",
+      "encryptionKey",
+      "*.encryptionKey",
     ],
     remove: true,
   },
