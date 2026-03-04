@@ -430,12 +430,14 @@ export function registerEmbeddedSignupRoutes(app: Express) {
       }
 
       // Try to deregister phone from Cloud API (best-effort)
-      if (conn.accessToken && conn.phoneNumberId) {
+      if (conn.accessToken && conn.phoneNumberId && GRAPH_ID_RE.test(conn.phoneNumberId)) {
         try {
-          const token = decryptSecret(conn.accessToken) || conn.accessToken;
-          await graphPost(`${conn.phoneNumberId}/deregister`, token, {
-            messaging_product: "whatsapp",
-          });
+          const token = decryptSecret(conn.accessToken);
+          if (token) {
+            await graphPost(`${conn.phoneNumberId}/deregister`, token, {
+              messaging_product: "whatsapp",
+            });
+          }
         } catch {
           // Deregister may fail if token expired or phone was already deregistered
         }
