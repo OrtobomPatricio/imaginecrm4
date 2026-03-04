@@ -286,10 +286,11 @@ function BillingActions({ isActive }: { isActive: boolean }) {
     });
 
     const [showPlans, setShowPlans] = React.useState(false);
+    const [cancelled, setCancelled] = React.useState(false);
     const allPlans = billingPlan.data?.allPlans;
     const currentPlan = billingPlan.data?.plan || "free";
 
-    // On mount, check if returning from PayPal success redirect
+    // On mount, check if returning from PayPal success/cancel redirect
     React.useEffect(() => {
         const params = new URLSearchParams(window.location.search);
         const success = params.get("success");
@@ -302,7 +303,11 @@ function BillingActions({ isActive }: { isActive: boolean }) {
                 subscriptionId: storedSubId,
                 plan: plan as "starter" | "pro" | "enterprise",
             });
-            // Clean URL
+            window.history.replaceState({}, "", window.location.pathname);
+        } else if (params.get("cancelled") === "true") {
+            sessionStorage.removeItem("pp_sub_id");
+            setCancelled(true);
+            setShowPlans(true);
             window.history.replaceState({}, "", window.location.pathname);
         }
     }, []);
@@ -320,8 +325,12 @@ function BillingActions({ isActive }: { isActive: boolean }) {
                     <CheckCircle2 className="h-4 w-4" />
                     ¡Suscripci\u00f3n activada correctamente!
                 </div>
+            )}            {cancelled && (
+                <div className="flex items-center gap-2 text-sm text-amber-600 p-2 bg-amber-50 dark:bg-amber-950/30 rounded">
+                    <AlertTriangle className="h-4 w-4" />
+                    El pago fue cancelado. Puedes intentarlo de nuevo seleccionando un plan.
+                </div>
             )}
-
             <div className="flex gap-3">
                 {isActive ? (
                     <Button
