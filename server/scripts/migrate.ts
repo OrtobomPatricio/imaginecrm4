@@ -161,7 +161,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
               name VARCHAR(200) NOT NULL,
               slug VARCHAR(100) NOT NULL,
               plan ENUM('free','starter','pro','enterprise') NOT NULL DEFAULT 'free',
-              stripeCustomerId VARCHAR(255) NULL,
+              paypalSubscriptionId VARCHAR(255) NULL,
               status ENUM('active','suspended','canceled') NOT NULL DEFAULT 'active',
               createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
               updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

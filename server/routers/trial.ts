@@ -103,71 +103,7 @@ export const trialRouter = router({
             };
         }),
 
-    /** Prorate plan change (Stripe handles this) */
-    changePlan: protectedProcedure
-        .input(z.object({
-            newPlan: z.enum(["starter", "pro", "enterprise"]),
-        }))
-        .mutation(async ({ input, ctx }) => {
-            const stripeKey = process.env.STRIPE_SECRET_KEY;
-            if (!stripeKey) {
-                throw new TRPCError({
-                    code: "PRECONDITION_FAILED",
-                    message: "Stripe no está configurado.",
-                });
-            }
-
-            const db = await getDb();
-            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-
-            const [tenant] = await db.select().from(tenants)
-                .where(eq(tenants.id, ctx.tenantId)).limit(1);
-
-            const customerId = (tenant as any)?.stripeCustomerId;
-            if (!customerId) {
-                throw new TRPCError({
-                    code: "PRECONDITION_FAILED",
-                    message: "No hay suscripción activa para prorratear.",
-                });
-            }
-
-            try {
-                const stripe = (await import("stripe")).default;
-                const client = new stripe(stripeKey);
-
-                // Get current subscription
-                const subscriptions = await client.subscriptions.list({
-                    customer: customerId,
-                    status: "active",
-                    limit: 1,
-                });
-
-                const sub = subscriptions.data[0];
-                if (!sub) {
-                    throw new TRPCError({
-                        code: "NOT_FOUND",
-                        message: "No se encontró suscripción activa.",
-                    });
-                }
-
-                const newPriceId = process.env[`STRIPE_PRICE_${input.newPlan.toUpperCase()}`];
-                if (!newPriceId) {
-                    throw new TRPCError({
-                        code: "PRECONDITION_FAILED",
-                        message: `Precio no configurado para plan: ${input.newPlan}`,
-                    });
-                }
-
-                // Update subscription with proration
-                await client.subscriptions.update(sub.id, {
-                    items: [{
-                        id: sub.items.data[0].id,
-                        price: newPriceId,
-                    }],
-                    proration_behavior: "create_prorations",
-                });
-
-                // Update local DB
+    // Prorate plan change is not supported with PayPal subscriptions. Use the PayPal dashboard to manage plan changes.
                 await db.update(tenants).set({
                     plan: input.newPlan,
                 } as any).where(eq(tenants.id, ctx.tenantId));

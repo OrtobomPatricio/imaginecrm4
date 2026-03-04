@@ -253,28 +253,35 @@ export function BillingSettings() {
 
 /**
  * Billing Actions Component
- * Connects to Stripe Checkout for upgrades and Billing Portal for management.
+ * Connects to PayPal for subscription upgrades and management.
  */
 function BillingActions({ isActive }: { isActive: boolean }) {
     const billingPlan = trpc.billing.getCurrentPlan.useQuery();
-    const checkout = trpc.billing.createCheckoutSession.useMutation({
+    const createSub = trpc.billing.createSubscription.useMutation({
         onSuccess: (data) => {
             if (data.url) {
+                // Store subscriptionId so we can confirm later
+                sessionStorage.setItem("pp_sub_id", data.subscriptionId);
                 window.location.href = data.url;
             }
         },
         onError: (e) => {
-            // If Stripe is not configured, show plans comparison
+            // If PayPal is not configured, show plans comparison
             if (e.message.includes("no est\u00e1 configurado")) {
                 setShowPlans(true);
             }
         },
     });
-    const portal = trpc.billing.getBillingPortal.useMutation({
+    const manageUrl = trpc.billing.getManageUrl.useMutation({
         onSuccess: (data) => {
             if (data.url) {
-                window.location.href = data.url;
+                window.open(data.url, "_blank");
             }
+        },
+    });
+    const confirmSub = trpc.billing.confirmSubscription.useMutation({
+        onSuccess: () => {
+            billingPlan.refetch();
         },
     });
 
@@ -282,15 +289,46 @@ function BillingActions({ isActive }: { isActive: boolean }) {
     const allPlans = billingPlan.data?.allPlans;
     const currentPlan = billingPlan.data?.plan || "free";
 
+    // On mount, check if returning from PayPal success redirect
+    React.useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const success = params.get("success");
+        const plan = params.get("plan");
+        const storedSubId = sessionStorage.getItem("pp_sub_id");
+
+        if (success === "true" && plan && storedSubId) {
+            sessionStorage.removeItem("pp_sub_id");
+            confirmSub.mutate({
+                subscriptionId: storedSubId,
+                plan: plan as "starter" | "pro" | "enterprise",
+            });
+            // Clean URL
+            window.history.replaceState({}, "", window.location.pathname);
+        }
+    }, []);
+
     return (
         <div className="space-y-4 pt-2">
+            {confirmSub.isPending && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground p-2 bg-muted/50 rounded">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Confirmando suscripci\u00f3n con PayPal...
+                </div>
+            )}
+            {confirmSub.isSuccess && (
+                <div className="flex items-center gap-2 text-sm text-green-600 p-2 bg-green-50 dark:bg-green-950/30 rounded">
+                    <CheckCircle2 className="h-4 w-4" />
+                    ¡Suscripci\u00f3n activada correctamente!
+                </div>
+            )}
+
             <div className="flex gap-3">
                 {isActive ? (
                     <Button
-                        onClick={() => portal.mutate()}
-                        disabled={portal.isPending}
+                        onClick={() => manageUrl.mutate()}
+                        disabled={manageUrl.isPending}
                     >
-                        {portal.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        {manageUrl.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         Gestionar Suscripci\u00f3n
                     </Button>
                 ) : (
@@ -329,10 +367,10 @@ function BillingActions({ isActive }: { isActive: boolean }) {
                                 <Button
                                     className="w-full"
                                     variant={isCurrent ? "outline" : "default"}
-                                    disabled={isCurrent || checkout.isPending}
-                                    onClick={() => checkout.mutate({ plan: planKey })}
+                                    disabled={isCurrent || createSub.isPending}
+                                    onClick={() => createSub.mutate({ plan: planKey })}
                                 >
-                                    {isCurrent ? "Plan Actual" : checkout.isPending ? "Procesando..." : "Seleccionar"}
+                                    {isCurrent ? "Plan Actual" : createSub.isPending ? "Procesando..." : "Seleccionar"}
                                 </Button>
                             </div>
                         );

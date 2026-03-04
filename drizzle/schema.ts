@@ -8,7 +8,7 @@ export const tenants = mysqlTable("tenants", {
   name: varchar("name", { length: 200 }).notNull(),
   slug: varchar("slug", { length: 100 }).notNull().unique(),
   plan: mysqlEnum("plan", ["free", "starter", "pro", "enterprise"]).default("free").notNull(),
-  stripeCustomerId: varchar("stripeCustomerId", { length: 255 }),
+  paypalSubscriptionId: varchar("paypalSubscriptionId", { length: 255 }),
   status: mysqlEnum("status", ["active", "suspended", "canceled"]).default("active").notNull(),
   trialEndsAt: timestamp("trialEndsAt"),
   internalNotes: text("internalNotes"),
@@ -1077,9 +1077,9 @@ export const license = mysqlTable("license", {
   maxMessagesPerMonth: int("maxMessagesPerMonth").default(10000),
   features: json("features").$type<string[]>(), // e.g., ["api", "webhooks", "advanced_analytics"]
   metadata: json("metadata").$type<{
-    stripeCustomerId?: string;
-    stripeSubscriptionId?: string;
-    paymentProvider?: 'stripe' | 'mercadopago';
+    paypalSubscriptionId?: string;
+    paypalCustomerId?: string;
+    paymentProvider?: 'paypal' | 'mercadopago';
   }>(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

@@ -146,7 +146,7 @@ export default function TermsPage({ onAccept }: { onAccept?: () => void }) {
                         <ul>
                             <li>Los precios están sujetos a cambios con aviso previo de 30 días.</li>
                             <li>Las suscripciones se renuevan automáticamente al final de cada período de facturación.</li>
-                            <li>Los pagos son procesados por Stripe y están sujetos a sus términos de servicio.</li>
+                            <li>Los pagos son procesados por PayPal y están sujetos a sus términos de servicio.</li>
                             <li>Las pruebas gratuitas de 14 días otorgan acceso completo al plan Pro sin requerir tarjeta de crédito.</li>
                             <li>El prorrateo se aplica automáticamente al cambiar de plan a mitad de ciclo.</li>
                             <li>No se ofrecen reembolsos por períodos parciales, excepto en casos excepcionales a discreción del proveedor.</li>

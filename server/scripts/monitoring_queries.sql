@@ -13,7 +13,7 @@ SELECT
     t.slug                                  AS subdominio,
     t.plan                                  AS plan_tenant,
     t.status                                AS estado_tenant,
-    t.stripeCustomerId                      AS stripe_customer_id,
+    t.paypalSubscriptionId                 AS paypal_subscription_id,
     t.createdAt                             AS fecha_registro,
 
     -- Licencia
@@ -26,8 +26,8 @@ SELECT
     l.maxUsers                              AS max_usuarios,
     l.maxWhatsappNumbers                    AS max_numeros_wa,
     l.maxMessagesPerMonth                   AS max_mensajes_mes,
-    JSON_UNQUOTE(JSON_EXTRACT(l.metadata, '$.stripeSubscriptionId'))
-                                            AS stripe_subscription_id,
+    JSON_UNQUOTE(JSON_EXTRACT(l.metadata, '$.paypalSubscriptionId'))
+                                            AS paypal_subscription_id_license,
     JSON_UNQUOTE(JSON_EXTRACT(l.metadata, '$.paymentProvider'))
                                             AS proveedor_pago,
 
@@ -141,7 +141,7 @@ SELECT
     t.id                                    AS tenant_id,
     t.name                                  AS empresa,
     t.slug                                  AS subdominio,
-    t.stripeCustomerId                      AS stripe_customer_id,
+    t.paypalSubscriptionId                 AS paypal_subscription_id,
     l.status                                AS estado_licencia,
     l.trialEndsAt                           AS trial_vencio,
     l.expiresAt                             AS suscripcion_vencio,
@@ -201,15 +201,15 @@ ORDER BY t.name ASC, ut.year DESC, ut.month DESC;
 
 
 -- ────────────────────────────────────────────────────────────
--- CONSULTA 7: Tenants con suscripción Stripe activa
+-- CONSULTA 7: Tenants con suscripción PayPal activa
 -- ────────────────────────────────────────────────────────────
 SELECT
     t.id                                    AS tenant_id,
     t.name                                  AS empresa,
     t.plan                                  AS plan,
-    t.stripeCustomerId                      AS stripe_customer_id,
-    JSON_UNQUOTE(JSON_EXTRACT(l.metadata, '$.stripeSubscriptionId'))
-                                            AS stripe_subscription_id,
+    t.paypalSubscriptionId                 AS paypal_subscription_id,
+    JSON_UNQUOTE(JSON_EXTRACT(l.metadata, '$.paypalSubscriptionId'))
+                                            AS paypal_subscription_id_license,
     l.status                                AS estado_licencia,
     l.expiresAt                             AS vence,
     (SELECT u.email FROM users u
@@ -217,6 +217,6 @@ SELECT
      LIMIT 1)                              AS email_owner
 FROM tenants t
 INNER JOIN license l ON l.tenantId = t.id
-WHERE t.stripeCustomerId IS NOT NULL
+WHERE t.paypalSubscriptionId IS NOT NULL
   AND l.status = 'active'
 ORDER BY t.name ASC;

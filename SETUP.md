@@ -130,9 +130,14 @@ COOKIE_SECRET=tu_cookie_secret_seguro
 GOOGLE_CLIENT_ID=tu_google_client_id
 GOOGLE_CLIENT_SECRET=tu_google_client_secret
 
-# Stripe (opcional, para billing)
-STRIPE_SECRET_KEY=sk_test_...
-STRIPE_WEBHOOK_SECRET=whsec_...
+# PayPal (opcional, para billing)
+PAYPAL_CLIENT_ID=tu_paypal_client_id
+PAYPAL_CLIENT_SECRET=tu_paypal_client_secret
+PAYPAL_MODE=sandbox
+PAYPAL_WEBHOOK_ID=
+PAYPAL_PLAN_STARTER=
+PAYPAL_PLAN_PRO=
+PAYPAL_PLAN_ENTERPRISE=
 ```
 
 ## 🐛 Solución de Problemas
@@ -187,11 +192,11 @@ Componentes documentados:
 - [ ] Cambiar todas las claves secretas en .env
 - [ ] Configurar dominio y SSL
 - [ ] Configurar OAuth (Google/Microsoft)
-- [ ] Configurar Stripe (si usarás billing)
+- [ ] Configurar PayPal (si usarás billing)
 - [ ] Configurar S3 para storage
 - [ ] Configurar Sentry para errores
 - [ ] Probar flujo de onboarding
-- [ ] Probar pagos con Stripe
+- [ ] Probar pagos con PayPal
 - [ ] Verificar emails funcionan
 - [ ] Backup de base de datos configurado
 

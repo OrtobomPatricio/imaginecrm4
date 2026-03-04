@@ -5,13 +5,12 @@ import { tenants } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { logger } from "../_core/logger";
-import crypto from "node:crypto";
 
 /**
- * Stripe Billing Router
+ * PayPal Billing Router
  *
  * Manages subscriptions, plan changes, and billing events.
- * Requires STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET env vars.
+ * Requires PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, and plan IDs env vars.
  *
  * Plans:
  * - free:       5 users, 1 WA number,  1,000 msgs/month
@@ -51,6 +50,39 @@ const PLANS = {
     },
 } as const;
 
+/* ── PayPal helpers ──────────────────────────────────────────── */
+
+function getPayPalBaseUrl(): string {
+    return process.env.PAYPAL_MODE === "live"
+        ? "https://api-m.paypal.com"
+        : "https://api-m.sandbox.paypal.com";
+}
+
+async function getPayPalAccessToken(): Promise<string> {
+    const clientId = process.env.PAYPAL_CLIENT_ID;
+    const secret = process.env.PAYPAL_CLIENT_SECRET;
+    if (!clientId || !secret) throw new Error("PayPal credentials missing");
+
+    const res = await fetch(`${getPayPalBaseUrl()}/v1/oauth2/token`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Authorization: `Basic ${Buffer.from(`${clientId}:${secret}`).toString("base64")}`,
+        },
+        body: "grant_type=client_credentials",
+    });
+
+    if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`PayPal token error ${res.status}: ${text}`);
+    }
+
+    const data = (await res.json()) as { access_token: string };
+    return data.access_token;
+}
+
+export { getPayPalBaseUrl, getPayPalAccessToken };
+
 export const billingRouter = router({
     /** Get current plan and usage */
     getCurrentPlan: protectedProcedure
@@ -70,101 +102,161 @@ export const billingRouter = router({
                 plan: currentPlan,
                 planInfo,
                 allPlans: PLANS,
+                paypalSubscriptionId: (tenant as any)?.paypalSubscriptionId ?? null,
             };
         }),
 
-    /** Create a checkout session for plan upgrade */
-    createCheckoutSession: protectedProcedure
+    /** Create a PayPal subscription for a plan upgrade */
+    createSubscription: protectedProcedure
         .input(z.object({
             plan: z.enum(["starter", "pro", "enterprise"]),
         }))
         .mutation(async ({ input, ctx }) => {
-            const stripeKey = process.env.STRIPE_SECRET_KEY;
-            if (!stripeKey) {
+            const clientId = process.env.PAYPAL_CLIENT_ID;
+            if (!clientId) {
                 throw new TRPCError({
                     code: "PRECONDITION_FAILED",
-                    message: "Stripe no está configurado. Contacta al administrador.",
+                    message: "PayPal no está configurado. Contacta al administrador.",
+                });
+            }
+
+            const planId = process.env[`PAYPAL_PLAN_${input.plan.toUpperCase()}`];
+            if (!planId) {
+                throw new TRPCError({
+                    code: "PRECONDITION_FAILED",
+                    message: `Plan de PayPal no configurado para: ${input.plan}`,
                 });
             }
 
             try {
-                const stripe = (await import("stripe")).default;
-                const client = new stripe(stripeKey);
+                const token = await getPayPalAccessToken();
+                const baseUrl = getPayPalBaseUrl();
+                const returnBase = process.env.APP_URL || process.env.CLIENT_URL || "";
 
-                // In production, use real Stripe Price IDs from env vars
-                const priceId = process.env[`STRIPE_PRICE_${input.plan.toUpperCase()}`];
-                if (!priceId) {
-                    throw new TRPCError({
-                        code: "PRECONDITION_FAILED",
-                        message: `Precio de Stripe no configurado para plan: ${input.plan}`,
-                    });
-                }
-
-                const session = await client.checkout.sessions.create({
-                    mode: "subscription",
-                    payment_method_types: ["card"],
-                    line_items: [{ price: priceId, quantity: 1 }],
-                    success_url: `${process.env.APP_URL || process.env.CLIENT_URL || ''}/settings/billing?success=true`,
-                    cancel_url: `${process.env.APP_URL || process.env.CLIENT_URL || ''}/settings/billing?cancelled=true`,
-                    metadata: {
-                        tenantId: String(ctx.tenantId),
-                        plan: input.plan,
+                const res = await fetch(`${baseUrl}/v1/billing/subscriptions`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`,
                     },
+                    body: JSON.stringify({
+                        plan_id: planId,
+                        application_context: {
+                            brand_name: "ImagineCRM",
+                            locale: "es-ES",
+                            shipping_preference: "NO_SHIPPING",
+                            user_action: "SUBSCRIBE_NOW",
+                            return_url: `${returnBase}/settings/billing?success=true&plan=${input.plan}&tenantId=${ctx.tenantId}`,
+                            cancel_url: `${returnBase}/settings/billing?cancelled=true`,
+                        },
+                        custom_id: `${ctx.tenantId}|${input.plan}`,
+                    }),
                 });
 
+                if (!res.ok) {
+                    const text = await res.text();
+                    logger.error({ status: res.status, body: text }, "[Billing] PayPal subscription create failed");
+                    throw new Error(`PayPal API ${res.status}`);
+                }
+
+                const sub = (await res.json()) as { id: string; links: Array<{ rel: string; href: string }> };
+                const approveLink = sub.links.find((l) => l.rel === "approve");
+
                 logger.info(
-                    { tenantId: ctx.tenantId, plan: input.plan, sessionId: session.id },
-                    "[Billing] Checkout session created"
+                    { tenantId: ctx.tenantId, plan: input.plan, subscriptionId: sub.id },
+                    "[Billing] PayPal subscription created"
                 );
 
-                return { url: session.url };
+                return { url: approveLink?.href ?? null, subscriptionId: sub.id };
             } catch (err: any) {
-                logger.error({ err }, "[Billing] Failed to create checkout session");
+                logger.error({ err }, "[Billing] Failed to create PayPal subscription");
                 throw new TRPCError({
                     code: "INTERNAL_SERVER_ERROR",
-                    message: "Error al crear sesión de pago",
+                    message: "Error al crear suscripción de PayPal",
                 });
             }
         }),
 
-    /** Get billing portal URL */
-    getBillingPortal: protectedProcedure
+    /** Get PayPal subscription management link */
+    getManageUrl: protectedProcedure
         .mutation(async ({ ctx }) => {
-            const stripeKey = process.env.STRIPE_SECRET_KEY;
-            if (!stripeKey) {
-                throw new TRPCError({
-                    code: "PRECONDITION_FAILED",
-                    message: "Stripe no está configurado.",
-                });
-            }
-
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
             const [tenant] = await db.select().from(tenants)
                 .where(eq(tenants.id, ctx.tenantId)).limit(1);
 
-            const customerId = (tenant as any)?.stripeCustomerId;
-            if (!customerId) {
+            const subId = (tenant as any)?.paypalSubscriptionId;
+            if (!subId) {
                 throw new TRPCError({
                     code: "PRECONDITION_FAILED",
                     message: "No hay suscripción activa.",
                 });
             }
 
-            try {
-                const stripe = (await import("stripe")).default;
-                const client = new stripe(stripeKey);
+            // PayPal doesn't have a billing portal like Stripe.
+            // Users manage subscriptions at paypal.com directly.
+            const isLive = process.env.PAYPAL_MODE === "live";
+            const url = isLive
+                ? `https://www.paypal.com/myaccount/autopay`
+                : `https://www.sandbox.paypal.com/myaccount/autopay`;
 
-                const portal = await client.billingPortal.sessions.create({
-                    customer: customerId,
-                    return_url: `${process.env.APP_URL || process.env.CLIENT_URL || ''}/settings/billing`,
+            return { url };
+        }),
+
+    /** Confirm subscription after PayPal redirect (called from frontend on success) */
+    confirmSubscription: protectedProcedure
+        .input(z.object({
+            subscriptionId: z.string().min(1),
+            plan: z.enum(["starter", "pro", "enterprise"]),
+        }))
+        .mutation(async ({ input, ctx }) => {
+            try {
+                const token = await getPayPalAccessToken();
+                const baseUrl = getPayPalBaseUrl();
+
+                // Verify subscription status with PayPal
+                const res = await fetch(`${baseUrl}/v1/billing/subscriptions/${input.subscriptionId}`, {
+                    headers: { Authorization: `Bearer ${token}` },
                 });
 
-                return { url: portal.url };
+                if (!res.ok) {
+                    throw new Error(`PayPal verify error ${res.status}`);
+                }
+
+                const sub = (await res.json()) as { id: string; status: string; custom_id?: string };
+
+                if (sub.status !== "ACTIVE" && sub.status !== "APPROVED") {
+                    throw new TRPCError({
+                        code: "PRECONDITION_FAILED",
+                        message: `Suscripción no activa: ${sub.status}`,
+                    });
+                }
+
+                // Verify this subscription belongs to this tenant
+                const expectedCustomId = `${ctx.tenantId}|${input.plan}`;
+                if (sub.custom_id && sub.custom_id !== expectedCustomId) {
+                    throw new TRPCError({ code: "FORBIDDEN", message: "Suscripción no válida para este tenant." });
+                }
+
+                const db = await getDb();
+                if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+                await db.update(tenants).set({
+                    plan: input.plan,
+                    paypalSubscriptionId: input.subscriptionId,
+                } as any).where(eq(tenants.id, ctx.tenantId));
+
+                logger.info(
+                    { tenantId: ctx.tenantId, plan: input.plan, subscriptionId: input.subscriptionId },
+                    "[Billing] PayPal subscription confirmed"
+                );
+
+                return { success: true, plan: input.plan };
             } catch (err: any) {
-                logger.error({ err }, "[Billing] Failed to create portal session");
-                throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+                if (err instanceof TRPCError) throw err;
+                logger.error({ err }, "[Billing] Failed to confirm subscription");
+                throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Error al confirmar suscripción" });
             }
         }),
 });

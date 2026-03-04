@@ -13,7 +13,7 @@ import { registerNativeOAuth } from "./native-oauth";
 import { registerWhatsAppWebhookRoutes } from "../whatsapp/webhook";
 import { registerEmbeddedSignupRoutes } from "../whatsapp/embedded-signup";
 import { registerMetaRoutes } from "../meta-routes";
-import { registerStripeWebhookRoutes } from "../routers/stripe-webhook";
+import { registerPayPalWebhookRoutes } from "../routers/paypal-webhook";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic } from "./serve-static";
@@ -237,7 +237,7 @@ export async function createApp() {
   registerWhatsAppWebhookRoutes(app);
   registerEmbeddedSignupRoutes(app);
   registerMetaRoutes(app);
-  registerStripeWebhookRoutes(app);
+  registerPayPalWebhookRoutes(app);
   registerTestRoutes(app);
 
   // File Uploads (Modular)

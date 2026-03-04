@@ -90,7 +90,7 @@ export const superadminRouter = router({
                     slug: tenants.slug,
                     plan: tenants.plan,
                     status: tenants.status,
-                    stripeCustomerId: tenants.stripeCustomerId,
+                    paypalSubscriptionId: tenants.paypalSubscriptionId,
                     trialEndsAt: tenants.trialEndsAt,
                     createdAt: tenants.createdAt,
                     updatedAt: tenants.updatedAt,
@@ -1317,7 +1317,7 @@ export const superadminRouter = router({
             tenantId: z.number(),
             name: z.string().min(1).max(200).optional(),
             slug: z.string().min(1).max(100).regex(/^[a-z0-9\-]+$/).optional(),
-            stripeCustomerId: z.string().max(255).nullable().optional(),
+            paypalSubscriptionId: z.string().max(255).nullable().optional(),
             trialEndsAt: z.string().nullable().optional(),
         }))
         .mutation(async ({ input, ctx }) => {
@@ -1335,7 +1335,7 @@ export const superadminRouter = router({
                 if (existing) throw new TRPCError({ code: "CONFLICT", message: `El slug "${input.slug}" ya está en uso.` });
                 updates.slug = input.slug;
             }
-            if (input.stripeCustomerId !== undefined) updates.stripeCustomerId = input.stripeCustomerId;
+            if (input.paypalSubscriptionId !== undefined) updates.paypalSubscriptionId = input.paypalSubscriptionId;
             if (input.trialEndsAt !== undefined) updates.trialEndsAt = input.trialEndsAt ? new Date(input.trialEndsAt) : null;
 
             if (Object.keys(updates).length === 0) {
@@ -1450,7 +1450,7 @@ export const superadminRouter = router({
             if (!db) return [];
             try {
                 const [rows] = await db.execute(sql`
-                    SELECT t.id, t.name, t.slug, t.plan, t.status, t.stripeCustomerId,
+                    SELECT t.id, t.name, t.slug, t.plan, t.status, t.paypalSubscriptionId,
                            t.trialEndsAt, t.createdAt,
                            COUNT(DISTINCT u.id) as userCount,
                            COUNT(DISTINCT l.id) as leadCount,

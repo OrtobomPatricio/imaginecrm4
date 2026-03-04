@@ -712,8 +712,8 @@ function TenantRow({
             <span className="flex items-center gap-1"><Hash className="w-3 h-3" />{tenant.id}</span>
             <span className="flex items-center gap-1"><Globe className="w-3 h-3" />{tenant.slug}</span>
             <span className="flex items-center gap-1"><CalendarDays className="w-3 h-3" />{fmtDate(tenant.createdAt)}</span>
-            {tenant.stripeCustomerId && (
-              <span className="flex items-center gap-1 text-green-600"><CheckCircle2 className="w-3 h-3" />Stripe</span>
+            {tenant.paypalSubscriptionId && (
+              <span className="flex items-center gap-1 text-green-600"><CheckCircle2 className="w-3 h-3" />PayPal</span>
             )}
           </div>
         </div>
@@ -753,13 +753,13 @@ function TenantRow({
           </div>
 
           {/* Billing info row */}
-          {(tenant.stripeCustomerId || tenant.trialEndsAt) && (
+          {(tenant.paypalSubscriptionId || tenant.trialEndsAt) && (
             <div className="flex items-center gap-3 flex-wrap text-xs mb-3 p-2 rounded bg-muted/50">
-              {tenant.stripeCustomerId && (
+              {tenant.paypalSubscriptionId && (
                 <span className="flex items-center gap-1">
                   <CheckCircle2 className="w-3 h-3 text-green-500" />
-                  <span className="text-muted-foreground">Stripe:</span>
-                  <code className="text-[10px] bg-muted px-1 rounded">{tenant.stripeCustomerId}</code>
+                  <span className="text-muted-foreground">PayPal:</span>
+                  <code className="text-[10px] bg-muted px-1 rounded">{tenant.paypalSubscriptionId}</code>
                 </span>
               )}
               {tenant.trialEndsAt && (
@@ -2124,7 +2124,7 @@ function EditTenantDialog({ tenant, onSuccess }: { tenant: any; onSuccess: () =>
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(tenant.name);
   const [slug, setSlug] = useState(tenant.slug);
-  const [stripeId, setStripeId] = useState(tenant.stripeCustomerId ?? "");
+  const [paypalSubId, setPaypalSubId] = useState(tenant.paypalSubscriptionId ?? "");
   const [trialDate, setTrialDate] = useState(tenant.trialEndsAt ? new Date(tenant.trialEndsAt).toISOString().slice(0, 10) : "");
   const { toast } = useToast();
 
@@ -2145,12 +2145,12 @@ function EditTenantDialog({ tenant, onSuccess }: { tenant: any; onSuccess: () =>
         <div className="space-y-3">
           <div><Label className="text-xs">Nombre</Label><Input value={name} onChange={(e) => setName(e.target.value)} className="h-9 text-sm" /></div>
           <div><Label className="text-xs">Slug</Label><Input value={slug} onChange={(e) => setSlug(e.target.value)} className="h-9 text-sm" /></div>
-          <div><Label className="text-xs">Stripe Customer ID</Label><Input value={stripeId} onChange={(e) => setStripeId(e.target.value)} className="h-9 text-sm" placeholder="cus_..." /></div>
+          <div><Label className="text-xs">PayPal Subscription ID</Label><Input value={paypalSubId} onChange={(e) => setPaypalSubId(e.target.value)} className="h-9 text-sm" placeholder="I-..." /></div>
           <div><Label className="text-xs">Trial hasta</Label><Input type="date" value={trialDate} onChange={(e) => setTrialDate(e.target.value)} className="h-9 text-sm" /></div>
         </div>
         <DialogFooter>
           <DialogClose asChild><Button variant="ghost">Cancelar</Button></DialogClose>
-          <Button onClick={() => update.mutate({ tenantId: tenant.id, name, slug, stripeCustomerId: stripeId || null, trialEndsAt: trialDate || null })} disabled={update.isPending}>
+          <Button onClick={() => update.mutate({ tenantId: tenant.id, name, slug, paypalSubscriptionId: paypalSubId || null, trialEndsAt: trialDate || null })} disabled={update.isPending}>
             {update.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null} Guardar
           </Button>
         </DialogFooter>
