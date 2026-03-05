@@ -26,6 +26,9 @@ interface ConnectionState {
 // In-memory store for active connections
 const connections: Map<number, ConnectionState> = new Map();
 
+// Guard: prevent concurrent initializeSession for the same userId
+const initializingLocks = new Set<number>();
+
 // Typing state cleanup timers
 const typingTimers: Map<string, NodeJS.Timeout> = new Map();
 
@@ -87,6 +90,13 @@ export const BaileysService = {
     },
 
     async initializeSession(userId: number, onQrUpdate: (qr: string) => void, onStatusUpdate: (status: string) => void) {
+        // Prevent concurrent initialization for the same WhatsApp number
+        if (initializingLocks.has(userId)) {
+            logger.warn(`[Baileys] Session ${userId} already initializing, skipping duplicate`);
+            return;
+        }
+        initializingLocks.add(userId);
+
         const sessionName = `session_${userId}`;
         const sessionPath = path.join(SESSIONS_DIR, sessionName);
 
@@ -133,6 +143,9 @@ export const BaileysService = {
                 });
                 onStatusUpdate('disconnected');
 
+                // Release lock before reconnect or terminal state
+                initializingLocks.delete(userId);
+
                 if (shouldReconnect && attempts < MAX_RECONNECT_ATTEMPTS) {
                     const delay = Math.min(1000 * Math.pow(2, attempts), 30000); // Exponencial max 30s
                     logger.info(`[Baileys] Reconnecting ${userId} in ${delay}ms (attempt ${attempts}/${MAX_RECONNECT_ATTEMPTS})`);
@@ -152,7 +165,8 @@ export const BaileysService = {
                     }
                 }
             } else if (connection === 'open') {
-                // ✅ Reset reconnection counter on successful connect
+                // Release init lock + reset reconnection counter
+                initializingLocks.delete(userId);
                 connections.set(userId, { ...connections.get(userId)!, status: 'connected', qr: undefined, reconnectAttempts: 0 });
                 onStatusUpdate('connected');
             }

@@ -6,6 +6,7 @@ import { logger, safeError } from "../_core/logger";
 import { dispatchIntegrationEvent } from "../_core/integrationDispatch";
 import { sendCloudMessage, sendCloudTemplate } from "../whatsapp/cloud";
 import { decryptSecret } from "../_core/crypto";
+import { checkMessageQuota } from "./plan-limits";
 import path from "path";
 import fs from "fs";
 import { ENV } from "../_core/env";
@@ -159,6 +160,12 @@ export class MessageQueueWorker {
             const [conversation] = await db.select().from(conversations).where(and(eq(conversations.id, item.conversationId), eq(conversations.tenantId, item.tenantId)));
             if (!conversation) {
                 throw new Error("Conversation not found");
+            }
+
+            // Enforce plan quota before sending
+            const quota = await checkMessageQuota(item.tenantId);
+            if (!quota.allowed) {
+                throw new Error(`Cuota de mensajes excedida (${quota.used}/${quota.limit}). Actualiza tu plan.`);
             }
 
             // Determine sending method based on connection type
