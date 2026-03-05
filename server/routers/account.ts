@@ -47,8 +47,12 @@ export const accountRouter = router({
                 });
             }
 
-            // Enforce 24h token expiry based on user updatedAt (token set at last update)
-            const tokenAge = Date.now() - new Date(user.updatedAt).getTime();
+            // Enforce 24h token expiry — extract timestamp from token if present, fallback to updatedAt
+            const tokenParts = (user.emailVerifyToken as string).split(".");
+            const tokenCreatedAt = tokenParts.length === 2
+                ? parseInt(tokenParts[0], 36)
+                : new Date(user.updatedAt).getTime();
+            const tokenAge = Date.now() - tokenCreatedAt;
             if (tokenAge > VERIFY_TOKEN_EXPIRY_MS) {
                 throw new TRPCError({
                     code: "BAD_REQUEST",
@@ -85,8 +89,9 @@ export const accountRouter = router({
                 return { success: true, message: "Tu email ya está verificado." };
             }
 
-            // Generate new token
-            const newToken = crypto.randomBytes(32).toString("hex");
+            // Generate new token with embedded timestamp for accurate expiry
+            const ts = Date.now().toString(36);
+            const newToken = `${ts}.${crypto.randomBytes(32).toString("hex")}`;
             await db.update(users)
                 .set({ emailVerifyToken: newToken })
                 .where(eq(users.id, user.id));

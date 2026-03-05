@@ -1067,6 +1067,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
         `CREATE INDEX idx_appt_tenant_date ON appointments(tenantId, appointmentDate)`,
         `CREATE INDEX idx_activity_tenant_created ON activity_logs(tenantId, createdAt)`,
         `CREATE INDEX idx_access_tenant_created ON access_logs(tenantId, createdAt)`,
+        `CREATE INDEX idx_chatmsg_tenant_dir_created ON chat_messages(tenantId, direction, createdAt)`,
     ];
 
     let idxCreated = 0;
