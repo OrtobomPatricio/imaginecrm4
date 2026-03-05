@@ -32,21 +32,21 @@ const PLANS = {
         maxUsers: 10,
         maxWaNumbers: 3,
         maxMessages: 10000,
-        priceMonthly: 29,
+        priceMonthly: 12.90,
     },
     pro: {
         name: "Pro",
         maxUsers: 50,
         maxWaNumbers: 10,
         maxMessages: 100000,
-        priceMonthly: 99,
+        priceMonthly: 32.90,
     },
     enterprise: {
         name: "Enterprise",
         maxUsers: 9999,
         maxWaNumbers: 50,
         maxMessages: 1000000,
-        priceMonthly: 299,
+        priceMonthly: 99.90,
     },
 } as const;
 

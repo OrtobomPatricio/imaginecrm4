@@ -284,9 +284,9 @@ function ChangePlanDialog({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="free">Free — $0/mes</SelectItem>
-            <SelectItem value="starter">Starter — $29/mes</SelectItem>
-            <SelectItem value="pro">Pro — $99/mes</SelectItem>
-            <SelectItem value="enterprise">Enterprise — $299/mes</SelectItem>
+            <SelectItem value="starter">Starter — $12.90/mes</SelectItem>
+            <SelectItem value="pro">Pro — $32.90/mes</SelectItem>
+            <SelectItem value="enterprise">Enterprise — $99.90/mes</SelectItem>
           </SelectContent>
         </Select>
         <DialogFooter>
@@ -3730,7 +3730,7 @@ function SuperAdminContent() {
   );
 
   // Revenue estimation
-  const PLAN_PRICES: Record<string, number> = { free: 0, starter: 29, pro: 99, enterprise: 299 };
+  const PLAN_PRICES: Record<string, number> = { free: 0, starter: 12.90, pro: 32.90, enterprise: 99.90 };
   const monthlyRevenue = (tenantList.data ?? []).reduce((sum, t) => sum + (PLAN_PRICES[t.plan] ?? 0), 0);
 
   if (isError) {

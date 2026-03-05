@@ -35,9 +35,9 @@ CRM PRO V4 es una plataforma SaaS (Software como Servicio) de gestión de relaci
 | Plan | Usuarios | WhatsApp | Mensajes/mes | Precio |
 |------|----------|----------|-------------|--------|
 | Free | 5 | 1 | 1,000 | $0/mes |
-| Starter | 10 | 3 | 10,000 | $29/mes |
-| Pro | 50 | 10 | 100,000 | $99/mes |
-| Enterprise | Ilimitados | 50 | 1,000,000 | $299/mes |
+| Starter | 10 | 3 | 10,000 | $12.90/mes |
+| Pro | 50 | 10 | 100,000 | $32.90/mes |
+| Enterprise | Ilimitados | 50 | 1,000,000 | $99.90/mes |
 
 - Los precios están sujetos a cambios con aviso previo de 30 días.
 - Las suscripciones se renuevan automáticamente al final de cada período de facturación.

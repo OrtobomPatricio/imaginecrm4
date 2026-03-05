@@ -104,18 +104,18 @@ const STATS = [
 const PLANS = [
   {
     name: "Starter",
-    price: 29,
+    price: 12.90,
     features: ["10 usuarios", "5 números WhatsApp", "25K mensajes/mes", "2,000 leads", "Campañas básicas"],
   },
   {
     name: "Pro",
-    price: 99,
+    price: 32.90,
     popular: true,
     features: ["25 usuarios", "10 números WhatsApp", "100K mensajes/mes", "Leads ilimitados", "Automatizaciones", "Analytics avanzado", "Soporte prioritario"],
   },
   {
     name: "Enterprise",
-    price: 299,
+    price: 99.90,
     features: ["Usuarios ilimitados", "WhatsApp ilimitados", "10M mensajes/mes", "Leads ilimitados", "API completa", "SLA dedicado", "Onboarding guiado"],
   },
 ];
