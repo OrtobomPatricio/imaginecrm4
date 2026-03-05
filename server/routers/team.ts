@@ -1,5 +1,6 @@
 import { z } from "zod";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { nanoid } from "nanoid";
 import { eq, desc, and } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
@@ -164,7 +165,7 @@ export const teamRouter = router({
                 throw new TRPCError({ code: "CONFLICT", message: "User already exists" });
             }
 
-            const token = nanoid(32);
+            const token = crypto.randomBytes(32).toString("hex");
             const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
             const openId = `invite_${nanoid(16)}`;
@@ -181,7 +182,7 @@ export const teamRouter = router({
                 loginMethod: "credentials",
             });
 
-            const baseUrl = process.env.VITE_API_URL || "http://localhost:3000";
+            const baseUrl = process.env.APP_URL || process.env.VITE_API_URL || "http://localhost:3000";
             const inviteLink = `${baseUrl}/setup-account?token=${token}`;
 
             const emailResult = await sendEmail({

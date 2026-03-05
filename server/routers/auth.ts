@@ -202,7 +202,10 @@ export const authRouter = router({
     acceptInvitation: publicProcedure
         .input(z.object({
             token: z.string(),
-            password: z.string().min(8).max(128),
+            password: z.string().min(8).max(128)
+                .regex(/[A-Z]/, "La contraseña debe contener al menos una mayúscula")
+                .regex(/[a-z]/, "La contraseña debe contener al menos una minúscula")
+                .regex(/[0-9]/, "La contraseña debe contener al menos un número"),
             termsVersion: z.string().optional(), // Match request for termsVersion
         }))
         .mutation(async ({ input, ctx }) => {
@@ -214,6 +217,11 @@ export const authRouter = router({
 
             if (user[0].invitationExpires && new Date() > user[0].invitationExpires) {
                 throw new Error("Token expired");
+            }
+
+            // Prevent reactivation of intentionally disabled accounts
+            if (user[0].isActive === false && !user[0].invitationToken) {
+                throw new Error("Account has been disabled by an administrator");
             }
 
             const hashedPassword = await bcrypt.hash(input.password, 12);

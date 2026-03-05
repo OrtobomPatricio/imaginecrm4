@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM node:20 AS base
+FROM node:20.11.1 AS base
 WORKDIR /app
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
@@ -39,7 +39,7 @@ RUN pnpm exec vite build --logLevel error && \
 # Prune for production
 RUN pnpm prune --prod
 
-FROM node:20-slim AS runner
+FROM node:20.11.1-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3000
