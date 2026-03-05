@@ -1018,6 +1018,9 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
         );
         const cols = String((idxRows as Array<{ cols: string | null }>)[0]?.cols ?? "");
         if (cols === "campaignId,leadId") {
+            // The FK on campaignId uses unique_campaign_lead as its backing index.
+            // We must add a standalone index on campaignId first so MySQL allows the drop.
+            try { await connection.query(`ALTER TABLE campaign_recipients ADD INDEX idx_cr_campaignId (campaignId)`); } catch { /* already exists */ }
             await connection.query(`ALTER TABLE campaign_recipients DROP INDEX unique_campaign_lead`);
             await connection.query(`ALTER TABLE campaign_recipients ADD UNIQUE INDEX unique_campaign_lead (tenantId, campaignId, leadId)`);
             logger.warn("[Migration] Rebuilt campaign_recipients unique_campaign_lead to (tenantId, campaignId, leadId)");
