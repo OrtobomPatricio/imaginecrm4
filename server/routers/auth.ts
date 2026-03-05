@@ -140,8 +140,9 @@ export const authRouter = router({
             try {
                 tenantId = await resolveTenantFromRequest(ctx.req);
             } catch (e) {
-                logger.error({ err: e, email: normalizedEmail, ip }, "[Auth] Tenant resolution failed, falling back to platform tenant");
-                tenantId = null;
+                logger.error({ err: e, email: normalizedEmail, ip }, "[Auth] Tenant resolution failed");
+                // Fail-closed: don't fall back to platform tenant on error
+                return { success: false, error: "No se pudo determinar el contexto del tenant. Intente de nuevo." };
             }
 
             let user;

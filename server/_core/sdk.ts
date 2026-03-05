@@ -264,6 +264,13 @@ class SDKServer {
                 logger.warn("[Auth] Session revoked or invalid (JTI not found)");
                 return null;
               }
+              // Check if session has expired in DB
+              if (session[0].expiresAt && new Date() > new Date(session[0].expiresAt)) {
+                logger.warn({ sessionId: session[0].id }, "[Auth] Session expired in DB");
+                // Clean up expired session
+                database.delete(sessions).where(eq(sessions.id, session[0].id)).catch(() => { });
+                return null;
+              }
               // Update lastActivityAt
               database.update(sessions).set({ lastActivityAt: new Date() }).where(eq(sessions.id, session[0].id)).catch(() => { });
             }

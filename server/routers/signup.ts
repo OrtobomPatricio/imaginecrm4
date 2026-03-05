@@ -118,6 +118,9 @@ export const signupRouter = router({
                 return { success: false, error: e.message };
             }
 
+            // Normalize email
+            const normalizedEmail = input.email.trim().toLowerCase();
+
             // Validate slug
             const slug = input.slug.toLowerCase().trim();
             if (!SLUG_REGEX.test(slug)) {
@@ -139,7 +142,7 @@ export const signupRouter = router({
             // Check email uniqueness globally (prevent duplicate owners)
             const existingUser = await db.select({ id: users.id })
                 .from(users)
-                .where(eq(users.email, input.email))
+                .where(eq(users.email, normalizedEmail))
                 .limit(1);
             if (existingUser.length > 0) {
                 return { success: false, error: "Este email ya está registrado. Inicia sesión o usa otro email." };
@@ -177,7 +180,7 @@ export const signupRouter = router({
                         tenantId,
                         openId,
                         name: input.ownerName,
-                        email: input.email,
+                        email: normalizedEmail,
                         password: hashedPassword,
                         loginMethod: "credentials",
                         role: "owner",
