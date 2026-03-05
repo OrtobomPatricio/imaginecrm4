@@ -396,6 +396,7 @@ function BillingActions({ isActive }: { isActive: boolean }) {
                     {(["starter", "pro", "enterprise"] as const).map((planKey) => {
                         const plan = allPlans[planKey];
                         const isCurrent = currentPlan === planKey;
+                        const isPaidCurrent = isCurrent && !isTrial;
                         return (
                             <div
                                 key={planKey}
@@ -417,11 +418,11 @@ function BillingActions({ isActive }: { isActive: boolean }) {
                                 </ul>
                                 <Button
                                     className="w-full"
-                                    variant={isCurrent ? "outline" : "default"}
-                                    disabled={isCurrent}
+                                    variant={isPaidCurrent ? "outline" : "default"}
+                                    disabled={isPaidCurrent}
                                     onClick={() => setCheckoutPlan(planKey)}
                                 >
-                                    {isCurrent ? "Plan Actual" : "Seleccionar"}
+                                    {isPaidCurrent ? "Plan Actual" : isCurrent ? "Activar Plan" : "Seleccionar"}
                                 </Button>
                             </div>
                         );
