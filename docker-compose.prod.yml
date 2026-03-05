@@ -22,7 +22,7 @@ services:
     networks:
       - app_network
     healthcheck:
-      test: [ "CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD}" ]
+      test: [ "CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD 2>/dev/null | grep -q alive" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -48,7 +48,7 @@ services:
     networks:
       - app_network
     healthcheck:
-      test: [ "CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping" ]
+      test: [ "CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping 2>/dev/null | grep -q PONG" ]
       interval: 5s
       timeout: 3s
       retries: 3

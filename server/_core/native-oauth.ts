@@ -117,6 +117,7 @@ export function registerNativeOAuth(app: Express) {
             '/api/auth/google',
             passport.authenticate('google', {
                 scope: ['profile', 'email'],
+                state: true, // CSRF protection via session-backed state parameter
             })
         );
 
@@ -226,6 +227,7 @@ export function registerNativeOAuth(app: Express) {
             '/api/auth/facebook',
             passport.authenticate('facebook', {
                 scope: ['email'],
+                state: true, // CSRF protection via session-backed state parameter
             })
         );
 

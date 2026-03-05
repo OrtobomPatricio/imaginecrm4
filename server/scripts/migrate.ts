@@ -984,6 +984,46 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
         }
     }
 
+    // ── Fix legacy unique constraints missing tenantId (from 0011.sql) ──
+    // leads.phone: should be (tenantId, phone) not just (phone)
+    if (await hasTable("leads") && await hasColumn("leads", "phone")) {
+        const [idxRows] = await connection.query(
+            `SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') AS cols
+             FROM information_schema.statistics
+             WHERE table_schema = DATABASE()
+               AND table_name = 'leads'
+               AND index_name = 'uniq_leads_phone'`,
+        );
+        const cols = String((idxRows as Array<{ cols: string | null }>)[0]?.cols ?? "");
+        if (cols === "phone") {
+            await connection.query(`ALTER TABLE leads DROP INDEX uniq_leads_phone`);
+            await connection.query(`ALTER TABLE leads ADD UNIQUE INDEX uniq_leads_phone (tenantId, phone)`);
+            logger.warn("[Migration] Rebuilt leads uniq_leads_phone to (tenantId, phone)");
+        } else if (!cols && await hasColumn("leads", "tenantId")) {
+            try {
+                await connection.query(`ALTER TABLE leads ADD UNIQUE INDEX uniq_leads_phone (tenantId, phone)`);
+                logger.warn("[Migration] Added leads uniq_leads_phone (tenantId, phone)");
+            } catch { /* index may already exist under different name */ }
+        }
+    }
+
+    // campaign_recipients: should be (tenantId, campaignId, leadId) not just (campaignId, leadId)
+    if (await hasTable("campaign_recipients") && await hasColumn("campaign_recipients", "tenantId")) {
+        const [idxRows] = await connection.query(
+            `SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') AS cols
+             FROM information_schema.statistics
+             WHERE table_schema = DATABASE()
+               AND table_name = 'campaign_recipients'
+               AND index_name = 'unique_campaign_lead'`,
+        );
+        const cols = String((idxRows as Array<{ cols: string | null }>)[0]?.cols ?? "");
+        if (cols === "campaignId,leadId") {
+            await connection.query(`ALTER TABLE campaign_recipients DROP INDEX unique_campaign_lead`);
+            await connection.query(`ALTER TABLE campaign_recipients ADD UNIQUE INDEX unique_campaign_lead (tenantId, campaignId, leadId)`);
+            logger.warn("[Migration] Rebuilt campaign_recipients unique_campaign_lead to (tenantId, campaignId, leadId)");
+        }
+    }
+
     {
         const [tableRows] = await connection.query(
             `SELECT table_name AS tableName

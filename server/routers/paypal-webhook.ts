@@ -152,14 +152,11 @@ export function registerPayPalWebhookRoutes(app: Express): void {
                         await db.update(tenants).set({
                             plan: "free",
                         } as any).where(eq(tenants.id, parsed.tenantId));
+                        logger.warn({ subscriptionId, tenantId: parsed.tenantId }, "[PayPalWebhook] Subscription cancelled → free");
                     } else {
-                        // Fallback: find by subscription ID
-                        await db.update(tenants).set({
-                            plan: "free",
-                        } as any).where(eq((tenants as any).paypalSubscriptionId, subscriptionId));
+                        // Reject: require valid custom_id to prevent cross-tenant modification
+                        logger.error({ subscriptionId, customId }, "[PayPalWebhook] Subscription cancelled but custom_id invalid — skipped");
                     }
-
-                    logger.warn({ subscriptionId }, "[PayPalWebhook] Subscription cancelled → free");
                     break;
                 }
 
@@ -173,13 +170,11 @@ export function registerPayPalWebhookRoutes(app: Express): void {
                         await db.update(tenants).set({
                             status: "suspended",
                         } as any).where(eq(tenants.id, parsed.tenantId));
+                        logger.error({ subscriptionId, tenantId: parsed.tenantId }, "[PayPalWebhook] Subscription suspended");
                     } else {
-                        await db.update(tenants).set({
-                            status: "suspended",
-                        } as any).where(eq((tenants as any).paypalSubscriptionId, subscriptionId));
+                        // Reject: require valid custom_id to prevent cross-tenant modification
+                        logger.error({ subscriptionId, customId }, "[PayPalWebhook] Subscription suspended but custom_id invalid — skipped");
                     }
-
-                    logger.error({ subscriptionId }, "[PayPalWebhook] Subscription suspended");
                     break;
                 }
 
