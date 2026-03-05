@@ -239,58 +239,15 @@ export const BaileysService = {
                             logger.error("Baileys: Error invoking MessageHandler", e);
                         }
                     } else {
-                        // fromMe messages:
-                        // - 'notify' (real-time) = echo of a message WE just sent via chat.sendMessage.
-                        //   The message is already in the DB, so SKIP to avoid duplicates.
-                        // - 'append' (history sync) = old sent messages being synced from the phone.
-                        //   These need to be processed so the chat history is complete.
-                        if (m.type === 'append') {
-                            try {
-                                const { MessageHandler } = await import("./message-handler");
-                                await MessageHandler.handleIncomingMessage(userId, msg, m.type);
-                            } catch (e) {
-                                logger.error("Baileys: Error invoking MessageHandler for own message", e);
-                            }
-                        } else {
-                            // Real-time fromMe echo — update whatsappMessageId on existing record
-                            // so the dedup guard works for future history syncs
-                            try {
-                                const { getDb } = await import("../db");
-                                const { chatMessages } = await import("../../drizzle/schema");
-                                const { eq, and, isNull, desc } = await import("drizzle-orm");
-                                const db = await getDb();
-                                if (db && msg.key.id) {
-                                    // Find the most recent pending/sent outbound message for this conversation
-                                    const jid = msg.key.remoteJid;
-                                    if (jid) {
-                                        const { normalizeContactPhone } = await import("../_core/phone");
-                                        const phone = normalizeContactPhone(jid);
-                                        const { conversations } = await import("../../drizzle/schema");
-                                        const convRows = await db.select({ id: conversations.id })
-                                            .from(conversations)
-                                            .where(and(
-                                                eq(conversations.whatsappNumberId, userId),
-                                                eq(conversations.contactPhone, phone),
-                                                eq(conversations.channel, 'whatsapp'),
-                                            ))
-                                            .limit(1);
-                                        if (convRows[0]) {
-                                            // Patch the most recent outbound message that has no whatsappMessageId
-                                            await db.update(chatMessages)
-                                                .set({ whatsappMessageId: msg.key.id } as any)
-                                                .where(and(
-                                                    eq(chatMessages.conversationId, convRows[0].id),
-                                                    eq(chatMessages.whatsappNumberId, userId),
-                                                    eq(chatMessages.direction, 'outbound'),
-                                                    isNull(chatMessages.whatsappMessageId),
-                                                ));
-                                        }
-                                    }
-                                }
-                            } catch (e) {
-                                logger.debug({ err: e }, "Baileys: Could not patch whatsappMessageId for fromMe echo (non-fatal)");
-                            }
-                        }
+                        // fromMe messages — echoes of messages WE sent.
+                        //
+                        // Baileys v6 fires the sent-message echo via process.nextTick
+                        // which races with chat.ts updating whatsappMessageId.
+                        // We simply skip all fromMe echoes here — chat.ts already
+                        // saved the message and emitted the WebSocket event.
+                        // The only case we'd want to process fromMe is history sync,
+                        // which is handled separately during initial connection.
+                        logger.debug({ msgId: msg.key.id }, "Baileys: Skipping fromMe echo");
                     }
                 }
             }
