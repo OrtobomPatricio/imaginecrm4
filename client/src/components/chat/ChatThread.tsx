@@ -256,6 +256,17 @@ export function ChatThread({ conversationId, showHelpdeskControls = false }: Pro
         }
       }
 
+      // Skip invalidation for messages sent by THIS user — processQueue
+      // already calls invalidate() after the mutation succeeds. Without
+      // this guard the same message triggers two parallel refetches which
+      // race and can momentarily duplicate the entry in the infinite-query
+      // page cache before the Map-based dedup in sortedMessages settles.
+      if (data.fromMe && data.senderUserId && data.senderUserId === user?.id) {
+        // Still update sidebar badges
+        utils.chat.listConversations.invalidate();
+        return;
+      }
+
       // Invalidate messages to refresh
       utils.chat.getMessages.invalidate({ conversationId, limit: 50 });
       utils.chat.listConversations.invalidate();
@@ -283,7 +294,7 @@ export function ChatThread({ conversationId, showHelpdeskControls = false }: Pro
       unsubTyping?.();
       unsubStatus?.();
     };
-  }, [onWsEvent, conversationId, utils]);
+  }, [onWsEvent, conversationId, utils, user?.id]);
 
   // On conversation change: mark read + go bottom once messages load
   useEffect(() => {
@@ -387,8 +398,15 @@ export function ChatThread({ conversationId, showHelpdeskControls = false }: Pro
         try {
           // Use mutateAsync to serialize sends
           // @ts-ignore - mutateAsync exists in react-query mutation
-          await sendMessage.mutateAsync(next.payload);
+          const mutResult: any = await sendMessage.mutateAsync(next.payload);
           updateQueueItem(next.id, { status: "sent" });
+
+          // Mark the new message ID as processed so the WS handler
+          // (which may fire slightly later on slow connections) won't
+          // trigger a redundant refetch that races with this one.
+          if (mutResult?.id) {
+            processedMessageIds.current.add(mutResult.id);
+          }
 
           // Keep UI fresh without spamming full list refresh too hard
           await utils.chat.getMessages.invalidate({ conversationId, limit: 50 });

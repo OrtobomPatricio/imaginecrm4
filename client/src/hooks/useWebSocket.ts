@@ -10,6 +10,7 @@ interface ServerToClientEvents {
         fromMe: boolean;
         createdAt: Date;
         senderName?: string;
+        senderUserId?: number;
     }) => void;
     "message:status": (data: {
         messageId: number;
