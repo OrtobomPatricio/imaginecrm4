@@ -12,6 +12,8 @@ import { COOKIE_NAME } from "@shared/const";
 import { getPlanLimits } from "../services/plan-limits";
 import { getOrCreateAppSettings, updateAppSettings, getPlatformMetaConfig } from "../services/app-settings";
 import { encryptSecret } from "../_core/crypto";
+import { clearRateLimitByPrefix } from "../_core/trpc-rate-limit";
+import { clearAllExpressRateLimits } from "../_core/middleware/rate-limit";
 
 /**
  * Superadmin Router
@@ -72,6 +74,17 @@ export const superadminRouter = router({
             email: ctx.user?.email,
         };
     }),
+
+    // ── Rate Limit Management ──
+
+    /** Clear all rate limits (Express + tRPC) */
+    clearRateLimits: superadminGuard
+        .mutation(async ({ ctx }) => {
+            await clearAllExpressRateLimits();
+            await clearRateLimitByPrefix("");
+            await logSuperadminAction(ctx.user!.id, "clearRateLimits");
+            return { success: true, message: "All rate limits cleared" };
+        }),
 
     // ── Tenant Management ──
 
