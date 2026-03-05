@@ -501,7 +501,7 @@ export const chatRouter = router({
             conversationId: z.number(),
             whatsappNumberId: z.number().optional(),
             facebookPageId: z.number().optional(),
-            messageType: z.enum(['text', 'image', 'video', 'audio', 'document', 'location', 'sticker', 'contact', 'template']),
+            messageType: z.enum(['text', 'image', 'video', 'audio', 'document', 'location', 'sticker', 'contact', 'template', 'poll']),
             content: z.string().max(10000).optional(),
             mediaUrl: z.string().max(2000).optional(),
             mediaName: z.string().max(500).optional(),
@@ -509,6 +509,12 @@ export const chatRouter = router({
             latitude: z.number().optional(),
             longitude: z.number().optional(),
             locationName: z.string().max(500).optional(),
+            // Contact specific
+            contactName: z.string().max(200).optional(),
+            contactPhone: z.string().max(50).optional(),
+            // Poll specific
+            pollName: z.string().max(500).optional(),
+            pollOptions: z.array(z.string().max(200)).max(12).optional(),
             // Template specific
             templateName: z.string().max(200).optional(),
             templateLanguage: z.string().max(10).optional(),
@@ -709,10 +715,21 @@ export const chatRouter = router({
                             baileysContent = { text: input.content || '' };
                         } else if (input.messageType === 'image' && filePath) {
                             baileysContent = { image: { url: filePath }, caption: input.content || '' };
+                        } else if (input.messageType === 'video' && filePath) {
+                            baileysContent = { video: { url: filePath }, caption: input.content || '' };
                         } else if (input.messageType === 'document' && filePath) {
                             baileysContent = { document: { url: filePath }, fileName: input.mediaName || 'document' };
                         } else if (input.messageType === 'audio' && filePath) {
                             baileysContent = { audio: { url: filePath }, ptt: true };
+                        } else if (input.messageType === 'location') {
+                            baileysContent = { locationMessage: { degreesLatitude: input.latitude, degreesLongitude: input.longitude, name: input.locationName || '' } };
+                        } else if (input.messageType === 'contact' && input.contactName && input.contactPhone) {
+                            const vcard = `BEGIN:VCARD\nVERSION:3.0\nFN:${input.contactName}\nTEL;type=CELL:${input.contactPhone}\nEND:VCARD`;
+                            baileysContent = { contacts: { displayName: input.contactName, contacts: [{ vcard }] } };
+                        } else if (input.messageType === 'poll' && input.pollName && input.pollOptions?.length) {
+                            baileysContent = { poll: { name: input.pollName, values: input.pollOptions, selectableCount: 1 } };
+                        } else if (input.messageType === 'sticker' && filePath) {
+                            baileysContent = { sticker: { url: filePath } };
                         } else {
                             throw new TRPCError({ code: "BAD_REQUEST", message: `Tipo de mensaje no soportado para Baileys: ${input.messageType}` });
                         }
