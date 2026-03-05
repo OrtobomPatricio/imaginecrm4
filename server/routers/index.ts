@@ -33,6 +33,7 @@ import { leadRemindersRouter } from "./lead-reminders";
 import { onboardingRouter } from "./onboarding";
 import { billingRouter } from "./billing";
 import { superadminRouter } from "./superadmin";
+import { aiRouter } from "./ai";
 
 import { gdprRouter } from "./gdpr";
 import { signupRouter } from "./signup";
@@ -76,6 +77,7 @@ export const appRouter = router({
     onboarding: onboardingRouter,
     billing: billingRouter,
     superadmin: superadminRouter,
+    ai: aiRouter,
 
     gdpr: gdprRouter,
     signup: signupRouter,

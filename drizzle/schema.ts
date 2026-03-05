@@ -124,9 +124,19 @@ export const appSettings = mysqlTable("app_settings", {
 
   // AI Configuration (OpenAI/Anthropic)
   aiConfig: json("aiConfig").$type<{
-    provider: "openai" | "anthropic";
+    provider: "openai" | "anthropic" | "gemini";
     apiKey?: string | null;
     model?: string;
+  }>(),
+
+  // AI Auto-Reply Configuration
+  autoReplyConfig: json("autoReplyConfig").$type<{
+    enabled: boolean;
+    mode: "always" | "outside_hours" | "no_agent_online";
+    businessHoursStart: string;
+    businessHoursEnd: string;
+    businessDays: number[];
+    customPrompt?: string;
   }>(),
 
   // Google Maps Configuration

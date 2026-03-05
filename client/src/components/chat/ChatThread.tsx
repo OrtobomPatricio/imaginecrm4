@@ -3,7 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { FileText, Paperclip, Send, MapPin, X, ArrowDown, RefreshCw, Loader2, Check, CheckCheck, Clock, Smile } from "lucide-react";
+import { FileText, Paperclip, Send, MapPin, X, ArrowDown, RefreshCw, Loader2, Check, CheckCheck, Clock, Smile, Sparkles, BookOpen } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -97,6 +97,19 @@ export function ChatThread({ conversationId, showHelpdeskControls = false }: Pro
   const [isContactTyping, setIsContactTyping] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [typingTimeout, setTypingTimeout] = useState<NodeJS.Timeout | null>(null);
+
+  // AI features
+  const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
+  const [aiSummary, setAiSummary] = useState<string | null>(null);
+  const [showSummary, setShowSummary] = useState(false);
+  const suggestReplies = trpc.ai.suggestReplies.useMutation({
+    onSuccess: (data) => setAiSuggestions(data.suggestions),
+    onError: (e) => toast.error(e.message),
+  });
+  const summarize = trpc.ai.summarize.useMutation({
+    onSuccess: (data) => { setAiSummary(data.summary); setShowSummary(true); },
+    onError: (e) => toast.error(e.message),
+  });
 
   // WebSocket integration
   const { on: onWsEvent, sendTyping: sendTypingIndicator, markAsRead: markAsReadWS, isConnected: isWsConnected } = useConversationWebSocket(conversationId);
@@ -932,6 +945,52 @@ export function ChatThread({ conversationId, showHelpdeskControls = false }: Pro
         )}
       </div>
 
+      {/* AI Summary Panel */}
+      {showSummary && aiSummary && (
+        <div className="border-t bg-blue-50 dark:bg-blue-950/30 p-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex-1">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300 mb-1">
+                <BookOpen className="h-3.5 w-3.5" />
+                Resumen de conversación
+              </div>
+              <p className="text-sm text-blue-900 dark:text-blue-200 whitespace-pre-wrap">{aiSummary}</p>
+            </div>
+            <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => setShowSummary(false)}>
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* AI Suggested Replies */}
+      {aiSuggestions.length > 0 && (
+        <div className="border-t bg-violet-50 dark:bg-violet-950/30 px-3 py-2">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-violet-700 dark:text-violet-300 mb-1.5">
+            <Sparkles className="h-3.5 w-3.5" />
+            Sugerencias IA
+            <Button variant="ghost" size="icon" className="h-5 w-5 ml-auto" onClick={() => setAiSuggestions([])}>
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {aiSuggestions.map((s, i) => (
+              <button
+                key={i}
+                className="text-xs bg-white dark:bg-gray-800 border border-violet-200 dark:border-violet-700 rounded-lg px-3 py-1.5 hover:bg-violet-100 dark:hover:bg-violet-900/50 transition-colors text-left max-w-[300px] truncate"
+                onClick={() => {
+                  setMessage(s);
+                  setAiSuggestions([]);
+                }}
+                title={s}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Input */}
       <div className="border-t p-4 space-y-2">
         {/* Send queue */}
@@ -1145,6 +1204,36 @@ export function ChatThread({ conversationId, showHelpdeskControls = false }: Pro
               }
             }}
           />
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 text-muted-foreground hover:text-violet-600 hover:bg-violet-500/10 rounded-full transition-colors"
+                onClick={() => suggestReplies.mutate({ conversationId })}
+                disabled={suggestReplies.isPending}
+              >
+                {suggestReplies.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent sideOffset={6}>Sugerencias IA</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 text-muted-foreground hover:text-blue-600 hover:bg-blue-500/10 rounded-full transition-colors"
+                onClick={() => summarize.mutate({ conversationId })}
+                disabled={summarize.isPending}
+              >
+                {summarize.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <BookOpen className="h-4 w-4" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent sideOffset={6}>Resumen IA</TooltipContent>
+          </Tooltip>
 
           <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
             <PopoverTrigger asChild>

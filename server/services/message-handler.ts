@@ -1,10 +1,12 @@
 import { getDb } from "../db";
 import { downloadContentFromMessage } from "@whiskeysockets/baileys";
 import { saveBufferToUploads } from "../_core/media-storage";
-import { leads, conversations, chatMessages, whatsappNumbers, pipelines, pipelineStages, fileUploads } from "../../drizzle/schema";
+import { leads, conversations, chatMessages, whatsappNumbers, pipelines, pipelineStages, fileUploads, appSettings } from "../../drizzle/schema";
 import { eq, and, asc, sql } from "drizzle-orm";
 import { emitToConversation } from "./websocket";
 import { normalizeContactPhone } from "../_core/phone";
+import { getOrCreateAppSettings } from "./app-settings";
+import { generateAutoReply, getTenantAiConfig } from "./ai";
 
 import { logger } from "../_core/logger";
 
@@ -305,8 +307,105 @@ export const MessageHandler = {
                 fromMe,
                 createdAt: messageTimestamp,
             }, tenantId);
+
+            // ── AI Auto-Reply (non-blocking) ──
+            if (!fromMe && upsertType === 'notify') {
+                maybeAutoReply(tenantId, conversationId, userId, jid, text).catch(err =>
+                    logger.warn({ err }, "[AI AutoReply] Failed silently")
+                );
+            }
         } catch (error) {
             logger.error("Error handling incoming message:", error);
         }
     }
 };
+
+/**
+ * AI Auto-Reply: checks config and sends an automated response if applicable.
+ */
+async function maybeAutoReply(
+    tenantId: number,
+    conversationId: number,
+    whatsappNumberId: number,
+    jid: string,
+    incomingText: string,
+) {
+    const db = await getDb();
+    if (!db) return;
+
+    // Check if AI is configured
+    const aiConfig = await getTenantAiConfig(tenantId);
+    if (!aiConfig) return;
+
+    const settings = await getOrCreateAppSettings(db, tenantId);
+    const autoReply = (settings as any).autoReplyConfig as {
+        enabled: boolean;
+        mode: string;
+        businessHoursStart: string;
+        businessHoursEnd: string;
+        businessDays: number[];
+        customPrompt?: string;
+    } | null;
+
+    if (!autoReply?.enabled) return;
+
+    // Check if we should reply based on mode
+    if (autoReply.mode === "outside_hours") {
+        const tz = settings.timezone || "America/Asuncion";
+        const now = new Date();
+        const formatter = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false });
+        const dayFormatter = new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short" });
+        const currentTime = formatter.format(now);
+        const currentDay = now.getDay(); // 0=Sunday
+
+        // Check if today is a business day
+        if (autoReply.businessDays.includes(currentDay)) {
+            // Check if we're within business hours
+            if (currentTime >= autoReply.businessHoursStart && currentTime <= autoReply.businessHoursEnd) {
+                return; // Within business hours, skip auto-reply
+            }
+        }
+    }
+    // mode="always" → always reply
+    // mode="no_agent_online" → TODO: check agent presence
+
+    const companyName = settings.companyName || "la empresa";
+
+    try {
+        const replyText = await generateAutoReply(tenantId, conversationId, incomingText, companyName, autoReply.customPrompt);
+        if (!replyText || replyText.trim().length === 0) return;
+
+        // Import BaileysService dynamically to avoid circular deps
+        const { BaileysService } = await import("./baileys");
+        const result = await BaileysService.sendMessage(whatsappNumberId, jid, { text: replyText });
+
+        if (result) {
+            // Save the auto-reply message to DB
+            const [inserted] = await db.insert(chatMessages).values({
+                tenantId,
+                conversationId,
+                whatsappNumberId,
+                whatsappConnectionType: "qr",
+                direction: "outbound",
+                messageType: "text",
+                content: `🤖 ${replyText}`,
+                whatsappMessageId: result.key?.id ?? null,
+                status: "sent",
+                sentAt: new Date(),
+                createdAt: new Date(),
+            }).$returningId();
+
+            emitToConversation(conversationId, "message:new", {
+                id: inserted.id,
+                conversationId,
+                content: `🤖 ${replyText}`,
+                fromMe: true,
+                createdAt: new Date(),
+            }, tenantId);
+
+            logger.info(`[AI AutoReply] Sent response to conversation ${conversationId}`);
+        }
+    } catch (err) {
+        logger.warn({ err }, "[AI AutoReply] Generation or send failed");
+    }
+}

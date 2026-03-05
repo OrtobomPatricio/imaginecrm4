@@ -9,6 +9,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -44,7 +45,8 @@ import {
   RefreshCw,
   Eye,
   Copy,
-  EyeOff
+  EyeOff,
+  Clock
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PermissionGuard } from "@/components/PermissionGuard";
@@ -162,6 +164,7 @@ function IntegrationsContent() {
             <AiSettings />
             <MapsSettings />
           </div>
+          <AutoReplySettings />
         </TabsContent>
       </Tabs>
     </div>
@@ -319,6 +322,141 @@ function MapsSettings() {
         </div>
         <Button onClick={handleSave} className="w-full" isLoading={updateMaps.isPending} disabled={updateMaps.isPending}>
           Guardar
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+const DAY_NAMES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+
+function AutoReplySettings() {
+  const query = trpc.ai.getAutoReplyConfig.useQuery();
+  const updateConfig = trpc.ai.updateAutoReplyConfig.useMutation({
+    onSuccess: () => toast.success("Configuración de auto-respuesta guardada"),
+  });
+
+  const [form, setForm] = useState({
+    enabled: false,
+    mode: "outside_hours" as "always" | "outside_hours" | "no_agent_online",
+    businessHoursStart: "09:00",
+    businessHoursEnd: "18:00",
+    businessDays: [1, 2, 3, 4, 5] as number[],
+    customPrompt: "",
+  });
+
+  useEffect(() => {
+    if (query.data) {
+      setForm({
+        enabled: query.data.enabled,
+        mode: query.data.mode as any,
+        businessHoursStart: query.data.businessHoursStart,
+        businessHoursEnd: query.data.businessHoursEnd,
+        businessDays: query.data.businessDays,
+        customPrompt: query.data.customPrompt || "",
+      });
+    }
+  }, [query.data]);
+
+  const toggleDay = (day: number) => {
+    setForm(prev => ({
+      ...prev,
+      businessDays: prev.businessDays.includes(day)
+        ? prev.businessDays.filter(d => d !== day)
+        : [...prev.businessDays, day].sort(),
+    }));
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Clock className="w-5 h-5" />
+          Auto-Respuesta con IA
+        </CardTitle>
+        <CardDescription>
+          Responde automáticamente a los clientes usando IA cuando no hay agentes disponibles
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between">
+          <Label>Activar auto-respuesta</Label>
+          <Switch
+            checked={form.enabled}
+            onCheckedChange={(checked) => setForm(prev => ({ ...prev, enabled: checked }))}
+          />
+        </div>
+
+        {form.enabled && (
+          <>
+            <div className="grid gap-2">
+              <Label>Modo</Label>
+              <Select value={form.mode} onValueChange={(v) => setForm(prev => ({ ...prev, mode: v as any }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="outside_hours">Fuera de horario laboral</SelectItem>
+                  <SelectItem value="always">Siempre (todas las conversaciones)</SelectItem>
+                  <SelectItem value="no_agent_online">Sin agentes conectados</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {form.mode === "outside_hours" && (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="grid gap-2">
+                    <Label>Hora inicio</Label>
+                    <Input type="time" value={form.businessHoursStart} onChange={e => setForm(prev => ({ ...prev, businessHoursStart: e.target.value }))} />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Hora fin</Label>
+                    <Input type="time" value={form.businessHoursEnd} onChange={e => setForm(prev => ({ ...prev, businessHoursEnd: e.target.value }))} />
+                  </div>
+                </div>
+
+                <div className="grid gap-2">
+                  <Label>Días laborales</Label>
+                  <div className="flex gap-1.5">
+                    {DAY_NAMES.map((name, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        className={`px-2.5 py-1.5 text-xs rounded-md border transition-colors ${
+                          form.businessDays.includes(i)
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-muted text-muted-foreground border-border hover:bg-muted/80"
+                        }`}
+                        onClick={() => toggleDay(i)}
+                      >
+                        {name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="grid gap-2">
+              <Label>Prompt personalizado (opcional)</Label>
+              <Textarea
+                value={form.customPrompt}
+                onChange={e => setForm(prev => ({ ...prev, customPrompt: e.target.value }))}
+                placeholder="Eres el asistente virtual de [tu empresa]. Responde amablemente e informa que un agente les contactará pronto..."
+                className="min-h-[80px]"
+              />
+              <p className="text-xs text-muted-foreground">
+                Si lo dejas vacío, se usará un prompt genérico profesional.
+              </p>
+            </div>
+          </>
+        )}
+
+        <Button
+          onClick={() => updateConfig.mutate(form)}
+          className="w-full"
+          disabled={updateConfig.isPending}
+        >
+          {updateConfig.isPending ? "Guardando..." : "Guardar configuración"}
         </Button>
       </CardContent>
     </Card>
