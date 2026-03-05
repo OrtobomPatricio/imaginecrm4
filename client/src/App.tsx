@@ -18,6 +18,7 @@ import TermsPage from "@/pages/TermsPage";
 import PrivacyPage from "@/pages/PrivacyPage";
 import OnboardingPage from "./pages/OnboardingPage";
 import LandingPage from "./pages/LandingPage";
+import OAuthComplete from "./pages/OAuthComplete";
 import { lazy, Suspense, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
@@ -102,6 +103,7 @@ function Router() {
       <Switch>
         <Route path="/" component={LandingPage} />
         <Route path="/login" component={Login} />
+        <Route path="/oauth-complete" component={OAuthComplete} />
         <Route path="/setup-account" component={SetupAccount} />
         <Route path="/signup" component={Signup} />
         <Route path="/register" component={Signup} />

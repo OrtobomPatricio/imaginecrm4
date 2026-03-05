@@ -174,7 +174,7 @@ export function registerNativeOAuth(app: Express) {
                     logger.info({ cookieSecure: cookieOptions.secure, sameSite: cookieOptions.sameSite, tokenLength: sessionToken.length }, '[OAuth] Google - setting session cookie');
                     res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
 
-                    res.redirect('/');
+                    res.redirect('/oauth-complete');
                 } catch (error) {
                     logger.error('[OAuth] Google callback failed:', error);
                     res.redirect('/login?error=callback_failed');
@@ -283,7 +283,7 @@ export function registerNativeOAuth(app: Express) {
                     logger.info({ cookieSecure: cookieOptions.secure, sameSite: cookieOptions.sameSite, tokenLength: sessionToken.length }, '[OAuth] Facebook - setting session cookie');
                     res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
 
-                    res.redirect('/');
+                    res.redirect('/oauth-complete');
                 } catch (error) {
                     logger.error('[OAuth] Facebook callback failed:', error);
                     res.redirect('/login?error=callback_failed');
@@ -394,7 +394,7 @@ export function registerNativeOAuth(app: Express) {
                     const cookieOptions = getSessionCookieOptions(req);
                     res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
 
-                    res.redirect('/');
+                    res.redirect('/oauth-complete');
                 } catch (error) {
                     logger.error('[OAuth] Microsoft callback failed:', error);
                     res.redirect('/login?error=callback_failed');

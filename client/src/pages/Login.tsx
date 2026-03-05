@@ -81,8 +81,34 @@ export default function Login() {
   };
 
   const handleOAuthLogin = (provider: 'google' | 'microsoft' | 'facebook') => {
-    window.location.href = `/api/auth/${provider}`;
+    const width = 500;
+    const height = 600;
+    const left = Math.round(window.screenX + (window.outerWidth - width) / 2);
+    const top = Math.round(window.screenY + (window.outerHeight - height) / 2);
+
+    const popup = window.open(
+      `/api/auth/${provider}`,
+      'oauth-popup',
+      `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
+    );
+
+    if (!popup || popup.closed) {
+      // Popup blocked — fallback to redirect
+      window.location.href = `/api/auth/${provider}`;
+    }
   };
+
+  // Listen for OAuth popup completion
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type === 'oauth-success') {
+        window.location.href = '/';
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
 
   const handleDevLogin = () => {
     window.location.href = "/api/dev/login";
