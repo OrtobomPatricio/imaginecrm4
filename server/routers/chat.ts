@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { eq, desc, and, sql, or, like, asc, gt, lt, inArray } from "drizzle-orm";
-import { conversations, chatMessages, whatsappConnections, whatsappNumbers, facebookPages } from "../../drizzle/schema";
+import { conversations, chatMessages, whatsappConnections, whatsappNumbers, facebookPages, users } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { permissionProcedure, router } from "../_core/trpc";
 import { decryptSecret } from "../_core/crypto";
@@ -482,6 +482,16 @@ export const chatRouter = router({
             await assertConversationAccess(ctx, input.conversationId);
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+
+            // Validate target user belongs to same tenant
+            if (input.assignedToId !== null) {
+                const [targetUser] = await db.select({ id: users.id }).from(users)
+                    .where(and(eq(users.id, input.assignedToId), eq(users.tenantId, ctx.tenantId))).limit(1);
+                if (!targetUser) {
+                    throw new TRPCError({ code: "BAD_REQUEST", message: "Usuario no encontrado en este tenant" });
+                }
+            }
+
             await db.update(conversations).set({ assignedToId: input.assignedToId }).where(and(eq(conversations.tenantId, ctx.tenantId), eq(conversations.id, input.conversationId)));
             return { success: true };
         }),

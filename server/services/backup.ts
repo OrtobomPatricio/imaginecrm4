@@ -121,9 +121,12 @@ export async function createBackup(tenantId: number): Promise<BackupData> {
 /**
  * Validate backup file structure (supports v1, v2, and v3)
  */
+const SUPPORTED_BACKUP_VERSIONS = ["1.0", "2.0", "3.0"];
+
 export function validateBackupFile(data: any): boolean {
   if (!data || typeof data !== "object") return false;
   if (!data.version || !data.timestamp || !data.data) return false;
+  if (!SUPPORTED_BACKUP_VERSIONS.includes(data.version)) return false;
   if (!data.data.leads || !Array.isArray(data.data.leads)) return false;
   return true;
 }
@@ -524,7 +527,13 @@ export function parseCSV(csvContent: string): any[] {
 /**
  * Import leads from CSV with deduplication — TENANT-SCOPED
  */
+const MAX_CSV_ROWS = 5000;
+
 export async function importLeadsFromCSV(csvData: any[], tenantId: number): Promise<{ imported: number; duplicates: number; errors: number }> {
+  if (csvData.length > MAX_CSV_ROWS) {
+    throw new Error(`El archivo CSV excede el límite de ${MAX_CSV_ROWS} filas`);
+  }
+
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
