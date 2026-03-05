@@ -84,6 +84,14 @@ async function getPayPalAccessToken(): Promise<string> {
 export { getPayPalBaseUrl, getPayPalAccessToken };
 
 export const billingRouter = router({
+    /** Return PayPal client-side config (public, no secrets) */
+    getPayPalConfig: protectedProcedure
+        .query(() => {
+            const clientId = process.env.PAYPAL_CLIENT_ID ?? "";
+            const mode = process.env.PAYPAL_MODE ?? "sandbox";
+            return { clientId, mode };
+        }),
+
     /** Get current plan and usage */
     getCurrentPlan: protectedProcedure
         .query(async ({ ctx }) => {
@@ -203,6 +211,179 @@ export const billingRouter = router({
                 : `https://www.sandbox.paypal.com/myaccount/autopay`;
 
             return { url };
+        }),
+
+    /** Create a PayPal vault setup token for inline card fields */
+    createVaultSetupToken: protectedProcedure
+        .input(z.object({
+            plan: z.enum(["starter", "pro", "enterprise"]),
+        }))
+        .mutation(async ({ input, ctx }) => {
+            const clientId = process.env.PAYPAL_CLIENT_ID;
+            if (!clientId) {
+                throw new TRPCError({
+                    code: "PRECONDITION_FAILED",
+                    message: "PayPal no está configurado.",
+                });
+            }
+
+            try {
+                const token = await getPayPalAccessToken();
+                const baseUrl = getPayPalBaseUrl();
+
+                const res = await fetch(`${baseUrl}/v3/vault/setup-tokens`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({
+                        payment_source: {
+                            card: {},
+                        },
+                        metadata: {
+                            custom_id: `${ctx.tenantId}|${input.plan}`,
+                        },
+                    }),
+                });
+
+                if (!res.ok) {
+                    const text = await res.text();
+                    logger.error({ status: res.status, body: text }, "[Billing] Vault setup-token create failed");
+                    throw new Error(`PayPal vault ${res.status}`);
+                }
+
+                const data = (await res.json()) as { id: string };
+                logger.info(
+                    { tenantId: ctx.tenantId, setupTokenId: data.id },
+                    "[Billing] Vault setup token created"
+                );
+
+                return { setupTokenId: data.id };
+            } catch (err: any) {
+                if (err instanceof TRPCError) throw err;
+                logger.error({ err }, "[Billing] Failed to create vault setup token");
+                throw new TRPCError({
+                    code: "INTERNAL_SERVER_ERROR",
+                    message: "Error al preparar el formulario de tarjeta",
+                });
+            }
+        }),
+
+    /** Complete card subscription: vault the card, then create subscription with payment source */
+    completeCardSubscription: protectedProcedure
+        .input(z.object({
+            plan: z.enum(["starter", "pro", "enterprise"]),
+            vaultSetupToken: z.string().min(1),
+        }))
+        .mutation(async ({ input, ctx }) => {
+            const planId = process.env[`PAYPAL_PLAN_${input.plan.toUpperCase()}`];
+            if (!planId) {
+                throw new TRPCError({
+                    code: "PRECONDITION_FAILED",
+                    message: `Plan no configurado: ${input.plan}`,
+                });
+            }
+
+            try {
+                const token = await getPayPalAccessToken();
+                const baseUrl = getPayPalBaseUrl();
+
+                // Step 1: Create payment token from vault setup token
+                const vaultRes = await fetch(`${baseUrl}/v3/vault/payment-tokens`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({
+                        payment_source: {
+                            token: {
+                                id: input.vaultSetupToken,
+                                type: "SETUP_TOKEN",
+                            },
+                        },
+                    }),
+                });
+
+                if (!vaultRes.ok) {
+                    const text = await vaultRes.text();
+                    logger.error({ status: vaultRes.status, body: text }, "[Billing] Payment token creation failed");
+                    throw new Error(`Vault payment-token ${vaultRes.status}`);
+                }
+
+                const paymentToken = (await vaultRes.json()) as { id: string };
+
+                // Step 2: Create subscription with the vaulted card as payment source
+                const subRes = await fetch(`${baseUrl}/v1/billing/subscriptions`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({
+                        plan_id: planId,
+                        payment_source: {
+                            card: {
+                                vault_id: paymentToken.id,
+                            },
+                        },
+                        application_context: {
+                            brand_name: "ImagineCRM",
+                            locale: "es-ES",
+                            shipping_preference: "NO_SHIPPING",
+                            user_action: "SUBSCRIBE_NOW",
+                        },
+                        custom_id: `${ctx.tenantId}|${input.plan}`,
+                    }),
+                });
+
+                if (!subRes.ok) {
+                    const text = await subRes.text();
+                    logger.error({ status: subRes.status, body: text }, "[Billing] Card subscription create failed");
+                    throw new Error(`PayPal subscription ${subRes.status}`);
+                }
+
+                const sub = (await subRes.json()) as { id: string; status: string };
+
+                // Step 3: Activate the subscription in our DB
+                const db = await getDb();
+                if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+                await db.update(tenants).set({
+                    plan: input.plan,
+                    paypalSubscriptionId: sub.id,
+                } as any).where(eq(tenants.id, ctx.tenantId));
+
+                const planLimits = PLANS[input.plan];
+                const [existingLicense] = await db.select().from(license)
+                    .where(eq(license.tenantId, ctx.tenantId)).limit(1);
+
+                if (existingLicense) {
+                    await db.update(license).set({
+                        status: 'active',
+                        plan: input.plan,
+                        maxUsers: planLimits.maxUsers,
+                        maxWhatsappNumbers: planLimits.maxWaNumbers,
+                        maxMessagesPerMonth: planLimits.maxMessages,
+                        updatedAt: new Date(),
+                    }).where(and(eq(license.tenantId, ctx.tenantId), eq(license.id, existingLicense.id)));
+                }
+
+                logger.info(
+                    { tenantId: ctx.tenantId, plan: input.plan, subscriptionId: sub.id },
+                    "[Billing] Card subscription completed"
+                );
+
+                return { success: true, plan: input.plan, subscriptionId: sub.id };
+            } catch (err: any) {
+                if (err instanceof TRPCError) throw err;
+                logger.error({ err }, "[Billing] Card subscription flow failed");
+                throw new TRPCError({
+                    code: "INTERNAL_SERVER_ERROR",
+                    message: "Error al procesar el pago con tarjeta",
+                });
+            }
         }),
 
     /** Confirm subscription after PayPal redirect (called from frontend on success) */

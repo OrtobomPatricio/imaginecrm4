@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
+import { PayPalCheckoutModal } from "./PayPalCheckoutModal";
 
 export function BillingSettings() {
     const { data, isLoading, error } = trpc.licensing.getStatus.useQuery();
@@ -51,7 +52,7 @@ export function BillingSettings() {
     const isActive = license.status === 'active' && !isExpired;
 
     // Calculate trial days remaining
-    const trialEndsAt = license.trialEndsAt ? new Date(license.trialEndsAt) : null;
+    const trialEndsAt = (license as any).trialEndsAt ? new Date((license as any).trialEndsAt) : null;
     const trialDaysLeft = trialEndsAt ? Math.max(0, Math.ceil((trialEndsAt.getTime() - Date.now()) / 86400000)) : null;
 
     const usagePercentages = {
@@ -286,46 +287,33 @@ export function BillingSettings() {
 
 /**
  * Billing Actions Component
- * Connects to PayPal for subscription upgrades and management.
+ * Inline PayPal checkout with card fields + PayPal button.
  */
 function BillingActions({ isActive }: { isActive: boolean }) {
     const billingPlan = trpc.billing.getCurrentPlan.useQuery();
     const licensingStatus = trpc.licensing.getStatus.useQuery();
-    const createSub = trpc.billing.createSubscription.useMutation({
-        onSuccess: (data) => {
-            if (data.url) {
-                // Store subscriptionId so we can confirm later
-                sessionStorage.setItem("pp_sub_id", data.subscriptionId);
-                window.location.href = data.url;
-            }
-        },
-        onError: (e) => {
-            // If PayPal is not configured, show plans comparison
-            if (e.message.includes("no está configurado")) {
-                setShowPlans(true);
-            }
+    const paypalConfig = trpc.billing.getPayPalConfig.useQuery();
+    const confirmSub = trpc.billing.confirmSubscription.useMutation({
+        onSuccess: () => {
+            billingPlan.refetch();
+            licensingStatus.refetch();
+            setCheckoutPlan(null);
         },
     });
     const manageUrl = trpc.billing.getManageUrl.useMutation({
         onSuccess: (data) => {
-            if (data.url) {
-                window.open(data.url, "_blank");
-            }
-        },
-    });
-    const confirmSub = trpc.billing.confirmSubscription.useMutation({
-        onSuccess: () => {
-            billingPlan.refetch();
+            if (data.url) window.open(data.url, "_blank");
         },
     });
 
     const [showPlans, setShowPlans] = React.useState(false);
+    const [checkoutPlan, setCheckoutPlan] = React.useState<"starter" | "pro" | "enterprise" | null>(null);
     const [cancelled, setCancelled] = React.useState(false);
     const allPlans = billingPlan.data?.allPlans;
     const currentPlan = billingPlan.data?.plan || "free";
     const isTrial = licensingStatus.data?.license?.status === 'trial';
 
-    // On mount, check if returning from PayPal success/cancel redirect
+    // On mount, check if returning from PayPal success/cancel redirect (legacy fallback)
     React.useEffect(() => {
         const params = new URLSearchParams(window.location.search);
         const success = params.get("success");
@@ -348,6 +336,13 @@ function BillingActions({ isActive }: { isActive: boolean }) {
         }
     }, []);
 
+    const handleSubscriptionCreated = (subscriptionId: string, plan: string) => {
+        confirmSub.mutate({
+            subscriptionId,
+            plan: plan as "starter" | "pro" | "enterprise",
+        });
+    };
+
     return (
         <div className="space-y-4 pt-2">
             {confirmSub.isPending && (
@@ -361,7 +356,8 @@ function BillingActions({ isActive }: { isActive: boolean }) {
                     <CheckCircle2 className="h-4 w-4" />
                     ¡Suscripción activada correctamente!
                 </div>
-            )}            {cancelled && (
+            )}
+            {cancelled && (
                 <div className="flex items-center gap-2 text-sm text-amber-600 p-2 bg-amber-50 dark:bg-amber-950/30 rounded">
                     <AlertTriangle className="h-4 w-4" />
                     El pago fue cancelado. Puedes intentarlo de nuevo seleccionando un plan.
@@ -378,9 +374,7 @@ function BillingActions({ isActive }: { isActive: boolean }) {
                     </Button>
                 ) : (
                     <>
-                        <Button
-                            onClick={() => setShowPlans(!showPlans)}
-                        >
+                        <Button onClick={() => setShowPlans(!showPlans)}>
                             Actualizar Plan
                         </Button>
                         {isTrial && (
@@ -424,15 +418,28 @@ function BillingActions({ isActive }: { isActive: boolean }) {
                                 <Button
                                     className="w-full"
                                     variant={isCurrent ? "outline" : "default"}
-                                    disabled={isCurrent || createSub.isPending}
-                                    onClick={() => createSub.mutate({ plan: planKey })}
+                                    disabled={isCurrent}
+                                    onClick={() => setCheckoutPlan(planKey)}
                                 >
-                                    {isCurrent ? "Plan Actual" : createSub.isPending ? "Procesando..." : "Seleccionar"}
+                                    {isCurrent ? "Plan Actual" : "Seleccionar"}
                                 </Button>
                             </div>
                         );
                     })}
                 </div>
+            )}
+
+            {/* Inline PayPal Checkout Modal */}
+            {checkoutPlan && allPlans && paypalConfig.data?.clientId && (
+                <PayPalCheckoutModal
+                    planKey={checkoutPlan}
+                    planName={allPlans[checkoutPlan].name}
+                    price={allPlans[checkoutPlan].priceMonthly}
+                    paypalClientId={paypalConfig.data.clientId}
+                    paypalMode={paypalConfig.data.mode}
+                    onSubscriptionCreated={handleSubscriptionCreated}
+                    onCancel={() => setCheckoutPlan(null)}
+                />
             )}
         </div>
     );
