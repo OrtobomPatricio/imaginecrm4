@@ -144,3 +144,75 @@ El código de la aplicación puede usar `DATABASE_REPLICA_URL` para queries de a
 | Verificación de backups | ✅ Script de sanity check |
 | Read Replica | ✅ Documentado y configurable |
 | Archivado periódico de datos | ✅ `archival-job.ts` activo |
+
+---
+
+## 🔄 Comportamiento del Restore In-App
+
+### Modos de restauración
+
+| Modo | Qué hace | Qué preserva |
+|------|----------|---------------|
+| **Replace** | Borra TODOS los datos del tenant y los reemplaza con los del backup | Tokens de WhatsApp (si matchean por clave estable) |
+| **Merge** | Importa leads + templates + pipelines sin borrar existentes | Todo lo existente (solo agrega) |
+
+### Tablas afectadas por Replace
+
+Se borran y reinsertan (en orden de dependencia):
+1. `app_settings`
+2. `pipelines` → `pipeline_stages`
+3. `templates`
+4. `leads`
+5. `whatsapp_numbers` → `whatsapp_connections`
+6. `integrations`
+7. `campaigns` → `campaign_recipients`
+8. `conversations` → `chat_messages`
+
+### Preservación de secretos (WhatsApp)
+
+Los backups sanitizan campos sensibles (`accessToken`, `password`, `refreshToken`, `appSecret`) reemplazándolos con `[REDACTED]`.
+
+Al restaurar en modo **Replace**:
+1. **Pre-DELETE**: se guardan los tokens reales de `whatsapp_connections` del tenant actual
+2. Se mapean por clave estable:
+   - Cloud API: `phoneNumberId`
+   - QR: `whatsappNumberId`
+3. **Post-INSERT**: se re-aplican los tokens guardados a las conexiones restauradas que matcheen
+4. Las conexiones sin match se marcan como `isConnected = false`
+
+### Respuesta del restore
+
+```json
+{
+  "success": true,
+  "inserted": { "leads": 150, "chatMessages": 3200, ... },
+  "secretsRestored": 2,
+  "requiresReconnect": true,
+  "connectionsRequiringReconnect": 1
+}
+```
+
+- `secretsRestored`: cantidad de conexiones cuyos tokens se preservaron correctamente
+- `requiresReconnect`: `true` si alguna conexión perdió su token
+- `connectionsRequiringReconnect`: cuántas conexiones necesitan reconexión manual
+
+### Qué hacer si `requiresReconnect = true`
+
+1. El frontend muestra automáticamente un toast de advertencia
+2. Ir a **Configuración → Distribución**
+3. Para Cloud API: re-hacer OAuth con Meta
+4. Para QR: escanear QR nuevamente
+
+### Qué NO se restaura
+
+- `users` (cuentas de usuario)
+- `tenants` (configuración del tenant)
+- `license` (plan/facturación)
+- `facebook_pages` (conexiones de Facebook/Instagram)
+- `file_uploads` (metadatos de archivos) — los archivos físicos en `storage/uploads/` tampoco se incluyen en el backup JSON
+
+### Recomendaciones
+
+- Siempre hacer backup **antes** de restaurar (el botón "Descargar Backup" está disponible en la misma página)
+- No restaurar un backup de un entorno diferente si las conexiones de WhatsApp son distintas (perderás tokens)
+- El modo **Merge** es más seguro para importar datos sin perder configuración existente

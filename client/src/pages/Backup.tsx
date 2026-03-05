@@ -75,6 +75,12 @@ function BackupContent() {
         onSuccess: (result: any) => {
             setIsRestoring(false);
             toast.success("Backup restaurado correctamente");
+            if (result?.requiresReconnect) {
+                toast.warning(
+                    `${result.connectionsRequiringReconnect ?? 0} conexión(es) de WhatsApp necesitan reconectarse. Ve a Configuración > Distribución para reconectar.`,
+                    { duration: 10000 }
+                );
+            }
         },
         onError: (error) => {
             setIsRestoring(false);

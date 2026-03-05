@@ -118,6 +118,9 @@ export const serveUpload = async (req: Request, res: Response) => {
         return res.status(404).send("Not found");
     }
 
+    // Audit: log file access (files are tenant-shared in CRM context)
+    logger.info({ userId: user.id, tenantId: user.tenantId, filename: safeName }, "[Upload] File accessed");
+
     // Security headers
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Content-Security-Policy", "default-src 'none'");

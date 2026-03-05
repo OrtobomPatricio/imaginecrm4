@@ -97,3 +97,69 @@
 - Aplicar hotfix mínimo y seguro en el procedimiento afectado.
 - Si no hay fix inmediato: feature flag/rollback del módulo.
 - Documentar RCA con causa raíz + acción preventiva.
+
+## Incident playbook: "WhatsApp desconectado tras restore"
+
+### Síntomas
+- Conexiones WhatsApp aparecen como "desconectadas" después de restaurar un backup.
+- Mensajes salientes fallan con error de sesión.
+
+### Diagnóstico rápido (5 min)
+1. Verificar logs del restore: buscar `[Restore] WhatsApp connection secrets re-applied`.
+2. Revisar contadores: `secretsRestored` (tokens preservados) y `markedDisconnected` (sin match).
+3. Consultar `whatsapp_connections` del tenant: `SELECT id, connectionType, phoneNumberId, isConnected, accessToken IS NOT NULL as hasToken FROM whatsapp_connections WHERE tenantId = ?`.
+
+### Mitigación
+- **Cloud API** (connectionType=api): si `accessToken` es NULL → reconectar desde Settings > Distribución (re-OAuth con Meta).
+- **QR** (connectionType=qr): si `sessionData` es NULL → escanear QR nuevamente.
+- El frontend muestra toast "X conexión(es) necesitan reconectarse" automáticamente.
+- **Prevención**: no restaurar backups de otro entorno que tenga phoneNumberIds distintos.
+
+## Incident playbook: "Cuota de mensajes bloqueando envíos"
+
+### Síntomas
+- Usuarios reportan que no pueden enviar mensajes.
+- Error: "Has alcanzado el límite de X mensajes de tu plan".
+
+### Diagnóstico rápido (5 min)
+1. Verificar cuota actual: `SELECT COUNT(*) FROM chat_messages WHERE tenantId = ? AND direction = 'outbound' AND createdAt >= '[primer dia del mes]'`.
+2. Verificar plan del tenant: `SELECT plan, maxMessagesPerMonth FROM license WHERE tenantId = ?`.
+3. Confirmar que el índice `idx_chat_messages_tenant_dir_created` existe.
+
+### Mitigación
+- Si es un falso positivo (plan mal configurado): actualizar `license.maxMessagesPerMonth`.
+- Si es cuota real: coordinar con billing para upgrade del plan.
+- **Emergencia**: incrementar temporalmente `maxMessagesPerMonth` en la tabla `license`.
+
+## Incident playbook: "PayPal webhooks no llegan"
+
+### Síntomas
+- Suscripciones/pagos no se actualizan automáticamente.
+- No hay logs de PayPal webhook en el servidor.
+
+### Diagnóstico rápido (10 min)
+1. Verificar variables: `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID`.
+2. Si `PAYPAL_WEBHOOK_ID` falta en producción → el servidor rechaza 400 en cada webhook.
+3. Verificar en PayPal Developer Dashboard → Webhooks → estado y URL configurada.
+4. Revisar logs: buscar `paypal` en logs del servidor.
+
+### Mitigación
+- Configurar `PAYPAL_WEBHOOK_ID` y reiniciar (validación de env lo detecta en startup).
+- Verificar que la URL pública del webhook sea accesible desde internet.
+- Re-sincronizar suscripciones manualmente si se perdieron eventos.
+
+## Incident playbook: "Campaña lenta o timeout al lanzar"
+
+### Síntomas
+- Lanzar campaña con muchos leads tarda o da timeout.
+- Logs muestran queries lentos en `campaign_recipients`.
+
+### Diagnóstico rápido (5 min)
+1. Verificar tamaño de audiencia: `SELECT COUNT(*) FROM leads WHERE tenantId = ? AND deletedAt IS NULL`.
+2. Verificar que el batch insert está activo (chunks de 500, no INSERT individual).
+3. Revisar `campaign_recipients` por duplicados.
+
+### Mitigación
+- Si hay más de 10,000 leads: considerar segmentar la audiencia.
+- Verificar índices en `campaign_recipients` (tenantId, campaignId).
+- Si hay duplicados recurrentes: revisar audienceConfig de la campaña.
