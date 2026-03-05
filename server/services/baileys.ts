@@ -68,6 +68,38 @@ const connections: Map<number, ConnectionState> = new Map();
 // Guard: prevent concurrent initializeSession for the same userId
 const initializingLocks = new Set<number>();
 
+// Redis distributed lock helpers (for multi-instance deployments)
+const LOCK_TTL_MS = 30_000; // 30 second lock TTL
+async function acquireDistributedLock(userId: number): Promise<boolean> {
+    try {
+        const Redis = (await import("ioredis")).default;
+        const redisUrl = process.env.REDIS_URL;
+        if (!redisUrl) return true; // No Redis → single instance, local lock suffices
+        const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1, lazyConnect: true });
+        await redis.connect();
+        const key = `baileys:lock:${userId}`;
+        const result = await redis.set(key, process.pid.toString(), "PX", LOCK_TTL_MS, "NX");
+        await redis.quit();
+        return result === "OK";
+    } catch {
+        return true; // Redis unavailable → fallback to local lock
+    }
+}
+
+async function releaseDistributedLock(userId: number): Promise<void> {
+    try {
+        const Redis = (await import("ioredis")).default;
+        const redisUrl = process.env.REDIS_URL;
+        if (!redisUrl) return;
+        const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1, lazyConnect: true });
+        await redis.connect();
+        await redis.del(`baileys:lock:${userId}`);
+        await redis.quit();
+    } catch {
+        // Best-effort release; TTL will expire anyway
+    }
+}
+
 // Typing state cleanup timers
 const typingTimers: Map<string, NodeJS.Timeout> = new Map();
 
@@ -159,6 +191,12 @@ export const BaileysService = {
             logger.warn(`[Baileys] Session ${userId} already initializing, skipping duplicate`);
             return;
         }
+        // Acquire distributed lock (Redis if available, else local-only)
+        const acquired = await acquireDistributedLock(userId);
+        if (!acquired) {
+            logger.warn(`[Baileys] Session ${userId} locked by another instance, skipping`);
+            return;
+        }
         initializingLocks.add(userId);
 
         const sessionName = `session_${userId}`;
@@ -230,6 +268,7 @@ export const BaileysService = {
 
                 // Release lock before reconnect or terminal state
                 initializingLocks.delete(userId);
+                releaseDistributedLock(userId);
 
                 if (shouldReconnect && attempts < MAX_RECONNECT_ATTEMPTS) {
                     const delay = Math.min(1000 * Math.pow(2, attempts), 30000); // Exponencial max 30s
@@ -252,6 +291,7 @@ export const BaileysService = {
             } else if (connection === 'open') {
                 // Release init lock + reset reconnection counter
                 initializingLocks.delete(userId);
+                releaseDistributedLock(userId);
                 connections.set(userId, { ...connections.get(userId)!, status: 'connected', qr: undefined, reconnectAttempts: 0 });
                 onStatusUpdate('connected');
             }

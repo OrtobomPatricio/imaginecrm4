@@ -53,9 +53,11 @@ export class MessageQueueWorker {
         if (!db) return;
 
         try {
+            // Reset daily counters for ALL tenants — this is correct behavior
+            // since messagesSentToday tracks per-calendar-day usage globally
             await db.update(whatsappNumbers)
                 .set({ messagesSentToday: 0 });
-            logger.info("🔄 Daily message counters reset");
+            logger.info("🔄 Daily message counters reset for all tenants");
         } catch (e) {
             logger.error({ err: safeError(e) }, "Failed to reset daily counters");
         }

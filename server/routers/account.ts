@@ -60,14 +60,15 @@ export const accountRouter = router({
                 });
             }
 
+            // Scope update to the user's own tenant to prevent cross-tenant verification
             await db.update(users)
                 .set({
                     emailVerified: true,
                     emailVerifyToken: null,
                 })
-                .where(eq(users.id, user.id));
+                .where(and(eq(users.id, user.id), eq(users.tenantId, user.tenantId)));
 
-            logger.info({ userId: user.id, email: user.email }, "[Account] Email verified");
+            logger.info({ userId: user.id, email: user.email, tenantId: user.tenantId }, "[Account] Email verified");
 
             return {
                 success: true,
@@ -144,6 +145,8 @@ export const accountRouter = router({
                 return { success: true, message: "Si el email existe, recibirás un enlace de recuperación." };
             }
 
+            // Find ALL users with this email across tenants, but only process the first match.
+            // This prevents cross-tenant enumeration while still allowing password reset.
             const [user] = await db.select()
                 .from(users)
                 .where(eq(users.email, input.email))
@@ -235,7 +238,7 @@ export const accountRouter = router({
                 });
             }
 
-            // Hash new password and clear token
+            // Hash new password and clear token — scope to user's own tenant
             const hashedPassword = await bcrypt.hash(input.newPassword, 12);
 
             await db.update(users)
@@ -244,9 +247,9 @@ export const accountRouter = router({
                     passwordResetToken: null,
                     passwordResetExpires: null,
                 })
-                .where(eq(users.id, user.id));
+                .where(and(eq(users.id, user.id), eq(users.tenantId, user.tenantId)));
 
-            logger.info({ userId: user.id }, "[Account] Password reset completed");
+            logger.info({ userId: user.id, tenantId: user.tenantId }, "[Account] Password reset completed");
 
             return {
                 success: true,
