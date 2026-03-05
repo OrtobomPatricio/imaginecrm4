@@ -2238,12 +2238,29 @@ function AllUsersPanel() {
 
   const changeRole = trpc.superadmin.changeUserRole.useMutation({
     onSuccess: (d) => { toast({ title: d.message }); usersQuery.refetch(); },
-    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e) => {
+      if (e.message.includes("único owner")) {
+        if (confirm(`${e.message}\n\n¿Forzar cambio de rol?`)) {
+          changeRole.mutate({ ...changeRole.variables!, force: true });
+        }
+      } else {
+        toast({ title: "Error", description: e.message, variant: "destructive" });
+      }
+    },
   });
 
   const deleteUser = trpc.superadmin.deleteUser.useMutation({
     onSuccess: (d) => { toast({ title: d.message }); usersQuery.refetch(); },
-    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e) => {
+      // If sole owner, offer force-delete
+      if (e.message.includes("único owner")) {
+        if (confirm(`${e.message}\n\n¿Forzar eliminación? El tenant será suspendido automáticamente.`)) {
+          deleteUser.mutate({ userId: deleteUser.variables!.userId, force: true });
+        }
+      } else {
+        toast({ title: "Error", description: e.message, variant: "destructive" });
+      }
+    },
   });
 
   const resetPw = trpc.superadmin.forcePasswordReset.useMutation({

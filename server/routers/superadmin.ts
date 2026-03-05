@@ -1582,12 +1582,13 @@ export const superadminRouter = router({
         .input(z.object({
             userId: z.number(),
             role: z.enum(["owner", "admin", "supervisor", "agent", "viewer"]),
+            force: z.boolean().optional(),
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-            // Don't allow demoting the only owner of a tenant
+            // Don't allow demoting the only owner of a tenant (unless force)
             if (input.role !== "owner") {
                 const [targetUser] = await db.select({ tenantId: users.tenantId, role: users.role })
                     .from(users).where(eq(users.id, input.userId)).limit(1);
@@ -1596,35 +1597,43 @@ export const superadminRouter = router({
                         .from(users)
                         .where(and(eq(users.tenantId, targetUser.tenantId), eq(users.role, "owner"), eq(users.isActive, true)));
                     if (Number(ownerCount[0]?.cnt ?? 0) <= 1) {
-                        throw new TRPCError({ code: "BAD_REQUEST", message: "No se puede cambiar el rol del único owner del tenant." });
+                        if (!input.force) {
+                            throw new TRPCError({ code: "BAD_REQUEST", message: "Es el único owner del tenant. Usa 'forzar' para continuar (el tenant quedará sin owner)." });
+                        }
                     }
                 }
             }
 
             await db.update(users).set({ role: input.role }).where(eq(users.id, input.userId));
 
-            await logSuperadminAction(ctx.user!.id, "changeUserRole", { userId: input.userId, role: input.role });
+            await logSuperadminAction(ctx.user!.id, "changeUserRole", { userId: input.userId, role: input.role, force: !!input.force });
             return { success: true, message: `Rol cambiado a ${input.role}.` };
         }),
 
     /** Delete a user permanently */
     deleteUser: superadminGuard
-        .input(z.object({ userId: z.number() }))
+        .input(z.object({ userId: z.number(), force: z.boolean().optional() }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-            // Don't allow deleting the only owner
+            // Don't allow deleting the only owner (unless force)
             const [targetUser] = await db.select({ tenantId: users.tenantId, role: users.role })
                 .from(users).where(eq(users.id, input.userId)).limit(1);
             if (!targetUser) throw new TRPCError({ code: "NOT_FOUND", message: "Usuario no encontrado." });
 
+            let tenantSuspended = false;
             if (targetUser.role === "owner") {
                 const ownerCount = await db.select({ cnt: count() })
                     .from(users)
                     .where(and(eq(users.tenantId, targetUser.tenantId), eq(users.role, "owner"), eq(users.isActive, true)));
                 if (Number(ownerCount[0]?.cnt ?? 0) <= 1) {
-                    throw new TRPCError({ code: "BAD_REQUEST", message: "No se puede eliminar el único owner del tenant." });
+                    if (!input.force) {
+                        throw new TRPCError({ code: "BAD_REQUEST", message: "Es el único owner del tenant. Usa 'forzar' para eliminar (el tenant será suspendido automáticamente)." });
+                    }
+                    // Force: suspend the tenant since it will have no owner
+                    await db.update(tenants).set({ status: "suspended" }).where(eq(tenants.id, targetUser.tenantId));
+                    tenantSuspended = true;
                 }
             }
 
@@ -1632,8 +1641,8 @@ export const superadminRouter = router({
             await db.delete(sessions).where(eq(sessions.userId, input.userId));
             await db.delete(users).where(eq(users.id, input.userId));
 
-            await logSuperadminAction(ctx.user!.id, "deleteUser", { userId: input.userId, tenantId: targetUser.tenantId });
-            return { success: true, message: "Usuario eliminado." };
+            await logSuperadminAction(ctx.user!.id, "deleteUser", { userId: input.userId, tenantId: targetUser.tenantId, force: !!input.force, tenantSuspended });
+            return { success: true, message: tenantSuspended ? "Usuario eliminado y tenant suspendido (sin owner)." : "Usuario eliminado." };
         }),
 
     // ══════════════════════════════════════════════════════════════
