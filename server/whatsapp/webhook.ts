@@ -61,6 +61,8 @@ async function downloadWhatsAppMediaBinary(mediaId: string, accessToken: string)
       headers: { Authorization: `Bearer ${accessToken}` },
       responseType: "arraybuffer",
       timeout: 30000,
+      maxContentLength: 50 * 1024 * 1024, // 50 MB — prevent OOM from malicious files
+      maxBodyLength: 50 * 1024 * 1024,
     });
 
     const mimeType = meta.mimeType || (resp.headers?.["content-type"] as string | undefined);

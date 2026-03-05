@@ -61,8 +61,8 @@ async function resolveTenantFromRequest(req: any): Promise<number | null> {
         }
     }
 
-    // 3. Fallback: query param (dev only)
-    if (!slug && req.query?.tenant) {
+    // 3. Fallback: query param (dev only — disabled in production)
+    if (!slug && req.query?.tenant && process.env.NODE_ENV !== "production") {
         slug = String(req.query.tenant).trim().toLowerCase();
     }
 
@@ -153,11 +153,17 @@ export const authRouter = router({
                     .where(and(eq(users.email, normalizedEmail), eq(users.tenantId, tenantId)))
                     .limit(1);
             } else {
-                // Platform-level login (superadmin or single-tenant dev mode)
-                // Only allow for tenantId=1 (platform tenant) as fallback
-                user = await db.select().from(users)
-                    .where(and(eq(users.email, normalizedEmail), eq(users.tenantId, 1)))
-                    .limit(1);
+                // Platform-level login: in production, only allow platform owner (superadmin) on tenantId=1
+                if (process.env.NODE_ENV === "production") {
+                    user = await db.select().from(users)
+                        .where(and(eq(users.email, normalizedEmail), eq(users.tenantId, 1), eq(users.role, "owner")))
+                        .limit(1);
+                } else {
+                    // Dev mode: allow any user on tenant 1 for convenience
+                    user = await db.select().from(users)
+                        .where(and(eq(users.email, normalizedEmail), eq(users.tenantId, 1)))
+                        .limit(1);
+                }
                 logger.warn({ email: normalizedEmail, ip }, "[Auth] Login without tenant context — restricted to platform tenant");
             }
 

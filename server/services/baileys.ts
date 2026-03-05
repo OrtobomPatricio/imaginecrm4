@@ -32,6 +32,31 @@ const initializingLocks = new Set<number>();
 // Typing state cleanup timers
 const typingTimers: Map<string, NodeJS.Timeout> = new Map();
 
+// Per-number outbound message throttle (prevents WhatsApp bans)
+const sendTimestamps: Map<number, number[]> = new Map();
+const MAX_MSGS_PER_MINUTE = 20;
+
+function acquireSendSlot(whatsappNumberId: number): { allowed: boolean; waitMs: number } {
+    const now = Date.now();
+    const windowMs = 60_000;
+    let timestamps = sendTimestamps.get(whatsappNumberId) || [];
+    // Remove entries outside the 1-minute window
+    timestamps = timestamps.filter(t => now - t < windowMs);
+    if (timestamps.length >= MAX_MSGS_PER_MINUTE) {
+        const oldestInWindow = timestamps[0];
+        const waitMs = windowMs - (now - oldestInWindow) + 50; // small buffer
+        return { allowed: false, waitMs };
+    }
+    timestamps.push(now);
+    sendTimestamps.set(whatsappNumberId, timestamps);
+    return { allowed: true, waitMs: 0 };
+}
+
+function randomDelay(minMs: number, maxMs: number): Promise<void> {
+    const ms = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 /**
  * Bridge Baileys presence events to the WebSocket typing indicator.
  * userId here is whatsappNumbers.id (the CRM WhatsApp number record).
@@ -286,6 +311,21 @@ export const BaileysService = {
     async sendMessage(userId: number, to: string, content: any) {
         const conn = connections.get(userId);
         if (!conn?.socket) throw new Error("WhatsApp connection not active");
+
+        // Throttle: max 20 msgs/min per WA number to prevent bans
+        const slot = acquireSendSlot(userId);
+        if (!slot.allowed) {
+            logger.warn({ whatsappNumberId: userId, waitMs: slot.waitMs }, "[Baileys] Throttle: rate limit reached, waiting");
+            await new Promise(resolve => setTimeout(resolve, slot.waitMs));
+            // Re-acquire after wait
+            const retry = acquireSendSlot(userId);
+            if (!retry.allowed) {
+                throw new Error("WhatsApp rate limit exceeded. Try again shortly.");
+            }
+        }
+
+        // Random inter-message delay (1-3s) to appear human-like
+        await randomDelay(1000, 3000);
 
         const jid = to.includes('@') ? to : `${to.replace('+', '')}@s.whatsapp.net`;
         return await conn.socket.sendMessage(jid, content);

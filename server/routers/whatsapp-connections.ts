@@ -4,6 +4,7 @@ import { whatsappConnections, whatsappNumbers } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { permissionProcedure, router } from "../_core/trpc";
 import { maskSecret, encryptSecret } from "../_core/crypto";
+import { enforceWhatsappLimit } from "../services/plan-limits";
 
 import { logger } from "../_core/logger";
 
@@ -62,6 +63,9 @@ export const whatsappConnectionsRouter = router({
             const db = await getDb();
             if (!db) throw new Error("Database not available");
 
+            // P0-4: Enforce WA number quota before allowing API connection
+            await enforceWhatsappLimit(ctx.tenantId);
+
             const waNumber = await db.select()
                 .from(whatsappNumbers)
                 .where(and(eq(whatsappNumbers.tenantId, ctx.tenantId), eq(whatsappNumbers.id, input.whatsappNumberId)))
@@ -119,6 +123,9 @@ export const whatsappConnectionsRouter = router({
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
             if (!db) throw new Error("Database not available");
+
+            // P0-4: Enforce WA number quota before allowing QR connection
+            await enforceWhatsappLimit(ctx.tenantId);
 
             // Check if connection exists
             let existing = await db.select()

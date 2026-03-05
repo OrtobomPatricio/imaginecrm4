@@ -8,7 +8,7 @@ import { normalizeContactPhone, toWhatsAppCloudTo } from "../_core/phone";
 import { distributeConversation } from "../services/distribution";
 import { dispatchIntegrationEvent } from "../_core/integrationDispatch";
 import { sendFacebookMessage } from "../_core/facebook";
-import { checkMessageQuota } from "../services/plan-limits";
+import { checkMessageQuota, incrementMessageCounter } from "../services/plan-limits";
 import { sendCloudTemplate, sendCloudMessage } from "../whatsapp/cloud";
 import { emitToConversation } from "../services/websocket";
 import { BaileysService } from "../services/baileys";
@@ -640,6 +640,9 @@ export const chatRouter = router({
                         })
                         .where(and(eq(chatMessages.tenantId, ctx.tenantId), eq(chatMessages.id, id)));
 
+                    // Atomic quota counter increment
+                    incrementMessageCounter(ctx.tenantId).catch(() => {});
+
                     return { id, success: true, sent: true };
                 } catch (err: any) {
                     await db.update(chatMessages)
@@ -744,6 +747,9 @@ export const chatRouter = router({
                             })
                             .where(and(eq(chatMessages.tenantId, ctx.tenantId), eq(chatMessages.id, id)));
 
+                        // Atomic quota counter increment
+                        incrementMessageCounter(ctx.tenantId).catch(() => {});
+
                         return { id, success: true, sent: true, via: 'baileys' };
 
                     } else if (conn.connectionType === 'api') {
@@ -769,6 +775,9 @@ export const chatRouter = router({
                                 sentAt: now,
                             })
                             .where(and(eq(chatMessages.tenantId, ctx.tenantId), eq(chatMessages.id, id)));
+
+                        // Atomic quota counter increment
+                        incrementMessageCounter(ctx.tenantId).catch(() => {});
 
                         return { id, success: true, sent: true, via: 'cloud-api' };
                     } else {

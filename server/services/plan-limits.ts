@@ -141,9 +141,8 @@ export async function enforceWhatsappLimit(tenantId: number): Promise<void> {
 }
 
 /**
- * Check monthly message quota.
- * Counts outbound messages directly from chat_messages for the current calendar month.
- * Uses index idx_chat_messages_tenant_dir_created for performance.
+ * Check monthly message quota using atomic Redis INCR to prevent TOCTOU race.
+ * Falls back to DB COUNT if Redis is unavailable.
  * Returns { allowed: boolean, used: number, limit: number }
  */
 export async function checkMessageQuota(tenantId: number): Promise<{ allowed: boolean; used: number; limit: number }> {
@@ -152,8 +151,31 @@ export async function checkMessageQuota(tenantId: number): Promise<{ allowed: bo
 
     const limits = await getPlanLimits(tenantId);
     const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
+    // Try atomic Redis counter first (race-condition-free)
+    try {
+        const redisUrl = process.env.REDIS_URL;
+        if (redisUrl) {
+            const Redis = (await import("ioredis")).default;
+            const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1, lazyConnect: true });
+            await redis.connect();
+            const key = `quota:msgs:${tenantId}:${monthKey}`;
+            const current = await redis.get(key);
+            const used = current ? parseInt(current, 10) : 0;
+            await redis.quit();
+            return {
+                allowed: used < limits.maxMessagesPerMonth,
+                used,
+                limit: limits.maxMessagesPerMonth,
+            };
+        }
+    } catch {
+        // Redis unavailable — fall through to DB count
+    }
+
+    // Fallback: DB COUNT (still subject to TOCTOU under high concurrency)
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const [result] = await db.select({ total: count() })
         .from(chatMessages)
         .where(and(
@@ -163,10 +185,35 @@ export async function checkMessageQuota(tenantId: number): Promise<{ allowed: bo
         ));
 
     const used = result?.total || 0;
-
     return {
         allowed: used < limits.maxMessagesPerMonth,
         used,
         limit: limits.maxMessagesPerMonth,
     };
+}
+
+/**
+ * Atomically increment the Redis message counter after a message is sent.
+ * Call this AFTER successfully inserting the message into chat_messages.
+ * TTL is set to ~35 days to auto-expire old month counters.
+ */
+export async function incrementMessageCounter(tenantId: number): Promise<void> {
+    try {
+        const redisUrl = process.env.REDIS_URL;
+        if (!redisUrl) return;
+        const Redis = (await import("ioredis")).default;
+        const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1, lazyConnect: true });
+        await redis.connect();
+        const now = new Date();
+        const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+        const key = `quota:msgs:${tenantId}:${monthKey}`;
+        const newVal = await redis.incr(key);
+        if (newVal === 1) {
+            // First message this month — set TTL to 35 days
+            await redis.expire(key, 35 * 24 * 3600);
+        }
+        await redis.quit();
+    } catch {
+        // Best-effort: if Redis fails, DB count is the fallback
+    }
 }

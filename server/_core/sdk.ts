@@ -281,7 +281,7 @@ class SDKServer {
           if (isLegacySchemaIssue) {
             logger.warn({ err: safeError(e) }, "[Auth] DB session check skipped due to legacy/missing sessions schema");
           } else {
-            logger.error({ err: safeError(e) }, "[Auth] DB session check failed");
+            logger.error({ err: safeError(e) }, "[Auth] DB session check failed — fail-closed");
             return null;
           }
         }
