@@ -7,6 +7,37 @@ import { BaileysService } from "./baileys";
 
 import { logger, safeError } from "../_core/logger";
 
+/** Try to acquire a distributed lock via Redis SETNX. Returns unlock function or null. */
+async function acquireRedisLock(key: string, ttlMs: number = 30000): Promise<(() => Promise<void>) | null> {
+    const redisUrl = process.env.REDIS_URL;
+    if (!redisUrl) return async () => {}; // No Redis = single replica, allow through
+
+    try {
+        const Redis = (await import("ioredis")).default;
+        const client = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
+        const lockValue = `${process.pid}-${Date.now()}`;
+        const result = await client.set(key, lockValue, "PX", ttlMs, "NX");
+
+        if (result !== "OK") {
+            await client.quit();
+            return null; // Lock held by another replica
+        }
+
+        return async () => {
+            try {
+                // Only delete if we still own the lock
+                const current = await client.get(key);
+                if (current === lockValue) await client.del(key);
+            } finally {
+                await client.quit();
+            }
+        };
+    } catch (err) {
+        logger.warn({ err: safeError(err) }, "[WhatsAppSession] Redis lock unavailable, proceeding without lock");
+        return async () => {}; // Redis down = allow through
+    }
+}
+
 export async function startWhatsAppSessions() {
     logger.info("[WhatsAppSession] Checking for active sessions to restore...");
     const db = await getDb();
@@ -56,6 +87,14 @@ export async function startWhatsAppSessions() {
         for (const conn of activeConnections) {
             if (!conn.whatsappNumberId) continue;
 
+            // Distributed lock: prevent duplicate session init across replicas
+            const lockKey = `wa:session:lock:${conn.whatsappNumberId}`;
+            const unlock = await acquireRedisLock(lockKey, 60000);
+            if (!unlock) {
+                logger.info(`[WhatsAppSession] Session ${conn.whatsappNumberId} locked by another replica, skipping`);
+                continue;
+            }
+
             logger.info(`[WhatsAppSession] Restoring session for Number ID: ${conn.whatsappNumberId}`);
             try {
                 // Initialize session
@@ -102,6 +141,8 @@ export async function startWhatsAppSessions() {
                 if (db) {
                     await db.update(whatsappConnections).set({ isConnected: false }).where(eq(whatsappConnections.id, conn.id));
                 }
+            } finally {
+                await unlock();
             }
         }
     } catch (error) {

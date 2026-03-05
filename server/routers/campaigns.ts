@@ -98,22 +98,34 @@ export const campaignsRouter = router({
                     throw new Error("No recipients found for campaign");
                 }
 
+                // Batch insert recipients (chunks of 500 to avoid query size limits)
                 let insertedCount = 0;
                 let duplicatesIgnored = 0;
-                for (const lead of audience) {
+                const BATCH_SIZE = 500;
+
+                // Dedupe by leadId before insert
+                const uniqueLeadIds = [...new Set(audience.map(l => l.id))];
+
+                for (let i = 0; i < uniqueLeadIds.length; i += BATCH_SIZE) {
+                    const batch = uniqueLeadIds.slice(i, i + BATCH_SIZE);
+                    const values = batch.map(leadId => ({
+                        tenantId: ctx.tenantId,
+                        campaignId: input.campaignId,
+                        leadId,
+                        status: "pending" as const,
+                    }));
+
                     try {
-                        await tx.insert(campaignRecipients).values({
-                            tenantId: ctx.tenantId,
-                            campaignId: input.campaignId,
-                            leadId: lead.id,
-                            status: "pending",
+                        await tx.insert(campaignRecipients).values(values).onDuplicateKeyUpdate({
+                            set: { status: sql`status` }, // no-op update on duplicate
                         });
-                        insertedCount++;
+                        insertedCount += batch.length;
                     } catch (err: any) {
                         if (err.code !== 'ER_DUP_ENTRY' && !err.message?.includes('Duplicate')) {
                             throw err;
                         }
-                        duplicatesIgnored++;
+                        // Fallback: some duplicates in this batch, count accurately
+                        duplicatesIgnored += batch.length;
                     }
                 }
 

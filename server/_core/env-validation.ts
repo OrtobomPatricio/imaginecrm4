@@ -95,6 +95,15 @@ export function validateEnvironment(): void {
         }
     }
 
+    // Validate PayPal config: if billing is enabled, webhook ID must be set
+    if (process.env.PAYPAL_CLIENT_ID && !process.env.PAYPAL_WEBHOOK_ID) {
+        if (process.env.NODE_ENV === "production") {
+            errors.push("PAYPAL_WEBHOOK_ID is required when PAYPAL_CLIENT_ID is set — billing webhooks will silently fail without it");
+        } else {
+            warnings.push("PAYPAL_WEBHOOK_ID is not set — PayPal webhook verification will fail");
+        }
+    }
+
     // Log warnings
     for (const warning of warnings) {
         logger.warn(`[EnvValidation] WARNING: ${warning}`);
