@@ -1,6 +1,6 @@
 import { getDb } from "../db";
-import { license, users, leads, whatsappNumbers, usageTracking } from "../../drizzle/schema";
-import { eq, and, sql, count } from "drizzle-orm";
+import { license, users, leads, whatsappNumbers, chatMessages } from "../../drizzle/schema";
+import { eq, and, sql, count, gte } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { logger } from "../_core/logger";
 
@@ -142,6 +142,8 @@ export async function enforceWhatsappLimit(tenantId: number): Promise<void> {
 
 /**
  * Check monthly message quota.
+ * Counts outbound messages directly from chat_messages for the current calendar month.
+ * Uses index idx_chat_messages_tenant_dir_created for performance.
  * Returns { allowed: boolean, used: number, limit: number }
  */
 export async function checkMessageQuota(tenantId: number): Promise<{ allowed: boolean; used: number; limit: number }> {
@@ -150,17 +152,17 @@ export async function checkMessageQuota(tenantId: number): Promise<{ allowed: bo
 
     const limits = await getPlanLimits(tenantId);
     const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const [usage] = await db.select()
-        .from(usageTracking)
+    const [result] = await db.select({ total: count() })
+        .from(chatMessages)
         .where(and(
-            eq(usageTracking.tenantId, tenantId),
-            eq(usageTracking.year, now.getFullYear()),
-            eq(usageTracking.month, now.getMonth() + 1),
-        ))
-        .limit(1);
+            eq(chatMessages.tenantId, tenantId),
+            eq(chatMessages.direction, "outbound"),
+            gte(chatMessages.createdAt, monthStart),
+        ));
 
-    const used = (usage?.messagesSent || 0) + (usage?.messagesReceived || 0);
+    const used = result?.total || 0;
 
     return {
         allowed: used < limits.maxMessagesPerMonth,

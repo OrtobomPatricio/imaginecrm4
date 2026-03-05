@@ -326,6 +326,7 @@ export function registerMetaRoutes(app: Express) {
     });
 
     app.post("/api/meta/webhook", async (req: Request, res: Response) => {
-        res.sendStatus(200);
+        logger.warn("POST /api/meta/webhook called but no handler implemented — returning 404");
+        res.sendStatus(404);
     });
 }

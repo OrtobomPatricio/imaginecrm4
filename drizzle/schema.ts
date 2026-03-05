@@ -646,6 +646,8 @@ export const chatMessages = mysqlTable("chat_messages", {
   uniqWaMessage: uniqueIndex("uniq_wa_message").on(t.tenantId, t.whatsappMessageId, t.conversationId),
   // Performance index for conversation history (also backs FK)
   idxConversationCreated: index("idx_chat_messages_conversation_created").on(t.conversationId, t.createdAt),
+  // Performance index for monthly outbound quota counting
+  idxTenantDirCreated: index("idx_chat_messages_tenant_dir_created").on(t.tenantId, t.direction, t.createdAt),
 }));
 
 export type ChatMessage = typeof chatMessages.$inferSelect;

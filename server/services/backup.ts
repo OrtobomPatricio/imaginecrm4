@@ -159,7 +159,37 @@ async function restoreBackupReplaceAll(data: any, tenantId: number) {
   if (!db) throw new Error("Database not available");
 
   return await db.transaction(async (tx) => {
-    // Delete ONLY current tenant's data (children first)
+    // ── STEP 1: Preserve existing secrets before deletion ──
+    // Save WhatsApp connection tokens keyed by stable identifiers
+    const existingWaConns = await tx.select({
+      whatsappNumberId: whatsappConnections.whatsappNumberId,
+      connectionType: whatsappConnections.connectionType,
+      phoneNumberId: whatsappConnections.phoneNumberId,
+      wabaId: whatsappConnections.wabaId,
+      businessAccountId: whatsappConnections.businessAccountId,
+      accessToken: whatsappConnections.accessToken,
+      sessionData: whatsappConnections.sessionData,
+    }).from(whatsappConnections).where(eq(whatsappConnections.tenantId, tenantId));
+
+    // Build lookup maps by stable keys
+    type SavedSecrets = { accessToken: string | null; sessionData: string | null };
+    const cloudTokensByPhone = new Map<string, SavedSecrets>();   // phoneNumberId → tokens
+    const qrTokensByNumber = new Map<number, SavedSecrets>();     // whatsappNumberId → tokens
+    for (const conn of existingWaConns) {
+      if (conn.connectionType === "api" && conn.phoneNumberId) {
+        cloudTokensByPhone.set(conn.phoneNumberId, {
+          accessToken: conn.accessToken,
+          sessionData: conn.sessionData,
+        });
+      } else if (conn.connectionType === "qr") {
+        qrTokensByNumber.set(conn.whatsappNumberId, {
+          accessToken: conn.accessToken,
+          sessionData: conn.sessionData,
+        });
+      }
+    }
+
+    // ── STEP 2: Delete current tenant's data (children first) ──
     await tx.delete(chatMessages).where(eq(chatMessages.tenantId, tenantId));
     await tx.delete(conversations).where(eq(conversations.tenantId, tenantId));
     await tx.delete(campaignRecipients).where(eq(campaignRecipients.tenantId, tenantId));
@@ -233,6 +263,48 @@ async function restoreBackupReplaceAll(data: any, tenantId: number) {
       inserted.whatsappConnections = conns.length;
     }
 
+    // ── STEP 3: Re-apply preserved secrets to restored connections ──
+    const restoredConns = await tx.select({
+      id: whatsappConnections.id,
+      whatsappNumberId: whatsappConnections.whatsappNumberId,
+      connectionType: whatsappConnections.connectionType,
+      phoneNumberId: whatsappConnections.phoneNumberId,
+      accessToken: whatsappConnections.accessToken,
+    }).from(whatsappConnections).where(eq(whatsappConnections.tenantId, tenantId));
+
+    let secretsRestored = 0;
+    let markedDisconnected = 0;
+    for (const conn of restoredConns) {
+      let saved: SavedSecrets | undefined;
+
+      if (conn.connectionType === "api" && conn.phoneNumberId) {
+        saved = cloudTokensByPhone.get(conn.phoneNumberId);
+      } else if (conn.connectionType === "qr") {
+        saved = qrTokensByNumber.get(conn.whatsappNumberId);
+      }
+
+      if (saved?.accessToken || saved?.sessionData) {
+        // Re-apply real tokens from before the restore
+        await tx.update(whatsappConnections)
+          .set({
+            accessToken: saved.accessToken,
+            sessionData: saved.sessionData,
+          })
+          .where(eq(whatsappConnections.id, conn.id));
+        secretsRestored++;
+      } else if (!conn.accessToken) {
+        // No saved secret and backup had [REDACTED] → mark disconnected
+        await tx.update(whatsappConnections)
+          .set({ isConnected: false })
+          .where(eq(whatsappConnections.id, conn.id));
+        markedDisconnected++;
+      }
+    }
+
+    if (secretsRestored > 0 || markedDisconnected > 0) {
+      logger.info({ secretsRestored, markedDisconnected }, "[Restore] WhatsApp connection secrets re-applied");
+    }
+
     const intgs = asArray(data.integrations);
     if (intgs.length) {
       await tx.insert(integrations).values(withTenant(intgs) as any);
@@ -264,7 +336,13 @@ async function restoreBackupReplaceAll(data: any, tenantId: number) {
     }
 
     logger.info("✅ Backup restored successfully (tenant-scoped, transactional):", inserted);
-    return { success: true, inserted };
+    return {
+      success: true,
+      inserted,
+      secretsRestored,
+      requiresReconnect: markedDisconnected > 0,
+      connectionsRequiringReconnect: markedDisconnected,
+    };
   });
 }
 
