@@ -111,6 +111,7 @@ type MenuItem = {
   path: string;
   roles?: string[];
   requiredPerm?: string;
+  superAdminOnly?: boolean;
 };
 
 const menuItems: MenuItem[] = [
@@ -131,7 +132,7 @@ const menuItems: MenuItem[] = [
   { icon: LayoutGrid, label: "Pipelines", path: "/settings/pipelines", requiredPerm: "kanban.manage" },
   { icon: Database, label: "Backups", path: "/backup", requiredPerm: "backups.view", roles: ["owner", "admin"] },
   { icon: Settings, label: "Configuración", path: "/settings", requiredPerm: "settings.view" },
-  { icon: Shield, label: "Super Admin", path: "/admin", roles: ["owner"] },
+  { icon: Shield, label: "Super Admin", path: "/admin", roles: ["owner"], superAdminOnly: true },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -245,7 +246,11 @@ function DashboardLayoutContent({
 
   // Menu visibility (roles + permissions matrix)
   const role = (user as any)?.role as string | undefined;
+  const tenantId = (user as any)?.tenantId as number | undefined;
   const visibleMenuItems = menuItems.filter((item) => {
+    // 0) SuperAdmin-only: requires platform tenant (tenantId === 1)
+    if (item.superAdminOnly && tenantId !== 1) return false;
+
     // 1) Explicit role restriction (hard gate)
     if (item.roles && item.roles.length > 0) {
       if (!role) return false;

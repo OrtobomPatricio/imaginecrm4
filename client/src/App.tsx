@@ -149,7 +149,11 @@ function Router() {
                 <Route path="/terms">{() => <TermsPage />}</Route>
                 <Route path="/privacy">{() => <PrivacyPage />}</Route>
                 <Route path="/backup" component={Backup} />
-                <Route path="/admin" component={SuperAdmin} />
+                <Route path="/admin">{() => {
+                  const { user } = useAuth();
+                  if ((user as any)?.tenantId !== 1 || (user as any)?.role !== "owner") return <Redirect to="/" />;
+                  return <SuperAdmin />;
+                }}</Route>
                 <Route path="/gamification">{() => <Redirect to="/analytics?tab=goals" />}</Route>
                 <Route path="/404" component={NotFound} />
                 <Route component={NotFound} />

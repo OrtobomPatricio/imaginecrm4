@@ -87,6 +87,7 @@ export const authRouter = router({
             name: u.name,
             email: u.email,
             role: u.role,
+            tenantId: u.tenantId,
             customRole: (u as any).customRole,
             loginMethod: u.loginMethod,
             isActive: u.isActive,
