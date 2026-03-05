@@ -127,6 +127,20 @@
       "when": 1739442000000,
       "tag": "0035_add_leads_whatsapp_connection_type",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1739528400000,
+      "tag": "0036_message_quota_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "5",
+      "when": 1741046400000,
+      "tag": "0037_add_auto_reply_config",
+      "breakpoints": true
     }
   ]
 }

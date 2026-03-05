@@ -1053,6 +1053,9 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
         }
     }
 
+    // AI auto-reply config column (added in 0037)
+    await ensureColumn("app_settings", "autoReplyConfig", "`autoReplyConfig` JSON NULL", "app_settings.autoReplyConfig column");
+
     logger.info("[Migration] Schema compatibility checks completed");
 
     // --- Production Performance Indexes ---
