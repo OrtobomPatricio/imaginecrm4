@@ -51,6 +51,9 @@ export function registerNativeOAuth(app: Express) {
         throw new Error("COOKIE_SECRET (or JWT_SECRET fallback) is required in production for OAuth sessions");
     }
 
+    // Track which providers are enabled
+    const enabledProviders: string[] = [];
+
     // Cookie parser and sessions (memory store for dev, Redis for prod)
     app.use(cookieParser());
     const redisSessionStore = createOAuthSessionStore();
@@ -173,6 +176,7 @@ export function registerNativeOAuth(app: Express) {
             }
         );
 
+        enabledProviders.push('google');
         logger.info('✅ Google OAuth enabled');
     } else {
         logger.info('⚠️  Google OAuth disabled (missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET)');
@@ -277,6 +281,7 @@ export function registerNativeOAuth(app: Express) {
             }
         );
 
+        enabledProviders.push('facebook');
         logger.info('✅ Facebook OAuth enabled');
     } else {
         logger.info('⚠️  Facebook OAuth disabled (missing FACEBOOK_APP_ID or FACEBOOK_APP_SECRET)');
@@ -386,10 +391,16 @@ export function registerNativeOAuth(app: Express) {
             }
         );
 
+        enabledProviders.push('microsoft');
         logger.info('✅ Microsoft OAuth enabled');
     } else {
         logger.info('⚠️  Microsoft OAuth disabled (missing MICROSOFT_CLIENT_ID or MICROSOFT_CLIENT_SECRET)');
     }
+
+    // Endpoint to expose which OAuth providers are enabled
+    app.get('/api/auth/providers', (_req: Request, res: Response) => {
+        res.json({ providers: enabledProviders });
+    });
 
     // Logout route
     app.get('/api/auth/logout', (req: Request, res: Response) => {
@@ -400,5 +411,13 @@ export function registerNativeOAuth(app: Express) {
             }
             res.redirect('/login');
         });
+    });
+
+    // Fallback for unconfigured providers — redirect with clear error
+    // MUST be last /api/auth/* route since :provider is a catch-all param
+    app.get('/api/auth/:provider', (req: Request, res: Response) => {
+        const provider = req.params.provider;
+        logger.warn(`[OAuth] Attempt to use unconfigured provider: ${provider}`);
+        res.redirect(`/login?error=provider_not_configured&provider=${encodeURIComponent(provider)}`);
     });
 }

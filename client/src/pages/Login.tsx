@@ -6,16 +6,46 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useTheme } from "@/contexts/ThemeContext";
 import { MessageCircle, Moon, Sun, Mail, Lock, ArrowRight } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+
+const ERROR_MESSAGES: Record<string, string> = {
+  google_auth_failed: "Error al autenticar con Google. Intentá de nuevo.",
+  facebook_auth_failed: "Error al autenticar con Facebook. Intentá de nuevo.",
+  microsoft_auth_failed: "Error al autenticar con Microsoft. Intentá de nuevo.",
+  microsoft_init_failed: "No se pudo iniciar la autenticación con Microsoft.",
+  no_user_data: "No se recibieron datos del proveedor. Intentá de nuevo.",
+  not_provisioned: "Tu cuenta no está registrada en el sistema. Contactá al administrador.",
+  ambiguous_tenant: "Tu email está asociado a múltiples organizaciones. Contactá soporte.",
+  callback_failed: "Error durante la autenticación. Intentá de nuevo.",
+  provider_not_configured: "Este método de inicio de sesión no está configurado.",
+};
 
 export default function Login() {
   const { theme, toggleTheme } = useTheme();
   const canDevLogin = import.meta.env.VITE_DEV_BYPASS_AUTH === "1";
-  // const [isRegistering, setIsRegistering] = useState(false); // No registration for now
   const [formData, setFormData] = useState({
     email: "",
     password: "",
   });
+  const [enabledProviders, setEnabledProviders] = useState<string[]>([]);
+
+  // Fetch enabled OAuth providers + handle URL error params
+  useEffect(() => {
+    fetch("/api/auth/providers")
+      .then((r) => r.ok ? r.json() : { providers: [] })
+      .then((data) => setEnabledProviders(data.providers ?? []))
+      .catch(() => setEnabledProviders([]));
+
+    // Show error from OAuth redirect
+    const params = new URLSearchParams(window.location.search);
+    const error = params.get("error");
+    if (error) {
+      const msg = ERROR_MESSAGES[error] || `Error de autenticación: ${error}`;
+      toast.error(msg);
+      // Clean URL
+      window.history.replaceState({}, "", "/login");
+    }
+  }, []);
 
   const login = trpc.auth.loginWithCredentials.useMutation({
     onSuccess: (data) => {
@@ -125,6 +155,7 @@ export default function Login() {
                     Entrar como DEV (sin Google)
                   </Button>
                 )}
+                {enabledProviders.includes('google') && (
                 <Button
                   variant="outline"
                   className="w-full h-11 bg-card/50 hover:bg-card border-border/50 transition-all duration-300 hover:border-blue-500/30 hover:shadow-md hover:shadow-blue-500/10 transform hover:scale-[1.02] active:scale-[0.98] group"
@@ -150,7 +181,9 @@ export default function Login() {
                   </svg>
                   Continuar con Google
                 </Button>
+                )}
 
+                {enabledProviders.includes('facebook') && (
                 <Button
                   variant="outline"
                   className="w-full h-11 bg-card/50 hover:bg-card border-border/50 transition-all duration-300 hover:border-blue-600/30 hover:shadow-md hover:shadow-blue-600/10 transform hover:scale-[1.02] active:scale-[0.98] group"
@@ -164,10 +197,26 @@ export default function Login() {
                   </svg>
                   Continuar con Facebook
                 </Button>
+                )}
 
-                {/* Microsoft Login Removed by User Request */}
+                {enabledProviders.includes('microsoft') && (
+                <Button
+                  variant="outline"
+                  className="w-full h-11 bg-card/50 hover:bg-card border-border/50 transition-all duration-300 hover:border-blue-700/30 hover:shadow-md hover:shadow-blue-700/10 transform hover:scale-[1.02] active:scale-[0.98] group"
+                  onClick={() => handleOAuthLogin('microsoft')}
+                >
+                  <svg className="w-5 h-5 mr-3 transition-transform group-hover:scale-110" viewBox="0 0 24 24">
+                    <path fill="#F25022" d="M1 1h10v10H1z" />
+                    <path fill="#00A4EF" d="M1 13h10v10H1z" />
+                    <path fill="#7FBA00" d="M13 1h10v10H13z" />
+                    <path fill="#FFB900" d="M13 13h10v10H13z" />
+                  </svg>
+                  Continuar con Microsoft
+                </Button>
+                )}
               </div>
 
+              {(enabledProviders.length > 0 || canDevLogin) && (
               <div className="relative my-2">
                 <div className="absolute inset-0 flex items-center">
                   <span className="w-full border-t border-muted" />
@@ -178,6 +227,7 @@ export default function Login() {
                   </span>
                 </div>
               </div>
+              )}
 
               {/* Email Form */}
               <form onSubmit={handleSubmit} className="space-y-4">
