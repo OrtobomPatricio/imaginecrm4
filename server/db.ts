@@ -1,7 +1,8 @@
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import mysql from "mysql2/promise";
-import { InsertUser, users } from "../drizzle/schema";
+import { nanoid } from "nanoid";
+import { InsertUser, users, tenants, appSettings } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 import { logger } from "./_core/logger";
@@ -183,6 +184,67 @@ export async function resolveProvisionedOAuthUser(openId: string, email?: string
   }
 
   return null;
+}
+
+const TRIAL_DAYS = 14;
+const DEFAULT_PERMISSIONS = {
+  owner: ["*"],
+  admin: ["dashboard.*", "leads.*", "chat.*", "reports.*", "settings.*", "team.*"],
+  agent: ["dashboard.view", "leads.view", "leads.create", "leads.edit", "chat.view", "chat.send"],
+};
+
+/**
+ * Auto-provision a new tenant + owner for an OAuth user who doesn't exist yet.
+ * Controlled by OAUTH_AUTO_REGISTER=true env var.
+ * Returns the newly created user record, or null if auto-register is disabled.
+ */
+export async function autoProvisionOAuthUser(oauthUser: { openId: string; name?: string; email?: string; platform?: string }) {
+  if (process.env.OAUTH_AUTO_REGISTER !== "true") return null;
+  if (!oauthUser.email) return null;
+
+  const database = await getDb();
+  if (!database) return null;
+
+  const displayName = oauthUser.name || oauthUser.email.split("@")[0];
+  const slug = nanoid(10).toLowerCase();
+
+  const trialEnd = new Date();
+  trialEnd.setDate(trialEnd.getDate() + TRIAL_DAYS);
+
+  let tenantId = 0;
+
+  await database.transaction(async (tx) => {
+    const tenantResult = await tx.insert(tenants).values({
+      name: `${displayName}'s Workspace`,
+      slug,
+      plan: "pro",
+      status: "active",
+      trialEndsAt: trialEnd,
+    });
+    tenantId = tenantResult[0].insertId;
+
+    await tx.insert(users).values({
+      tenantId,
+      openId: oauthUser.openId,
+      name: displayName,
+      email: oauthUser.email!.trim().toLowerCase(),
+      loginMethod: oauthUser.platform || "oauth",
+      role: "owner",
+      isActive: true,
+      emailVerified: true,
+    });
+
+    await tx.insert(appSettings).values({
+      tenantId,
+      companyName: `${displayName}'s Workspace`,
+      permissionsMatrix: DEFAULT_PERMISSIONS,
+      scheduling: { slotMinutes: 15, maxPerSlot: 6, allowCustomTime: true },
+    });
+  });
+
+  logger.info({ tenantId, email: oauthUser.email, platform: oauthUser.platform }, "[OAuth] Auto-provisioned new tenant");
+
+  return getUserByOpenId(oauthUser.openId);
 }
 
 // Feature queries are defined in their respective routers and services.

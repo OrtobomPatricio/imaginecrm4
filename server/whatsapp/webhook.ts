@@ -397,6 +397,16 @@ export async function processMetaWebhookPayload(payload: any, _opts: { skipSigna
 }
 
 export function registerWhatsAppWebhookRoutes(app: Express) {
+  const isProd = process.env.NODE_ENV === "production";
+
+  // Startup configuration warnings
+  if (!process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN) {
+    logger.warn("[Webhook] WHATSAPP_WEBHOOK_VERIFY_TOKEN not set — Meta webhook verification will fail");
+  }
+  if (isProd && !process.env.WHATSAPP_APP_SECRET) {
+    logger.error("[Webhook] WHATSAPP_APP_SECRET not set in production — all webhook POSTs will be rejected");
+  }
+
   // Verification endpoint for Meta
   app.get("/api/whatsapp/webhook", (req: Request, res: Response) => {
     const verifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;

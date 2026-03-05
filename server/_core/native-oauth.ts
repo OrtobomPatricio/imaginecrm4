@@ -7,6 +7,7 @@ import session from 'express-session';
 import cookieParser from 'cookie-parser';
 import { COOKIE_NAME, ONE_YEAR_MS } from '@shared/const';
 import * as db from '../db';
+import { autoProvisionOAuthUser } from '../db';
 import { getSessionCookieOptions } from './cookies';
 import { sdk } from './sdk';
 import { createOAuthSessionStore } from './redis-session-store';
@@ -146,7 +147,10 @@ export function registerNativeOAuth(app: Express) {
                     logger.info({ found: !!provisionedUser, openId: provisionedUser?.openId }, '[OAuth] Google - resolveProvisionedOAuthUser result');
 
                     if (!provisionedUser) {
-                        return res.redirect('/login?error=not_provisioned');
+                        provisionedUser = await autoProvisionOAuthUser(user);
+                        if (!provisionedUser) {
+                            return res.redirect('/login?error=not_provisioned');
+                        }
                     }
 
                     const ownerEmail = process.env.OWNER_EMAIL;
@@ -256,7 +260,10 @@ export function registerNativeOAuth(app: Express) {
                     logger.info({ found: !!provisionedUser, openId: provisionedUser?.openId }, '[OAuth] Facebook - resolveProvisionedOAuthUser result');
 
                     if (!provisionedUser) {
-                        return res.redirect('/login?error=not_provisioned');
+                        provisionedUser = await autoProvisionOAuthUser(user);
+                        if (!provisionedUser) {
+                            return res.redirect('/login?error=not_provisioned');
+                        }
                     }
 
                     const ownerEmail = process.env.OWNER_EMAIL;
@@ -370,7 +377,10 @@ export function registerNativeOAuth(app: Express) {
                     }
 
                     if (!provisionedUser) {
-                        return res.redirect('/login?error=not_provisioned');
+                        provisionedUser = await autoProvisionOAuthUser(user);
+                        if (!provisionedUser) {
+                            return res.redirect('/login?error=not_provisioned');
+                        }
                     }
 
                     const ownerEmail = process.env.OWNER_EMAIL;
