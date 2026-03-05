@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
-import { license, usageTracking, users, whatsappNumbers, chatMessages } from "../../drizzle/schema";
+import { license, usageTracking, users, whatsappNumbers, chatMessages, tenants } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { permissionProcedure, router, protectedProcedure } from "../_core/trpc";
 import { logger, safeError } from "../_core/logger";
@@ -21,6 +21,9 @@ export const licensingRouter = router({
 
         // Get license (single tenant for now)
         const [licenseRow] = await db.select().from(license).where(eq(license.tenantId, ctx.tenantId)).limit(1);
+
+        // Get tenant for trialEndsAt
+        const [tenantRow] = await db.select({ trialEndsAt: tenants.trialEndsAt }).from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
 
         // Get current usage
         const now = new Date();
@@ -60,6 +63,8 @@ export const licensingRouter = router({
 
         const lic = licenseRow || defaultLicense;
 
+        const trialEndsAt = tenantRow?.trialEndsAt ?? null;
+
         return {
             license: licenseRow ? {
                 id: licenseRow.id,
@@ -70,6 +75,7 @@ export const licensingRouter = router({
                 maxWhatsappNumbers: licenseRow.maxWhatsappNumbers,
                 maxMessagesPerMonth: licenseRow.maxMessagesPerMonth,
                 features: licenseRow.features || [],
+                trialEndsAt,
             } : {
                 status: 'trial',
                 plan: 'starter',
@@ -78,6 +84,7 @@ export const licensingRouter = router({
                 maxWhatsappNumbers: 3,
                 maxMessagesPerMonth: 10000,
                 features: [],
+                trialEndsAt,
             },
             usage: {
                 messagesThisMonth: messagesThisMonth[0]?.count || usageRow?.messagesSent || 0,

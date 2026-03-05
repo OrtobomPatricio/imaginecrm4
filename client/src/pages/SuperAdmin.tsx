@@ -705,12 +705,12 @@ function TenantRow({
             )}
             {tenant.trialEndsAt && (() => {
               const daysLeft = Math.ceil((new Date(tenant.trialEndsAt).getTime() - Date.now()) / 86400000);
-              return daysLeft <= 7 ? (
-                <Badge variant="outline" className={`text-[10px] px-1.5 ${daysLeft <= 0 ? "border-red-500 text-red-500" : "border-amber-400 text-amber-500"}`}>
+              return (
+                <Badge variant="outline" className={`text-[10px] px-1.5 ${daysLeft <= 0 ? "border-red-500 text-red-500" : daysLeft <= 3 ? "border-red-400 text-red-400" : "border-amber-400 text-amber-500"}`}>
                   <Timer className="w-3 h-3 mr-0.5" />
                   {daysLeft <= 0 ? "Trial expirado" : `Trial: ${daysLeft}d`}
                 </Badge>
-              ) : null;
+              );
             })()}
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">

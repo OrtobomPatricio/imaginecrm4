@@ -12,7 +12,8 @@ import {
     MessageSquare, 
     AlertTriangle,
     CheckCircle2,
-    Clock
+    Clock,
+    Sparkles
 } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -48,6 +49,10 @@ export function BillingSettings() {
     const isExpired = Boolean(license.expiresAt && new Date(license.expiresAt) < new Date());
     const isTrial = license.status === 'trial';
     const isActive = license.status === 'active' && !isExpired;
+
+    // Calculate trial days remaining
+    const trialEndsAt = license.trialEndsAt ? new Date(license.trialEndsAt) : null;
+    const trialDaysLeft = trialEndsAt ? Math.max(0, Math.ceil((trialEndsAt.getTime() - Date.now()) / 86400000)) : null;
 
     const usagePercentages = {
         users: limits.maxUsers > 0 ? Math.min(100, Math.round((usage.activeUsers / limits.maxUsers) * 100)) : 0,
@@ -110,13 +115,25 @@ export function BillingSettings() {
                         <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
                             <div className="flex items-start gap-3">
                                 <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5" />
-                                <div>
+                                <div className="flex-1">
                                     <p className="font-medium text-amber-800 dark:text-amber-200">
                                         Estás en modo de prueba
+                                        {trialDaysLeft !== null && (
+                                            <span className="ml-2 inline-flex items-center rounded-full bg-amber-200 dark:bg-amber-800 px-2.5 py-0.5 text-xs font-semibold">
+                                                {trialDaysLeft === 0 ? "Expira hoy" : `${trialDaysLeft} día${trialDaysLeft !== 1 ? 's' : ''} restante${trialDaysLeft !== 1 ? 's' : ''}`}
+                                            </span>
+                                        )}
                                     </p>
                                     <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
-                                        Actualiza a un plan pagado para desbloquear todos los límites y funcionalidades.
+                                        {trialDaysLeft !== null && trialDaysLeft <= 3
+                                            ? "Tu periodo de prueba está por terminar. Actualiza ahora para no perder acceso."
+                                            : "Actualiza a un plan pagado para desbloquear todos los límites y funcionalidades."}
                                     </p>
+                                    {trialEndsAt && (
+                                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                                            Vence el {format(trialEndsAt, 'dd MMMM yyyy', { locale: es })}
+                                        </p>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -273,6 +290,7 @@ export function BillingSettings() {
  */
 function BillingActions({ isActive }: { isActive: boolean }) {
     const billingPlan = trpc.billing.getCurrentPlan.useQuery();
+    const licensingStatus = trpc.licensing.getStatus.useQuery();
     const createSub = trpc.billing.createSubscription.useMutation({
         onSuccess: (data) => {
             if (data.url) {
@@ -283,7 +301,7 @@ function BillingActions({ isActive }: { isActive: boolean }) {
         },
         onError: (e) => {
             // If PayPal is not configured, show plans comparison
-            if (e.message.includes("no est\u00e1 configurado")) {
+            if (e.message.includes("no está configurado")) {
                 setShowPlans(true);
             }
         },
@@ -305,6 +323,7 @@ function BillingActions({ isActive }: { isActive: boolean }) {
     const [cancelled, setCancelled] = React.useState(false);
     const allPlans = billingPlan.data?.allPlans;
     const currentPlan = billingPlan.data?.plan || "free";
+    const isTrial = licensingStatus.data?.license?.status === 'trial';
 
     // On mount, check if returning from PayPal success/cancel redirect
     React.useEffect(() => {
@@ -334,13 +353,13 @@ function BillingActions({ isActive }: { isActive: boolean }) {
             {confirmSub.isPending && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground p-2 bg-muted/50 rounded">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Confirmando suscripci\u00f3n con PayPal...
+                    Confirmando suscripción con PayPal...
                 </div>
             )}
             {confirmSub.isSuccess && (
                 <div className="flex items-center gap-2 text-sm text-green-600 p-2 bg-green-50 dark:bg-green-950/30 rounded">
                     <CheckCircle2 className="h-4 w-4" />
-                    ¡Suscripci\u00f3n activada correctamente!
+                    ¡Suscripción activada correctamente!
                 </div>
             )}            {cancelled && (
                 <div className="flex items-center gap-2 text-sm text-amber-600 p-2 bg-amber-50 dark:bg-amber-950/30 rounded">
@@ -355,14 +374,26 @@ function BillingActions({ isActive }: { isActive: boolean }) {
                         disabled={manageUrl.isPending}
                     >
                         {manageUrl.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Gestionar Suscripci\u00f3n
+                        Gestionar Suscripción
                     </Button>
                 ) : (
-                    <Button
-                        onClick={() => setShowPlans(!showPlans)}
-                    >
-                        Actualizar Plan
-                    </Button>
+                    <>
+                        <Button
+                            onClick={() => setShowPlans(!showPlans)}
+                        >
+                            Actualizar Plan
+                        </Button>
+                        {isTrial && (
+                            <Button
+                                variant="outline"
+                                className="border-primary text-primary hover:bg-primary/10"
+                                onClick={() => setShowPlans(true)}
+                            >
+                                <Sparkles className="mr-2 h-4 w-4" />
+                                Terminar prueba y pasar a pago
+                            </Button>
+                        )}
+                    </>
                 )}
             </div>
 
@@ -387,7 +418,7 @@ function BillingActions({ isActive }: { isActive: boolean }) {
                                 </div>
                                 <ul className="text-sm space-y-1 text-muted-foreground">
                                     <li>Hasta {plan.maxUsers} usuarios</li>
-                                    <li>Hasta {plan.maxWaNumbers} n\u00fameros WhatsApp</li>
+                                    <li>Hasta {plan.maxWaNumbers} números WhatsApp</li>
                                     <li>Hasta {plan.maxMessages.toLocaleString()} mensajes/mes</li>
                                 </ul>
                                 <Button

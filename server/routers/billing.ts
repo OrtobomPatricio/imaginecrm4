@@ -103,6 +103,7 @@ export const billingRouter = router({
                 planInfo,
                 allPlans: PLANS,
                 paypalSubscriptionId: (tenant as any)?.paypalSubscriptionId ?? null,
+                trialEndsAt: (tenant as any)?.trialEndsAt ?? null,
             };
         }),
 
