@@ -97,7 +97,7 @@ export function serveStatic(app: Express) {
         res.setHeader("Cache-Control", "no-store");
         res.setHeader("Content-Security-Policy", [
             `default-src 'self'`,
-            `script-src 'self' 'nonce-${nonce}' https://maps.googleapis.com https://connect.facebook.net https://www.paypal.com`,
+            `script-src 'strict-dynamic' 'nonce-${nonce}' 'unsafe-inline' https:`,
             `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
             `img-src 'self' data: blob: https://*.googleusercontent.com https://maps.gstatic.com https://*.whatsapp.net https://*.fbcdn.net https://*.cdninstagram.com https://*.wadata.net https://cdn.jsdelivr.net https://www.facebook.com https://www.paypalobjects.com https://t.paypal.com`,
             `font-src 'self' https://fonts.gstatic.com data:`,
