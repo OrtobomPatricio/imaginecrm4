@@ -54,9 +54,9 @@ export const teamRouter = router({
             if (target[0]?.role === "owner" && input.role !== "owner") {
                 const ownerCount = await db.select().from(users).where(and(eq(users.tenantId, ctx.tenantId), eq(users.role, "owner")));
                 if (ownerCount.length === 0) {
-                    // Revert if we just removed the last owner (this race condition is rare but possible)
-                    // A better way is to check BEFORE update.
-                    // Let's refactor to check before.
+                    // Revert: restore the owner role we just removed
+                    await db.update(users).set({ role: "owner" }).where(and(eq(users.tenantId, ctx.tenantId), eq(users.id, input.userId)));
+                    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "No se puede eliminar el último owner del tenant" });
                 }
             }
             return { success: true } as const;
