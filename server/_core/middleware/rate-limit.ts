@@ -71,10 +71,42 @@ const SENSITIVE_LIMITS: Record<string, ReturnType<typeof rateLimit>> = {
     }),
 };
 
+// Webhook-specific rate limiters (high threshold but not unlimited)
+const whatsappWebhookLimiter = rateLimit({
+    windowMs: 60000,
+    max: Number(process.env.RATE_LIMIT_WEBHOOK_MAX ?? "300"), // 300/min — Meta sends bursts
+    standardHeaders: true,
+    legacyHeaders: false,
+    store: makeRedisStore(),
+    message: { error: "rate_limit", message: "Webhook rate limit exceeded" }
+});
+
+const paypalWebhookLimiter = rateLimit({
+    windowMs: 60000,
+    max: 60, // PayPal sends far fewer events
+    standardHeaders: true,
+    legacyHeaders: false,
+    store: makeRedisStore(),
+    message: { error: "rate_limit", message: "Webhook rate limit exceeded" }
+});
+
 export const rateLimitMiddleware = (req: Request, res: Response, next: NextFunction) => {
-    // Skip static assets and public webhooks
     if (req.method === "OPTIONS") return next();
-    if (req.path.startsWith("/api/whatsapp") || req.path.startsWith("/api/webhooks")) return next();
+
+    // Webhook verification GETs bypass rate limit (Meta/PayPal one-time checks)
+    if (req.method === "GET" && (req.path === "/api/whatsapp/webhook" || req.path === "/api/meta/webhook")) {
+        return next();
+    }
+
+    // Webhook POSTs get specific high-threshold limiters (not unlimited)
+    if (req.path.startsWith("/api/whatsapp/webhook") || req.path === "/api/meta/webhook") {
+        return whatsappWebhookLimiter(req, res, next);
+    }
+    if (req.path.startsWith("/api/webhooks")) {
+        return paypalWebhookLimiter(req, res, next);
+    }
+    // Other whatsapp API routes (connect, embedded-signup) use global limiter
+    // No bypass needed — they are authenticated endpoints
 
     // Check sensitive TRPC endpoints
     if (req.path.includes("/api/trpc/")) {

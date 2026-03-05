@@ -3,7 +3,7 @@ import crypto from "crypto";
 import axios from "axios";
 import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "../db";
-import { chatMessages, conversations, whatsappConnections, whatsappNumbers } from "../../drizzle/schema";
+import { chatMessages, conversations, whatsappConnections, whatsappNumbers, fileUploads } from "../../drizzle/schema";
 import { normalizeContactPhone } from "../_core/phone";
 import { logger, safeError } from "../_core/logger";
 import { emitToConversation } from "../services/websocket";
@@ -337,27 +337,47 @@ export async function processMetaWebhookPayload(payload: any, _opts: { skipSigna
               storedMediaUrl = saved.url;
               storedMimeType = downloaded.mimeType || mimeType || null;
               storedFilename = downloaded.filename || filename || saved.originalname;
+
+              // Register in file_uploads so serveUpload can find it
+              await db.insert(fileUploads).values({
+                tenantId,
+                filename: saved.filename,
+                originalName: saved.originalname,
+                mimeType: saved.mimetype,
+                size: saved.size,
+              } as any).catch((err: any) => {
+                if (err?.code !== "ER_DUP_ENTRY") logger.error({ err: safeError(err) }, "file_uploads insert failed");
+              });
             }
           }
-          const [inserted] = await db.insert(chatMessages).values({
-            tenantId, // ✅ FIXED: tenant isolation
-            conversationId,
-            whatsappNumberId,
-            whatsappConnectionType: "api",
-            direction: "inbound",
-            messageType: mType,
-            content,
-            mediaUrl: storedMediaUrl,
-            mediaName: storedFilename,
-            mediaMimeType: storedMimeType,
-            latitude: latitude as any,
-            longitude: longitude as any,
-            locationName,
-            status: "delivered",
-            whatsappMessageId: messageId,
-            deliveredAt: ts,
-            createdAt: ts,
-          } as any).$returningId();
+          let inserted: { id: number };
+          try {
+            [inserted] = await db.insert(chatMessages).values({
+              tenantId, // ✅ FIXED: tenant isolation
+              conversationId,
+              whatsappNumberId,
+              whatsappConnectionType: "api",
+              direction: "inbound",
+              messageType: mType,
+              content,
+              mediaUrl: storedMediaUrl,
+              mediaName: storedFilename,
+              mediaMimeType: storedMimeType,
+              latitude: latitude as any,
+              longitude: longitude as any,
+              locationName,
+              status: "delivered",
+              whatsappMessageId: messageId,
+              deliveredAt: ts,
+              createdAt: ts,
+            } as any).$returningId();
+          } catch (dupErr: any) {
+            if (dupErr?.code === "ER_DUP_ENTRY") {
+              logger.info({ messageId, phoneNumberId }, "duplicate webhook message ignored");
+              continue;
+            }
+            throw dupErr;
+          }
 
           // Emit new message via WebSocket
           emitToConversation(conversationId, "message:new", {

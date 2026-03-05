@@ -8,6 +8,7 @@ import { normalizeContactPhone, toWhatsAppCloudTo } from "../_core/phone";
 import { distributeConversation } from "../services/distribution";
 import { dispatchIntegrationEvent } from "../_core/integrationDispatch";
 import { sendFacebookMessage } from "../_core/facebook";
+import { checkMessageQuota } from "../services/plan-limits";
 import { sendCloudTemplate, sendCloudMessage } from "../whatsapp/cloud";
 import { emitToConversation } from "../services/websocket";
 import { BaileysService } from "../services/baileys";
@@ -507,6 +508,16 @@ export const chatRouter = router({
         }))
         .mutation(async ({ input, ctx }) => {
             await assertConversationAccess(ctx, input.conversationId);
+
+            // Enforce plan message quota before sending
+            const quota = await checkMessageQuota(ctx.tenantId);
+            if (!quota.allowed) {
+                throw new TRPCError({
+                    code: "FORBIDDEN",
+                    message: `Has alcanzado el límite de ${quota.limit.toLocaleString()} mensajes de tu plan (${quota.used.toLocaleString()} usados). Actualiza tu plan para seguir enviando.`,
+                });
+            }
+
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
 

@@ -47,7 +47,7 @@ export const teamRouter = router({
 
             await db.update(users).set({ role: input.role }).where(and(eq(users.tenantId, ctx.tenantId), eq(users.id, input.userId)));
 
-            await logAccess({ userId: (ctx.user as any).id, action: "updateRole", entityType: "user", entityId: input.userId, metadata: { newRole: input.role } });
+            await logAccess({ tenantId: ctx.tenantId, userId: (ctx.user as any).id, action: "updateRole", entityType: "user", entityId: input.userId, metadata: { newRole: input.role } });
 
             // Safety check: Ensure at least one owner remains
             if (target[0]?.role === "owner" && input.role !== "owner") {
@@ -102,7 +102,7 @@ export const teamRouter = router({
 
             await db.update(users).set({ isActive: input.isActive }).where(and(eq(users.tenantId, ctx.tenantId), eq(users.id, input.userId)));
 
-            await logAccess({ userId: (ctx.user as any).id, action: "setActive", entityType: "user", entityId: input.userId, metadata: { isActive: input.isActive } });
+            await logAccess({ tenantId: ctx.tenantId, userId: (ctx.user as any).id, action: "setActive", entityType: "user", entityId: input.userId, metadata: { isActive: input.isActive } });
             return { success: true } as const;
         }),
 
@@ -236,7 +236,7 @@ export const teamRouter = router({
             // Delete user
             await db.delete(users).where(and(eq(users.tenantId, ctx.tenantId), eq(users.id, input.userId)));
 
-            await logAccess({ userId: (ctx.user as any).id, action: "deleteUser", entityType: "user", entityId: input.userId });
+            await logAccess({ tenantId: ctx.tenantId, userId: (ctx.user as any).id, action: "deleteUser", entityType: "user", entityId: input.userId });
 
             return { success: true };
         }),

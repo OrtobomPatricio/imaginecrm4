@@ -118,7 +118,7 @@ export const settingsRouter = router({
 
             await updateAppSettings(db, ctx.tenantId, { permissionsMatrix: input.permissionsMatrix });
 
-            await logAccess({ userId: (ctx.user as any).id, action: "updatePermissionsMatrix", entityType: "appSettings" });
+            await logAccess({ tenantId: ctx.tenantId, userId: (ctx.user as any).id, action: "updatePermissionsMatrix", entityType: "appSettings" });
 
             return { success: true } as const;
         }),

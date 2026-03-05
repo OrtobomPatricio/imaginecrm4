@@ -1,7 +1,7 @@
 import { getDb } from "../db";
 import { downloadContentFromMessage } from "@whiskeysockets/baileys";
 import { saveBufferToUploads } from "../_core/media-storage";
-import { leads, conversations, chatMessages, whatsappNumbers, pipelines, pipelineStages } from "../../drizzle/schema";
+import { leads, conversations, chatMessages, whatsappNumbers, pipelines, pipelineStages, fileUploads } from "../../drizzle/schema";
 import { eq, and, asc, sql } from "drizzle-orm";
 import { emitToConversation } from "./websocket";
 import { normalizeContactPhone } from "../_core/phone";
@@ -28,7 +28,7 @@ async function streamToBuffer(stream: AsyncIterable<Uint8Array>): Promise<Buffer
     return Buffer.concat(chunks);
 }
 
-async function maybeDownloadMedia(innerMessage: any, upsertType: 'append' | 'notify') {
+async function maybeDownloadMedia(innerMessage: any, upsertType: 'append' | 'notify', db?: any, tenantId?: number) {
     if (upsertType === 'append' && process.env.WA_MEDIA_DOWNLOAD_ON_SYNC !== '1') {
         return { mediaUrl: null, mediaMimeType: null, mediaName: null };
     }
@@ -56,6 +56,19 @@ async function maybeDownloadMedia(innerMessage: any, upsertType: 'append' | 'not
             originalname: filename || `${item.name}-${Date.now()}`,
             mimetype,
         });
+
+        // Register in file_uploads so serveUpload can find it
+        if (db && tenantId) {
+            await db.insert(fileUploads).values({
+                tenantId,
+                filename: saved.filename,
+                originalName: saved.originalname,
+                mimeType: mimetype,
+                size: saved.size,
+            } as any).catch((err: any) => {
+                if (err?.code !== "ER_DUP_ENTRY") logger.error({ err }, "file_uploads insert failed (baileys)");
+            });
+        }
 
         return { mediaUrl: saved.url, mediaMimeType: mimetype, mediaName: filename || saved.originalname };
     }
@@ -263,7 +276,7 @@ export const MessageHandler = {
             else if (inner?.stickerMessage) msgType = 'sticker';
             else if (inner?.locationMessage || locationData) msgType = 'location';
 
-            const media = await maybeDownloadMedia(inner, upsertType);
+            const media = await maybeDownloadMedia(inner, upsertType, db, tenantId);
             const [inserted] = await db.insert(chatMessages).values({
                 tenantId,
                 conversationId,

@@ -14,6 +14,7 @@ export const backupRouter = router({
             const count = Object.values(backupData.data).reduce((acc, arr) => acc + (Array.isArray(arr) ? arr.length : 0), 0);
 
             await logAccess({
+                tenantId: ctx.tenantId,
                 userId: ctx.user?.id,
                 action: "create_backup",
                 metadata: { tenantId: ctx.tenantId, recordCount: count },
@@ -33,6 +34,7 @@ export const backupRouter = router({
             const result = await restoreBackup(input.backupJson, input.mode, ctx.tenantId);
 
             await logAccess({
+                tenantId: ctx.tenantId,
                 userId: ctx.user?.id,
                 action: "restore_backup",
                 metadata: { mode: input.mode, tenantId: ctx.tenantId, result },
@@ -82,6 +84,7 @@ export const backupRouter = router({
             const result = await importLeadsFromCSV(parsedData, ctx.tenantId);
 
             await logAccess({
+                tenantId: ctx.tenantId,
                 userId: ctx.user?.id,
                 action: "import_leads_csv",
                 metadata: { tenantId: ctx.tenantId, result },

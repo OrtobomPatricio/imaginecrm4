@@ -380,6 +380,7 @@ export function registerEmbeddedSignupRoutes(app: Express) {
 
       // ── Audit log ──
       await logAccess({
+        tenantId,
         userId,
         action: "whatsapp_embedded_signup_complete",
         metadata: { tenantId, wabaId: waba_id, phoneNumberId: phone_number_id, connectionId },
@@ -473,6 +474,7 @@ export function registerEmbeddedSignupRoutes(app: Express) {
       }
 
       await logAccess({
+        tenantId: auth.tenantId,
         userId: auth.userId,
         action: "whatsapp_embedded_signup_disconnect",
         metadata: { tenantId: auth.tenantId, connectionId },

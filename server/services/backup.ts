@@ -179,8 +179,16 @@ async function restoreBackupReplaceAll(data: any, tenantId: number) {
       chatMessages: 0, whatsappNumbers: 0, whatsappConnections: 0, integrations: 0,
     };
 
-    // Helper: force tenantId on each row before insert
-    const withTenant = (rows: any[]) => rows.map(r => ({ ...r, tenantId }));
+    // Helper: force tenantId on each row before insert, strip [REDACTED] fields
+    const withTenant = (rows: any[]) => rows.map(r => {
+      const clean = { ...r, tenantId };
+      for (const key of Object.keys(clean)) {
+        if (clean[key] === "[REDACTED]") {
+          delete clean[key];
+        }
+      }
+      return clean;
+    });
 
     // Insert in parent -> children order
     const settings = asArray(data.appSettings);

@@ -10,24 +10,55 @@ import { logger, safeError } from "./_core/logger";
 import { getOrCreateAppSettings } from "./services/app-settings";
 import { sdk } from "./_core/sdk";
 import { logAccess, getClientIp } from "./services/security";
+import Redis from "ioredis";
 
 const META_API_VERSION = "v19.0";
 
-// ── Server-side OAuth state store ──
-// Short-lived: 10-minute TTL. Validated on callback, deleted after use.
+// ── Server-side OAuth state store (Redis-backed with in-memory fallback) ──
 interface OAuthState {
     userId: number;
     tenantId: number;
     createdAt: number;
 }
-const oauthStateStore = new Map<string, OAuthState>();
+
 const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const STATE_TTL_SEC = Math.ceil(STATE_TTL_MS / 1000);
+const REDIS_PREFIX = "oauth_state:";
+
+const redisClient = process.env.REDIS_URL ? new Redis(process.env.REDIS_URL) : undefined;
+const memoryFallback = new Map<string, OAuthState>();
+
+async function setOAuthState(key: string, state: OAuthState): Promise<void> {
+    if (redisClient) {
+        await redisClient.setex(`${REDIS_PREFIX}${key}`, STATE_TTL_SEC, JSON.stringify(state));
+    } else {
+        memoryFallback.set(key, state);
+    }
+}
+
+async function getOAuthState(key: string): Promise<OAuthState | null> {
+    if (redisClient) {
+        const raw = await redisClient.get(`${REDIS_PREFIX}${key}`);
+        return raw ? JSON.parse(raw) : null;
+    }
+    return memoryFallback.get(key) ?? null;
+}
+
+async function deleteOAuthState(key: string): Promise<void> {
+    if (redisClient) {
+        await redisClient.del(`${REDIS_PREFIX}${key}`);
+    } else {
+        memoryFallback.delete(key);
+    }
+}
 
 function cleanExpiredStates() {
+    // Only needed for in-memory fallback; Redis handles TTL automatically
+    if (redisClient) return;
     const now = Date.now();
-    for (const [key, val] of oauthStateStore.entries()) {
+    for (const [key, val] of memoryFallback.entries()) {
         if (now - val.createdAt > STATE_TTL_MS) {
-            oauthStateStore.delete(key);
+            memoryFallback.delete(key);
         }
     }
 }
@@ -90,7 +121,7 @@ export function registerMetaRoutes(app: Express) {
 
             // Store state server-side with user+tenant binding
             cleanExpiredStates();
-            oauthStateStore.set(stateToken, {
+            await setOAuthState(stateToken, {
                 userId: auth.userId,
                 tenantId: auth.tenantId,
                 createdAt: Date.now(),
@@ -102,6 +133,7 @@ export function registerMetaRoutes(app: Express) {
 
             // Audit log
             await logAccess({
+                tenantId,
                 userId: auth.userId,
                 action: "meta_oauth_connect",
                 metadata: { tenantId },
@@ -132,7 +164,7 @@ export function registerMetaRoutes(app: Express) {
         try {
             // Validate state against server-side store (NOT from URL query params)
             const stateStr = (state as string) || "";
-            const storedState = oauthStateStore.get(stateStr);
+            const storedState = await getOAuthState(stateStr);
 
             if (!storedState) {
                 logger.warn({ state: stateStr.substring(0, 8) + "..." }, "meta oauth: invalid or expired state");
@@ -141,12 +173,12 @@ export function registerMetaRoutes(app: Express) {
 
             // Check TTL
             if (Date.now() - storedState.createdAt > STATE_TTL_MS) {
-                oauthStateStore.delete(stateStr);
+                await deleteOAuthState(stateStr);
                 return res.redirect("/settings?tab=distribution&error=state_expired");
             }
 
             // Delete state immediately (single use)
-            oauthStateStore.delete(stateStr);
+            await deleteOAuthState(stateStr);
 
             // TenantId comes from server-side store, NOT from the URL
             const tenantId = storedState.tenantId;
@@ -249,6 +281,7 @@ export function registerMetaRoutes(app: Express) {
 
                 // Audit log
                 await logAccess({
+                    tenantId,
                     userId,
                     action: "meta_oauth_callback_success",
                     metadata: { tenantId, wabaId: waba.id, phoneId: phone.id },

@@ -4,6 +4,7 @@ import { accessLogs } from "../../drizzle/schema";
 import { logger } from "../_core/logger";
 
 interface LogAccessParams {
+    tenantId: number;
     userId?: number;
     action: string;
     entityType?: string;
@@ -27,6 +28,7 @@ export async function logAccess(params: LogAccessParams) {
 
     try {
         await db.insert(accessLogs).values({
+            tenantId: params.tenantId,
             userId: params.userId ?? null,
             action: params.action,
             entityType: params.entityType ?? null,

@@ -104,6 +104,7 @@ services:
     volumes:
       - uploads_data:/app/storage/uploads
       - sessions_data:/app/server/sessions
+      - backups_data:/app/backups
     logging:
       driver: "json-file"
       options:
@@ -153,6 +154,7 @@ volumes:
   redis_data:
   uploads_data:
   sessions_data:
+  backups_data:
   caddy_data:
   caddy_config:
 
