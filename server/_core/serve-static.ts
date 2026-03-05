@@ -98,11 +98,11 @@ export function serveStatic(app: Express) {
         res.setHeader("Content-Security-Policy", [
             `default-src 'self'`,
             `script-src 'strict-dynamic' 'nonce-${nonce}' 'unsafe-inline' https:`,
-            `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
-            `img-src 'self' data: blob: https://*.googleusercontent.com https://maps.gstatic.com https://*.whatsapp.net https://*.fbcdn.net https://*.cdninstagram.com https://*.wadata.net https://cdn.jsdelivr.net https://www.facebook.com https://www.paypalobjects.com https://t.paypal.com`,
+            `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://*.paypal.com https://*.paypalobjects.com`,
+            `img-src 'self' data: blob: https://*.googleusercontent.com https://maps.gstatic.com https://*.whatsapp.net https://*.fbcdn.net https://*.cdninstagram.com https://*.wadata.net https://cdn.jsdelivr.net https://www.facebook.com https://*.paypalobjects.com https://*.paypal.com`,
             `font-src 'self' https://fonts.gstatic.com data:`,
-            `connect-src 'self' https://maps.googleapis.com https://cdn.jsdelivr.net https://graph.facebook.com https://www.facebook.com https://www.paypal.com https://www.sandbox.paypal.com ws: wss:`,
-            `frame-src 'self' https://www.facebook.com https://web.facebook.com https://www.paypal.com https://www.sandbox.paypal.com`,
+            `connect-src 'self' https://maps.googleapis.com https://cdn.jsdelivr.net https://graph.facebook.com https://www.facebook.com https://*.paypal.com https://*.paypalobjects.com ws: wss:`,
+            `frame-src 'self' https://www.facebook.com https://web.facebook.com https://*.paypal.com https://*.paypalobjects.com`,
         ].join("; "));
         res.setHeader("Content-Type", "text/html");
         res.send(html);
