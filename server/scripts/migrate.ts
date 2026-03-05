@@ -184,6 +184,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
         }
     }
 
+    await ensureColumn("tenants", "paypalSubscriptionId", "`paypalSubscriptionId` VARCHAR(255) NULL", "tenants.paypalSubscriptionId column");
     await ensureColumn("tenants", "trialEndsAt", "`trialEndsAt` TIMESTAMP NULL", "tenants.trialEndsAt column");
     await ensureColumn("tenants", "internalNotes", "`internalNotes` TEXT NULL", "tenants.internalNotes column");
 
