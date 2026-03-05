@@ -202,29 +202,55 @@ export const BaileysService = {
         const sessionName = `session_${userId}`;
         const sessionPath = path.join(SESSIONS_DIR, sessionName);
 
-        // Setup Auth State (with encrypted file I/O when DATA_ENCRYPTION_KEY is set)
-        const { state, saveCreds: rawSaveCreds } = await useMultiFileAuthState(sessionPath);
+        // Setup Auth State: prefer Redis (multi-instance safe) → fallback to encrypted file system
+        let state: any;
+        let saveCreds: () => Promise<void>;
+        let usingRedis = false;
 
-        // Wrap saveCreds to encrypt files on disk
-        const saveCreds = async () => {
-            await rawSaveCreds();
-            // Post-save: encrypt any plaintext creds files
-            if (getSessionEncryptionKey() && fs.existsSync(sessionPath)) {
-                try {
-                    const files = fs.readdirSync(sessionPath);
-                    for (const file of files) {
-                        const fp = path.join(sessionPath, file);
-                        const raw = fs.readFileSync(fp);
-                        // Only encrypt if it looks like plaintext JSON
-                        if (raw.length > 0 && (raw[0] === 0x7b || raw[0] === 0x5b)) {
-                            fs.writeFileSync(fp, encryptSessionFile(raw));
-                        }
-                    }
-                } catch (e) {
-                    logger.warn({ err: e, userId }, '[Baileys] Failed to encrypt session files');
+        if (process.env.REDIS_URL) {
+            try {
+                const { useRedisAuthState, isRedisAvailable } = await import("./baileys-redis-store");
+                if (isRedisAvailable()) {
+                    const Redis = (await import("ioredis")).default;
+                    const redis = new Redis(process.env.REDIS_URL, { maxRetriesPerRequest: 3, lazyConnect: true });
+                    await redis.connect();
+                    const authState = await useRedisAuthState(redis, `baileys:session:${userId}`);
+                    state = authState.state;
+                    saveCreds = authState.saveCreds;
+                    usingRedis = true;
+                    logger.info({ userId }, "[Baileys] Using Redis auth state store");
                 }
+            } catch (e) {
+                logger.warn({ err: e, userId }, "[Baileys] Redis auth state failed, falling back to file system");
             }
-        };
+        }
+
+        if (!usingRedis) {
+            const { state: fsState, saveCreds: rawSaveCreds } = await useMultiFileAuthState(sessionPath);
+            state = fsState;
+
+            // Wrap saveCreds to encrypt files on disk
+            saveCreds = async () => {
+                await rawSaveCreds();
+                // Post-save: encrypt any plaintext creds files
+                if (getSessionEncryptionKey() && fs.existsSync(sessionPath)) {
+                    try {
+                        const files = fs.readdirSync(sessionPath);
+                        for (const file of files) {
+                            const fp = path.join(sessionPath, file);
+                            const raw = fs.readFileSync(fp);
+                            // Only encrypt if it looks like plaintext JSON
+                            if (raw.length > 0 && (raw[0] === 0x7b || raw[0] === 0x5b)) {
+                                fs.writeFileSync(fp, encryptSessionFile(raw));
+                            }
+                        }
+                    } catch (e) {
+                        logger.warn({ err: e, userId }, '[Baileys] Failed to encrypt session files');
+                    }
+                }
+            };
+        }
+
         const { version } = await fetchLatestBaileysVersion();
 
         const sock = makeWASocket({

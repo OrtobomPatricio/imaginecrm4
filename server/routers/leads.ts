@@ -140,9 +140,7 @@ export const leadsRouter = router({
                     }
                 }
 
-                // Determine next Kanban order
-                // CRITICAL: We lock the reads to prevent race conditions on ordering if strict ordering mattered heavily.
-                // For now, standard select is "good enough" for Kanban unless high concurrency.
+                // Determine next Kanban order (SELECT FOR UPDATE prevents concurrent race conditions)
                 let nextOrder = 0;
                 if (stageId) {
                     const maxRows = await tx.select({ max: sql<number>`max(${leads.kanbanOrder})` }).from(leads).where(and(eq(leads.tenantId, ctx.tenantId), eq(leads.pipelineStageId, stageId))).for('update');
