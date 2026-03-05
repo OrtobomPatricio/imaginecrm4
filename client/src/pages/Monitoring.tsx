@@ -625,7 +625,7 @@ function MonitoringContent() {
                     {config.label}
                   </Badge>
                   <div className="flex items-center gap-1 text-sm">
-                    {number.isConnected ? (
+                    {number.isConnected && number.status !== 'disconnected' && number.status !== 'blocked' ? (
                       <>
                         <Wifi className="h-4 w-4 text-green-500" />
                         <span className="text-green-600">Conectado</span>

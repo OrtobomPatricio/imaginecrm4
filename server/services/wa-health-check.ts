@@ -2,7 +2,7 @@ import cron from "node-cron";
 import { logger } from "../_core/logger";
 import { BaileysService } from "./baileys";
 import { getDb } from "../db";
-import { whatsappNumbers } from "../../drizzle/schema";
+import { whatsappNumbers, whatsappConnections } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 
 /**
@@ -39,16 +39,22 @@ export function startWAHealthCheck(): void {
                         healthy--;
                         logger.warn({ numberId: num.id }, "[WAHealthCheck] Socket missing for connected number, marking stale");
                         await db.update(whatsappNumbers)
-                            .set({ status: "disconnected" })
+                            .set({ status: "disconnected", isConnected: false })
                             .where(eq(whatsappNumbers.id, num.id));
+                        await db.update(whatsappConnections)
+                            .set({ isConnected: false })
+                            .where(eq(whatsappConnections.whatsappNumberId, num.id));
                     }
                 } else {
                     stale++;
                     logger.warn({ numberId: num.id, status }, "[WAHealthCheck] Stale connection detected");
                     // Update DB status to reflect reality
                     await db.update(whatsappNumbers)
-                        .set({ status: "disconnected" })
+                        .set({ status: "disconnected", isConnected: false })
                         .where(eq(whatsappNumbers.id, num.id));
+                    await db.update(whatsappConnections)
+                        .set({ isConnected: false })
+                        .where(eq(whatsappConnections.whatsappNumberId, num.id));
                 }
             }
 

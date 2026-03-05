@@ -114,7 +114,9 @@ import { Textarea } from "@/components/ui/textarea";
 /* ─── helpers ─── */
 function fmtDate(d: string | Date | null) {
   if (!d) return "—";
-  return new Date(d).toLocaleDateString("es-ES", {
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("es-ES", {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -123,7 +125,9 @@ function fmtDate(d: string | Date | null) {
 
 function fmtDateTime(d: string | Date | null) {
   if (!d) return "—";
-  return new Date(d).toLocaleString("es-ES", {
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return "—";
+  return date.toLocaleString("es-ES", {
     day: "2-digit",
     month: "short",
     hour: "2-digit",
@@ -979,8 +983,12 @@ function WhatsAppHealthPanel() {
 
   if (waHealth.isLoading) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>;
 
-  const connected = rows.filter((r: any) => r.isConnected).length;
+  // Derive online from BOTH fields to avoid contradictions
+  const isOnline = (r: any) => r.isConnected && r.status !== "disconnected" && r.status !== "blocked";
+  const connected = rows.filter(isOnline).length;
   const total = rows.length;
+
+  const statusLabel: Record<string, string> = { active: "Activo", warming_up: "Calentamiento", blocked: "Bloqueado", disconnected: "Desconectado" };
 
   return (
     <div className="space-y-4">
@@ -997,14 +1005,16 @@ function WhatsAppHealthPanel() {
         <p className="text-sm text-muted-foreground text-center py-4">Sin números WhatsApp registrados.</p>
       ) : (
         <div className="space-y-2">
-          {rows.map((r: any) => (
+          {rows.map((r: any) => {
+            const online = isOnline(r);
+            return (
             <Card key={r.id} className="p-3">
               <div className="flex items-center gap-3">
-                <div className={`w-2 h-2 rounded-full ${r.isConnected ? "bg-green-500" : "bg-red-500"}`} />
+                <div className={`w-2 h-2 rounded-full ${online ? "bg-green-500" : "bg-red-500"}`} />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium">{r.displayName || r.phoneNumber}</p>
                   <p className="text-xs text-muted-foreground">
-                    {r.tenantName} · {r.phoneNumber} · {r.status}
+                    {r.tenantName} · {r.phoneNumber} · {statusLabel[r.status] ?? r.status}
                     {r.warmupDay != null && ` · Warmup día ${r.warmupDay}`}
                   </p>
                 </div>
@@ -1012,12 +1022,13 @@ function WhatsAppHealthPanel() {
                   <p className="font-medium">{r.totalMessagesSent ?? 0} enviados</p>
                   <p className="text-muted-foreground">Hoy: {r.messagesSentToday ?? 0}/{r.dailyMessageLimit ?? "∞"}</p>
                 </div>
-                <Badge variant="secondary" className={r.isConnected ? "text-green-600" : "text-red-500"}>
-                  {r.isConnected ? "Online" : "Offline"}
+                <Badge variant="secondary" className={online ? "text-green-600" : "text-red-500"}>
+                  {online ? "Online" : "Offline"}
                 </Badge>
               </div>
             </Card>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
