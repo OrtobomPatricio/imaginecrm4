@@ -2,6 +2,7 @@ import "dotenv/config";
 import * as Sentry from "@sentry/node";
 import crypto from "crypto";
 import express from "express";
+import promClient from "prom-client";
 import { createServer } from "http";
 import net from "net";
 import cors from "cors";
@@ -215,6 +216,45 @@ export async function createApp() {
       return res.status(503).json({ ok: false, db: false });
     } catch (_err) {
       return res.status(503).json({ ok: false, db: false });
+    }
+  });
+
+  // Prometheus metrics
+  const metricsRegister = new promClient.Registry();
+  promClient.collectDefaultMetrics({ register: metricsRegister });
+
+  const httpRequestDuration = new promClient.Histogram({
+    name: "http_request_duration_seconds",
+    help: "Duration of HTTP requests in seconds",
+    labelNames: ["method", "route", "status_code"] as const,
+    buckets: [0.01, 0.05, 0.1, 0.5, 1, 5],
+    registers: [metricsRegister],
+  });
+
+  const httpRequestsTotal = new promClient.Counter({
+    name: "http_requests_total",
+    help: "Total number of HTTP requests",
+    labelNames: ["method", "status_code"] as const,
+    registers: [metricsRegister],
+  });
+
+  // Instrument incoming requests
+  app.use((req, res, next) => {
+    const end = httpRequestDuration.startTimer();
+    res.on("finish", () => {
+      const route = req.route?.path || req.path;
+      end({ method: req.method, route, status_code: res.statusCode });
+      httpRequestsTotal.inc({ method: req.method, status_code: res.statusCode });
+    });
+    next();
+  });
+
+  app.get("/metrics", async (_req, res) => {
+    try {
+      res.set("Content-Type", metricsRegister.contentType);
+      res.end(await metricsRegister.metrics());
+    } catch (_err) {
+      res.status(500).end();
     }
   });
 

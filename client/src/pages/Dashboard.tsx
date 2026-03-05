@@ -60,6 +60,7 @@ const WIDGET_DEFINITIONS: WidgetDefinition[] = [
     { key: 'stat-whatsapp', label: 'Números WhatsApp', category: 'Stats' },
     { key: 'stat-messages', label: 'Mensajes Hoy', category: 'Stats' },
     { key: 'stat-conversion', label: 'Tasa Conversión', category: 'Stats' },
+    { key: 'stat-quota', label: 'Uso del Plan', category: 'Stats' },
     { key: 'warmup', label: 'Sistema Warm-up', category: 'Operacional' },
     { key: 'status', label: 'Estado de Números', category: 'Operacional' },
     { key: 'pipeline-funnel', label: 'Embudo de Ventas', category: 'Analytics' },
@@ -100,6 +101,7 @@ function DashboardContent() {
         'stat-whatsapp': true,
         'stat-messages': true,
         'stat-conversion': true,
+        'stat-quota': true,
         'warmup': false,
         'status': false,
         'pipeline-funnel': false,
@@ -459,6 +461,7 @@ function DashboardContent() {
                     <p className="text-sm text-muted-foreground">Métricas clave para operación diaria.</p>
                 </div>
                 <div className="grid gap-6 md:grid-cols-2">
+                    {widgetConfig['stat-quota'] && <QuotaUsageWidget />}
                     {widgetConfig['active-messages'] && <ActiveMessagesWidget />}
                     {widgetConfig['agent-performance'] && <AgentPerformanceWidget />}
                     {widgetConfig['recent-activity'] && <RecentActivityWidget />}
@@ -524,5 +527,63 @@ function DashboardContent() {
                 </div>
             )}
         </div>
+    );
+}
+
+function QuotaUsageWidget() {
+    const { data, isLoading } = trpc.licensing.getStatus.useQuery();
+
+    if (isLoading) {
+        return (
+            <Card className="glass-card">
+                <CardHeader><Skeleton className="h-5 w-32" /></CardHeader>
+                <CardContent className="space-y-4">
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-full" />
+                </CardContent>
+            </Card>
+        );
+    }
+
+    if (!data) return null;
+
+    const { usage, limits } = data;
+    const items = [
+        { label: "Usuarios", current: usage.activeUsers, max: limits.maxUsers, icon: Users },
+        { label: "Números WA", current: usage.activeNumbers, max: limits.maxWhatsappNumbers, icon: Phone },
+        { label: "Mensajes/mes", current: usage.messagesThisMonth, max: limits.maxMessagesPerMonth, icon: MessageCircle },
+    ];
+
+    return (
+        <Card className="glass-card">
+            <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                    <Shield className="h-4 w-4 text-blue-500" />
+                    Uso del Plan
+                </CardTitle>
+                <CardDescription>Consumo actual vs. límites</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+                {items.map((item) => {
+                    const pct = item.max > 0 ? Math.min((item.current / item.max) * 100, 100) : 0;
+                    const warning = pct >= 90;
+                    return (
+                        <div key={item.label} className="space-y-1">
+                            <div className="flex items-center justify-between text-sm">
+                                <span className="flex items-center gap-1.5">
+                                    <item.icon className="h-3.5 w-3.5 text-muted-foreground" />
+                                    {item.label}
+                                </span>
+                                <span className={warning ? "text-red-500 font-semibold" : "text-muted-foreground"}>
+                                    {item.current} / {item.max}
+                                </span>
+                            </div>
+                            <Progress value={pct} className={warning ? "[&>div]:bg-red-500" : ""} />
+                        </div>
+                    );
+                })}
+            </CardContent>
+        </Card>
     );
 }
