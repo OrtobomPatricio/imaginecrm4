@@ -212,7 +212,7 @@ export function EmbeddedSignupButton({ onSuccess, onError, className, compact }:
       }
 
       FB.login(
-        async (response: any) => {
+        (response: any) => {
           if (response.status !== "connected" || !response.authResponse?.code) {
             // User cancelled or error
             if (response.status === "not_authorized" || !response.authResponse) {
@@ -234,8 +234,8 @@ export function EmbeddedSignupButton({ onSuccess, onError, className, compact }:
           const extras = response.authResponse;
 
           // Try to extract from response
-          let waba_id = extras?.waba_id || extras?.wabaId || "";
-          let phone_number_id = extras?.phone_number_id || extras?.phoneNumberId || "";
+          const waba_id = extras?.waba_id || extras?.wabaId || "";
+          const phone_number_id = extras?.phone_number_id || extras?.phoneNumberId || "";
 
           // For Embedded Signup, these are passed via the response callback
           // If missing, it may be a regular OAuth — handle gracefully
@@ -249,35 +249,34 @@ export function EmbeddedSignupButton({ onSuccess, onError, className, compact }:
             return;
           }
 
-          // 6. Send to backend to complete the flow
+          // 6. Send to backend to complete the flow (non-async wrapper for FB.login)
           setStatus("completing");
 
-          try {
-            const completeRes = await fetch("/api/whatsapp/embedded-signup/complete", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              credentials: "include",
-              body: JSON.stringify({ code, waba_id, phone_number_id }),
+          fetch("/api/whatsapp/embedded-signup/complete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ code, waba_id, phone_number_id }),
+          })
+            .then((completeRes) => completeRes.json().then((result) => ({ ok: completeRes.ok, result })))
+            .then(({ ok, result }) => {
+              if (!ok || !result.success) {
+                throw new Error(result.error || result.detail || "Error al completar el registro");
+              }
+
+              setStatus("success");
+              setResultData(result);
+              toast.success(
+                `¡WhatsApp conectado! Número: ${result.phone || phone_number_id}`,
+                { duration: 5000 }
+              );
+              onSuccess?.(result);
+            })
+            .catch((err: any) => {
+              setStatus("error");
+              setErrorMsg(err.message || "Error al completar la conexión");
+              onError?.(err.message);
             });
-
-            const result = await completeRes.json();
-
-            if (!completeRes.ok || !result.success) {
-              throw new Error(result.error || result.detail || "Error al completar el registro");
-            }
-
-            setStatus("success");
-            setResultData(result);
-            toast.success(
-              `¡WhatsApp conectado! Número: ${result.phone || phone_number_id}`,
-              { duration: 5000 }
-            );
-            onSuccess?.(result);
-          } catch (err: any) {
-            setStatus("error");
-            setErrorMsg(err.message || "Error al completar la conexión");
-            onError?.(err.message);
-          }
         },
         {
           // Meta Embedded Signup specific options
