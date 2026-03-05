@@ -3,6 +3,7 @@ import { Boom } from "@hapi/boom";
 import fs from 'fs';
 import path from 'path';
 import pino from 'pino';
+import crypto from 'node:crypto';
 
 import { logger } from "../_core/logger";
 
@@ -12,6 +13,44 @@ const SESSIONS_DIR = path.resolve(process.cwd(), "server", "sessions");
 // Ensure sessions directory exists
 if (!fs.existsSync(SESSIONS_DIR)) {
     fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+}
+
+// --- Session-at-rest encryption helpers ---
+function getSessionEncryptionKey(): Buffer | null {
+    const raw = process.env.DATA_ENCRYPTION_KEY;
+    if (!raw) return null;
+    return crypto.createHash('sha256').update(raw.trim(), 'utf8').digest();
+}
+
+function encryptSessionFile(data: Buffer): Buffer {
+    const key = getSessionEncryptionKey();
+    if (!key) return data; // graceful: no key = plaintext
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+    const enc = Buffer.concat([cipher.update(data), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    // format: iv(12) + tag(16) + ciphertext
+    return Buffer.concat([iv, tag, enc]);
+}
+
+function decryptSessionFile(data: Buffer): Buffer {
+    const key = getSessionEncryptionKey();
+    if (!key) return data;
+    if (data.length < 28) return data; // too short to be encrypted
+    // Check if this looks like encrypted data (not valid JSON start)
+    const firstChar = data[0];
+    if (firstChar === 0x7b || firstChar === 0x5b) return data; // '{' or '[' = plaintext JSON
+    const iv = data.subarray(0, 12);
+    const tag = data.subarray(12, 28);
+    const enc = data.subarray(28);
+    try {
+        const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+        decipher.setAuthTag(tag);
+        return Buffer.concat([decipher.update(enc), decipher.final()]);
+    } catch {
+        // Decryption failed — might be plaintext from before encryption was enabled
+        return data;
+    }
 }
 
 interface ConnectionState {
@@ -125,8 +164,29 @@ export const BaileysService = {
         const sessionName = `session_${userId}`;
         const sessionPath = path.join(SESSIONS_DIR, sessionName);
 
-        // Setup Auth State
-        const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+        // Setup Auth State (with encrypted file I/O when DATA_ENCRYPTION_KEY is set)
+        const { state, saveCreds: rawSaveCreds } = await useMultiFileAuthState(sessionPath);
+
+        // Wrap saveCreds to encrypt files on disk
+        const saveCreds = async () => {
+            await rawSaveCreds();
+            // Post-save: encrypt any plaintext creds files
+            if (getSessionEncryptionKey() && fs.existsSync(sessionPath)) {
+                try {
+                    const files = fs.readdirSync(sessionPath);
+                    for (const file of files) {
+                        const fp = path.join(sessionPath, file);
+                        const raw = fs.readFileSync(fp);
+                        // Only encrypt if it looks like plaintext JSON
+                        if (raw.length > 0 && (raw[0] === 0x7b || raw[0] === 0x5b)) {
+                            fs.writeFileSync(fp, encryptSessionFile(raw));
+                        }
+                    }
+                } catch (e) {
+                    logger.warn({ err: e, userId }, '[Baileys] Failed to encrypt session files');
+                }
+            }
+        };
         const { version } = await fetchLatestBaileysVersion();
 
         const sock = makeWASocket({

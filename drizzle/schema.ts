@@ -384,6 +384,8 @@ export const campaignRecipients = mysqlTable("campaign_recipients", {
 }, (table) => ({
   // Unique constraint: prevent duplicate recipients for same campaign+lead
   uniqueCampaignLead: uniqueIndex("unique_campaign_lead").on(table.tenantId, table.campaignId, table.leadId),
+  // Campaign worker batch fetching: WHERE campaignId=X AND status='pending'
+  idxCampaignStatus: index("idx_cr_campaign_status").on(table.campaignId, table.status),
 }));
 
 export type CampaignRecipient = typeof campaignRecipients.$inferSelect;
@@ -658,6 +660,8 @@ export const chatMessages = mysqlTable("chat_messages", {
   idxConversationCreated: index("idx_chat_messages_conversation_created").on(t.conversationId, t.createdAt),
   // Performance index for monthly outbound quota counting
   idxTenantDirCreated: index("idx_chat_messages_tenant_dir_created").on(t.tenantId, t.direction, t.createdAt),
+  // Performance index for per-number message history
+  idxWaNumberCreated: index("idx_chat_messages_wanumber_created").on(t.whatsappNumberId, t.createdAt),
 }));
 
 export type ChatMessage = typeof chatMessages.$inferSelect;
@@ -679,7 +683,11 @@ export const messageQueue = mysqlTable("message_queue", {
   errorMessage: text("errorMessage"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (t) => ({
+  // Queue worker polling: WHERE status='queued' AND nextAttemptAt <= NOW() ORDER BY priority DESC
+  idxQueuePoll: index("idx_mq_status_next_priority").on(t.status, t.nextAttemptAt, t.priority),
+  idxTenant: index("idx_mq_tenant").on(t.tenantId),
+}));
 
 export type MessageQueueItem = typeof messageQueue.$inferSelect;
 export type InsertMessageQueueItem = typeof messageQueue.$inferInsert;

@@ -221,22 +221,23 @@ async function processEmailCampaignBatch(campaign: typeof campaigns.$inferSelect
         return;
     }
 
+    // Batch-load all leads for this batch to avoid N+1 queries
+    const leadIds = [...new Set(recipients.map(r => r.leadId))];
+    const leadsData = leadIds.length > 0
+        ? await db.select({
+            id: leads.id,
+            email: leads.email,
+            name: leads.name,
+            phone: leads.phone,
+            country: leads.country,
+            notes: leads.notes,
+        }).from(leads).where(and(inArray(leads.id, leadIds), eq(leads.tenantId, campaign.tenantId)))
+        : [];
+    const leadMap = new Map(leadsData.map(l => [l.id, l]));
+
     for (const recipient of recipients) {
         try {
-            // TENANT-SCOPED lead lookup
-            const leadRes = await db
-                .select({
-                    email: leads.email,
-                    name: leads.name,
-                    phone: leads.phone,
-                    country: leads.country,
-                    notes: leads.notes,
-                })
-                .from(leads)
-                .where(and(eq(leads.id, recipient.leadId), eq(leads.tenantId, campaign.tenantId)))
-                .limit(1);
-
-            const lead = leadRes[0];
+            const lead = leadMap.get(recipient.leadId);
             if (!lead || !lead.email) {
                 await updateRecipientStatus(db, recipient.id, "failed", "Lead sin email");
                 await db.update(campaigns)
@@ -365,16 +366,20 @@ async function processWhatsAppCampaignBatch(campaign: typeof campaigns.$inferSel
     // Track daily count per phoneNumberId to enforce WA_DAILY_LIMIT
     const dailyCountCache = new Map<string, number>();
 
+    // Batch-load all leads for this batch to avoid N+1 queries
+    const waLeadIds = [...new Set(recipients.map(r => r.leadId))];
+    const waLeadsData = waLeadIds.length > 0
+        ? await db.select({ id: leads.id, phone: leads.phone, name: leads.name })
+            .from(leads)
+            .where(and(inArray(leads.id, waLeadIds), eq(leads.tenantId, campaign.tenantId)))
+        : [];
+    const waLeadMap = new Map(waLeadsData.map(l => [l.id, l]));
+
     for (const recipient of recipients) {
         try {
-            // TENANT-SCOPED lead lookup
-            const leadRes = await db
-                .select({ phone: leads.phone, name: leads.name })
-                .from(leads)
-                .where(and(eq(leads.id, recipient.leadId), eq(leads.tenantId, campaign.tenantId)))
-                .limit(1);
+            const leadRes0 = waLeadMap.get(recipient.leadId);
 
-            if (!leadRes[0] || !leadRes[0].phone) {
+            if (!leadRes0 || !leadRes0.phone) {
                 await updateRecipientStatus(db, recipient.id, "failed", "Lead no encontrado o sin teléfono");
                 await db.update(campaigns)
                     .set({ messagesFailed: sql`${campaigns.messagesFailed} + 1` })
@@ -382,7 +387,7 @@ async function processWhatsAppCampaignBatch(campaign: typeof campaigns.$inferSel
                 continue;
             }
 
-            const phone = leadRes[0].phone.replace(/\D/g, "");
+            const phone = leadRes0.phone.replace(/\D/g, "");
 
             // Connection selection — ONLY from tenant's connections
             const connForRecipient = recipient.whatsappNumberId

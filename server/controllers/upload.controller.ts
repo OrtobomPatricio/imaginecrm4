@@ -3,6 +3,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import { fileTypeFromBuffer } from "file-type";
 import { createContext } from "../_core/context";
 import { getDb } from "../db";
 import { fileUploads } from "../../drizzle/schema";
@@ -144,6 +145,29 @@ export const handleUpload = async (req: Request, res: Response) => {
     const files = req.files as Express.Multer.File[];
     if (!files || files.length === 0) {
         return res.status(400).json({ error: 'No files uploaded' });
+    }
+
+    // P1-5: Validate magic bytes match declared MIME type
+    for (const file of files) {
+        try {
+            const buffer = fs.readFileSync(file.path);
+            const detected = await fileTypeFromBuffer(buffer);
+            if (detected) {
+                // Allow same category (e.g. image/* declared, image/* detected)
+                const declaredCategory = file.mimetype.split('/')[0];
+                const detectedCategory = detected.mime.split('/')[0];
+                if (declaredCategory !== detectedCategory) {
+                    // Delete the suspicious file and reject
+                    fs.unlinkSync(file.path);
+                    logger.warn({ declared: file.mimetype, detected: detected.mime, filename: file.originalname }, "[Upload] Magic byte mismatch");
+                    return res.status(400).json({ error: `File type mismatch: declared ${file.mimetype} but detected ${detected.mime}` });
+                }
+            }
+            // If file-type returns null, it's likely a text/document format — allow (multer allowlist already validated)
+        } catch (e) {
+            logger.warn({ err: e, filename: file.originalname }, "[Upload] Magic byte check failed");
+            // Non-fatal: proceed with multer's MIME allowlist as fallback
+        }
     }
 
     const db = await getDb();
