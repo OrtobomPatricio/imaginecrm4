@@ -62,6 +62,8 @@ export function registerNativeOAuth(app: Express) {
         secret: sessionSecret || (isProd ? undefined : 'dev-cookie-secret-local-only'),
         resave: false,
         saveUninitialized: false,
+        name: 'oauth.sid',
+        proxy: isProd, // Trust X-Forwarded-Proto behind reverse proxy
         cookie: {
             secure: isProd,
             httpOnly: true,
@@ -121,10 +123,11 @@ export function registerNativeOAuth(app: Express) {
         // Google Callback Route
         app.get(
             '/api/auth/google/callback',
-            passport.authenticate('google', { failureRedirect: '/login?error=google_auth_failed' }),
+            passport.authenticate('google', { failureRedirect: '/login?error=google_auth_failed', session: false }),
             async (req: Request, res: Response) => {
                 try {
                     const user = req.user as Express.User;
+                    logger.info({ openId: user?.openId, email: user?.email }, '[OAuth] Google callback - user from passport');
                     if (!user || !user.openId) {
                         return res.redirect('/login?error=no_user_data');
                     }
@@ -138,6 +141,8 @@ export function registerNativeOAuth(app: Express) {
                         }
                         throw error;
                     }
+
+                    logger.info({ found: !!provisionedUser, openId: provisionedUser?.openId }, '[OAuth] Google - resolveProvisionedOAuthUser result');
 
                     if (!provisionedUser) {
                         return res.redirect('/login?error=not_provisioned');
@@ -166,6 +171,7 @@ export function registerNativeOAuth(app: Express) {
 
                     // Set cookie
                     const cookieOptions = getSessionCookieOptions(req);
+                    logger.info({ cookieSecure: cookieOptions.secure, sameSite: cookieOptions.sameSite, tokenLength: sessionToken.length }, '[OAuth] Google - setting session cookie');
                     res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
 
                     res.redirect('/');
@@ -226,10 +232,11 @@ export function registerNativeOAuth(app: Express) {
         // Facebook Callback Route
         app.get(
             '/api/auth/facebook/callback',
-            passport.authenticate('facebook', { failureRedirect: '/login?error=facebook_auth_failed' }),
+            passport.authenticate('facebook', { failureRedirect: '/login?error=facebook_auth_failed', session: false }),
             async (req: Request, res: Response) => {
                 try {
                     const user = req.user as Express.User;
+                    logger.info({ openId: user?.openId, email: user?.email }, '[OAuth] Facebook callback - user from passport');
                     if (!user || !user.openId) {
                         return res.redirect('/login?error=no_user_data');
                     }
@@ -243,6 +250,8 @@ export function registerNativeOAuth(app: Express) {
                         }
                         throw error;
                     }
+
+                    logger.info({ found: !!provisionedUser, openId: provisionedUser?.openId }, '[OAuth] Facebook - resolveProvisionedOAuthUser result');
 
                     if (!provisionedUser) {
                         return res.redirect('/login?error=not_provisioned');
@@ -271,6 +280,7 @@ export function registerNativeOAuth(app: Express) {
 
                     // Set cookie
                     const cookieOptions = getSessionCookieOptions(req);
+                    logger.info({ cookieSecure: cookieOptions.secure, sameSite: cookieOptions.sameSite, tokenLength: sessionToken.length }, '[OAuth] Facebook - setting session cookie');
                     res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
 
                     res.redirect('/');
@@ -338,6 +348,7 @@ export function registerNativeOAuth(app: Express) {
             '/api/auth/microsoft/callback',
             passport.authenticate('azuread-openidconnect', {
                 failureRedirect: '/login?error=microsoft_auth_failed',
+                session: false,
             }),
             async (req: Request, res: Response) => {
                 try {

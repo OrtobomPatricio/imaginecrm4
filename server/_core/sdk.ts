@@ -218,6 +218,9 @@ class SDKServer {
             expiresAt: new Date(issuedAt + expiresInMs),
             lastActivityAt: new Date(),
           });
+          logger.info({ userId: u[0].id, jti }, "[Auth] Session stored in DB");
+        } else {
+          logger.warn({ openId: payload.openId }, "[Auth] User not found for session storage — JTI will NOT be stored");
         }
       }
     } catch (e) {
