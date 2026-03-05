@@ -103,19 +103,9 @@ export async function createApp() {
     logger.info({ trustProxy: true }, "trust proxy enabled");
   }
 
-  // Security Headers (Helmet)
+  // Security Headers (Helmet) — CSP nonce set per-request in serve-static.ts
   app.use(helmet({
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "https://maps.googleapis.com"],
-        upgradeInsecureRequests: null,
-        imgSrc: ["'self'", "data:", "blob:", "https://*.googleusercontent.com", "https://maps.gstatic.com", "https://*.whatsapp.net", "https://*.fbcdn.net", "https://*.cdninstagram.com", "https://*.wadata.net", "https://cdn.jsdelivr.net"],
-        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-        fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
-        connectSrc: ["'self'", "https://maps.googleapis.com", "https://cdn.jsdelivr.net", "ws:", "wss:"],
-      },
-    },
+    contentSecurityPolicy: false, // Managed per-request with nonce in serve-static.ts
     crossOriginResourcePolicy: { policy: "cross-origin" },
     hsts: isProd ? { maxAge: 31536000, includeSubDomains: true } : false,
     crossOriginOpenerPolicy: false,

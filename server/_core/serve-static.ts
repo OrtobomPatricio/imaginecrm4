@@ -1,6 +1,7 @@
 import express, { type Express } from "express";
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 
 import { logger } from "./logger";
 
@@ -67,7 +68,7 @@ export function serveStatic(app: Express) {
         );
     }
 
-    // Fallback Handler
+    // Fallback Handler — inject CSP nonce into index.html
     app.get("*", (req, res) => {
         // API/TRPC -> 404 JSON
         if (req.path.startsWith("/api") || req.path.startsWith("/trpc")) {
@@ -84,11 +85,25 @@ export function serveStatic(app: Express) {
         }
 
         const indexPath = path.join(root, "index.html");
-        // Final check
         if (!fs.existsSync(indexPath)) {
             return res.status(500).send("Server Error: index.html missing.");
         }
 
-        res.sendFile(indexPath);
+        // Generate per-request nonce and inject into HTML
+        const nonce = crypto.randomBytes(16).toString("base64");
+        let html = fs.readFileSync(indexPath, "utf-8");
+        html = html.replace(/<script/g, `<script nonce="${nonce}"`);
+
+        res.setHeader("Cache-Control", "no-store");
+        res.setHeader("Content-Security-Policy", [
+            `default-src 'self'`,
+            `script-src 'self' 'nonce-${nonce}' https://maps.googleapis.com`,
+            `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
+            `img-src 'self' data: blob: https://*.googleusercontent.com https://maps.gstatic.com https://*.whatsapp.net https://*.fbcdn.net https://*.cdninstagram.com https://*.wadata.net https://cdn.jsdelivr.net`,
+            `font-src 'self' https://fonts.gstatic.com data:`,
+            `connect-src 'self' https://maps.googleapis.com https://cdn.jsdelivr.net ws: wss:`,
+        ].join("; "));
+        res.setHeader("Content-Type", "text/html");
+        res.send(html);
     });
 }
