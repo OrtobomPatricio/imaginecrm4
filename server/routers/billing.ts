@@ -386,6 +386,84 @@ export const billingRouter = router({
             }
         }),
 
+    /** Cancel active PayPal subscription */
+    cancelSubscription: protectedProcedure
+        .mutation(async ({ ctx }) => {
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            const [tenant] = await db.select().from(tenants)
+                .where(eq(tenants.id, ctx.tenantId)).limit(1);
+
+            const subId = (tenant as any)?.paypalSubscriptionId;
+            if (!subId) {
+                throw new TRPCError({
+                    code: "PRECONDITION_FAILED",
+                    message: "No hay suscripción activa para cancelar.",
+                });
+            }
+
+            try {
+                const token = await getPayPalAccessToken();
+                const baseUrl = getPayPalBaseUrl();
+
+                // Cancel subscription via PayPal API
+                const res = await fetch(`${baseUrl}/v1/billing/subscriptions/${subId}/cancel`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({
+                        reason: "Customer requested cancellation from CRM settings",
+                    }),
+                });
+
+                // 204 = success, 422 = already cancelled
+                if (!res.ok && res.status !== 422) {
+                    const text = await res.text();
+                    logger.error({ status: res.status, body: text }, "[Billing] PayPal cancel failed");
+                    throw new Error(`PayPal cancel ${res.status}`);
+                }
+
+                // Downgrade tenant to free plan
+                await db.update(tenants).set({
+                    plan: "free",
+                    paypalSubscriptionId: null,
+                } as any).where(eq(tenants.id, ctx.tenantId));
+
+                // Update license to free limits
+                const freeLimits = PLANS.free;
+                const [existingLicense] = await db.select().from(license)
+                    .where(eq(license.tenantId, ctx.tenantId)).limit(1);
+
+                if (existingLicense) {
+                    await db.update(license).set({
+                        status: "active",
+                        plan: "free",
+                        maxUsers: freeLimits.maxUsers,
+                        maxWhatsappNumbers: freeLimits.maxWaNumbers,
+                        maxMessagesPerMonth: freeLimits.maxMessages,
+                        updatedAt: new Date(),
+                    }).where(and(eq(license.tenantId, ctx.tenantId), eq(license.id, existingLicense.id)));
+                }
+
+                logger.info(
+                    { tenantId: ctx.tenantId, subscriptionId: subId },
+                    "[Billing] Subscription cancelled"
+                );
+
+                return { success: true };
+            } catch (err: any) {
+                if (err instanceof TRPCError) throw err;
+                logger.error({ err }, "[Billing] Failed to cancel subscription");
+                throw new TRPCError({
+                    code: "INTERNAL_SERVER_ERROR",
+                    message: "Error al cancelar la suscripción",
+                });
+            }
+        }),
+
     /** Confirm subscription after PayPal redirect (called from frontend on success) */
     confirmSubscription: protectedProcedure
         .input(z.object({

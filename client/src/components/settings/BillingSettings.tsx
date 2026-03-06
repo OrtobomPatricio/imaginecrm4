@@ -13,7 +13,8 @@ import {
     AlertTriangle,
     CheckCircle2,
     Clock,
-    Sparkles
+    Sparkles,
+    XCircle
 } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -306,9 +307,18 @@ function BillingActions({ isActive }: { isActive: boolean }) {
         },
     });
 
+    const cancelSub = trpc.billing.cancelSubscription.useMutation({
+        onSuccess: () => {
+            billingPlan.refetch();
+            licensingStatus.refetch();
+            setShowCancelConfirm(false);
+        },
+    });
+
     const [showPlans, setShowPlans] = React.useState(false);
     const [checkoutPlan, setCheckoutPlan] = React.useState<"starter" | "pro" | "enterprise" | null>(null);
     const [cancelled, setCancelled] = React.useState(false);
+    const [showCancelConfirm, setShowCancelConfirm] = React.useState(false);
     const allPlans = billingPlan.data?.allPlans;
     const currentPlan = billingPlan.data?.plan || "free";
     const isTrial = licensingStatus.data?.license?.status === 'trial';
@@ -363,15 +373,24 @@ function BillingActions({ isActive }: { isActive: boolean }) {
                     El pago fue cancelado. Puedes intentarlo de nuevo seleccionando un plan.
                 </div>
             )}
-            <div className="flex gap-3">
+            <div className="flex gap-3 flex-wrap">
                 {isActive ? (
-                    <Button
-                        onClick={() => manageUrl.mutate()}
-                        disabled={manageUrl.isPending}
-                    >
-                        {manageUrl.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Gestionar Suscripción
-                    </Button>
+                    <>
+                        <Button
+                            onClick={() => manageUrl.mutate()}
+                            disabled={manageUrl.isPending}
+                        >
+                            {manageUrl.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            Gestionar Suscripción
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onClick={() => setShowCancelConfirm(true)}
+                        >
+                            <XCircle className="mr-2 h-4 w-4" />
+                            Cancelar Suscripción
+                        </Button>
+                    </>
                 ) : (
                     <>
                         <Button onClick={() => setShowPlans(!showPlans)}>
@@ -427,6 +446,49 @@ function BillingActions({ isActive }: { isActive: boolean }) {
                             </div>
                         );
                     })}
+                </div>
+            )}
+
+            {/* Cancel Confirmation Dialog */}
+            {showCancelConfirm && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={(e) => { if (e.target === e.currentTarget) setShowCancelConfirm(false); }}>
+                    <div className="bg-background rounded-xl max-w-md w-full shadow-2xl p-6 space-y-4">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 bg-destructive/10 rounded-full">
+                                <AlertTriangle className="h-6 w-6 text-destructive" />
+                            </div>
+                            <div>
+                                <h3 className="font-semibold text-lg">¿Cancelar suscripción?</h3>
+                                <p className="text-sm text-muted-foreground">Esta acción no se puede deshacer.</p>
+                            </div>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                            Al cancelar, tu cuenta pasará al plan <strong>Gratis</strong> con las limitaciones correspondientes
+                            (5 usuarios, 1 número WhatsApp, 1.000 mensajes/mes). Puedes volver a suscribirte en cualquier momento.
+                        </p>
+                        {cancelSub.isError && (
+                            <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-lg">
+                                Error al cancelar. Intenta de nuevo.
+                            </div>
+                        )}
+                        <div className="flex gap-3 justify-end">
+                            <Button
+                                variant="outline"
+                                onClick={() => setShowCancelConfirm(false)}
+                                disabled={cancelSub.isPending}
+                            >
+                                Volver
+                            </Button>
+                            <Button
+                                variant="destructive"
+                                onClick={() => cancelSub.mutate()}
+                                disabled={cancelSub.isPending}
+                            >
+                                {cancelSub.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                Sí, cancelar suscripción
+                            </Button>
+                        </div>
+                    </div>
                 </div>
             )}
 
