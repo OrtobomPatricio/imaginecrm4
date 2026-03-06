@@ -46,19 +46,20 @@ export const teamRouter = router({
                 throw new TRPCError({ code: "FORBIDDEN", message: "Only owner can change another owner" });
             }
 
-            await db.update(users).set({ role: input.role }).where(and(eq(users.tenantId, ctx.tenantId), eq(users.id, input.userId)));
+            // Use transaction to prevent TOCTOU race when removing last owner
+            await db.transaction(async (tx) => {
+                // If removing owner role, check we won't orphan the tenant
+                if (target[0]?.role === "owner" && input.role !== "owner") {
+                    const ownerCount = await tx.select().from(users).where(and(eq(users.tenantId, ctx.tenantId), eq(users.role, "owner")));
+                    if (ownerCount.length <= 1) {
+                        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "No se puede eliminar el último owner del tenant" });
+                    }
+                }
+                await tx.update(users).set({ role: input.role }).where(and(eq(users.tenantId, ctx.tenantId), eq(users.id, input.userId)));
+            });
 
             await logAccess({ tenantId: ctx.tenantId, userId: (ctx.user as any).id, action: "updateRole", entityType: "user", entityId: input.userId, metadata: { newRole: input.role } });
 
-            // Safety check: Ensure at least one owner remains
-            if (target[0]?.role === "owner" && input.role !== "owner") {
-                const ownerCount = await db.select().from(users).where(and(eq(users.tenantId, ctx.tenantId), eq(users.role, "owner")));
-                if (ownerCount.length === 0) {
-                    // Revert: restore the owner role we just removed
-                    await db.update(users).set({ role: "owner" }).where(and(eq(users.tenantId, ctx.tenantId), eq(users.id, input.userId)));
-                    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "No se puede eliminar el último owner del tenant" });
-                }
-            }
             return { success: true } as const;
         }),
 

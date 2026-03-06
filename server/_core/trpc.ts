@@ -75,6 +75,20 @@ const requireUser = t.middleware(async opts => {
             plan: "free",
             trialEndsAt: null,
           }).where(eq(tenants.id, ctx.user.tenantId));
+
+          // Sync license table if it exists
+          try {
+            const { license } = await import("../../drizzle/schema");
+            const [lic] = await db.select({ id: license.id }).from(license)
+              .where(eq(license.tenantId, ctx.user.tenantId)).limit(1);
+            if (lic) {
+              await db.update(license).set({
+                plan: "free",
+                status: "active",
+                updatedAt: new Date(),
+              }).where(eq(license.id, lic.id));
+            }
+          } catch { /* license table may not exist yet */ }
         }
       }
     }

@@ -372,7 +372,7 @@ export const chatRouter = router({
                     eq(chatMessages.tenantId, ctx.tenantId),
                     eq(chatMessages.conversationId, input.conversationId),
                     eq(chatMessages.direction, 'inbound'),
-                    eq(chatMessages.status, 'delivered') // or pending
+                    sql`${chatMessages.status} IN ('delivered', 'pending')`
                 ));
 
             // Reset unread count

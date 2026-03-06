@@ -223,9 +223,14 @@ export const authRouter = router({
                 throw new Error("Token expired");
             }
 
-            // Prevent reactivation of intentionally disabled accounts
+            // Prevent reactivation of intentionally disabled accounts (no active invitation)
             if (user[0].isActive === false && !user[0].invitationToken) {
                 throw new Error("Account has been disabled by an administrator");
+            }
+
+            // Block replay: If user already has a password, the invitation was already accepted
+            if (user[0].password) {
+                throw new Error("La invitación ya fue aceptada. Inicia sesión con tu contraseña.");
             }
 
             const hashedPassword = await bcrypt.hash(input.password, 12);
@@ -252,6 +257,16 @@ export const authRouter = router({
                     });
                 }
             });
+
+            // Auto-login: create session so user doesn't have to login again
+            const sessionToken = await sdk.createSessionToken(user[0].openId, {
+                name: user[0].name || '',
+                expiresInMs: ONE_YEAR_MS,
+                ipAddress: getClientIp(ctx.req),
+                userAgent: ctx.req.headers[\"user-agent\"] as string,
+            });
+            const cookieOptions = getSessionCookieOptions(ctx.req);
+            ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
 
             return { success: true };
         }),

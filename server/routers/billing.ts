@@ -23,20 +23,20 @@ const PLANS = {
     free: {
         name: "Gratis",
         maxUsers: 5,
-        maxWaNumbers: 1,
-        maxMessages: 1000,
+        maxWaNumbers: 3,
+        maxMessages: 10000,
         priceMonthly: 0,
     },
     starter: {
         name: "Starter",
         maxUsers: 10,
-        maxWaNumbers: 3,
-        maxMessages: 10000,
+        maxWaNumbers: 5,
+        maxMessages: 25000,
         priceMonthly: 12.90,
     },
     pro: {
         name: "Pro",
-        maxUsers: 50,
+        maxUsers: 25,
         maxWaNumbers: 10,
         maxMessages: 100000,
         priceMonthly: 32.90,
@@ -44,8 +44,8 @@ const PLANS = {
     enterprise: {
         name: "Enterprise",
         maxUsers: 9999,
-        maxWaNumbers: 50,
-        maxMessages: 1000000,
+        maxWaNumbers: 999,
+        maxMessages: 9999999,
         priceMonthly: 99.90,
     },
 } as const;
@@ -352,6 +352,7 @@ export const billingRouter = router({
 
                 await db.update(tenants).set({
                     plan: input.plan,
+                    status: "active",
                     paypalSubscriptionId: sub.id,
                 } as any).where(eq(tenants.id, ctx.tenantId));
 
@@ -511,6 +512,7 @@ export const billingRouter = router({
 
                 await db.update(tenants).set({
                     plan: input.plan,
+                    status: "active",
                     paypalSubscriptionId: input.subscriptionId,
                 } as any).where(eq(tenants.id, ctx.tenantId));
 

@@ -115,7 +115,7 @@ export function registerNativeOAuth(app: Express) {
 
         // Google Signup Route (stores company data in session before OAuth redirect)
         app.get('/api/auth/google/signup', (req: Request, res: Response, next) => {
-            const { companyName, slug, timezone, language, currency } = req.query;
+            const { companyName, slug, timezone, language, currency, termsVersion } = req.query;
             if (typeof companyName === 'string' && typeof slug === 'string') {
                 (req.session as any).pendingSignup = {
                     companyName: companyName.slice(0, 200),
@@ -123,6 +123,7 @@ export function registerNativeOAuth(app: Express) {
                     timezone: typeof timezone === 'string' ? timezone : 'America/Asuncion',
                     language: typeof language === 'string' ? language : 'es',
                     currency: typeof currency === 'string' ? currency : 'USD',
+                    termsVersion: typeof termsVersion === 'string' ? termsVersion : '1.0.0',
                 };
             }
             req.session.save(() => {
@@ -259,7 +260,7 @@ export function registerNativeOAuth(app: Express) {
 
         // Facebook Signup Route
         app.get('/api/auth/facebook/signup', (req: Request, res: Response, next) => {
-            const { companyName, slug, timezone, language, currency } = req.query;
+            const { companyName, slug, timezone, language, currency, termsVersion } = req.query;
             if (typeof companyName === 'string' && typeof slug === 'string') {
                 (req.session as any).pendingSignup = {
                     companyName: companyName.slice(0, 200),
@@ -267,6 +268,7 @@ export function registerNativeOAuth(app: Express) {
                     timezone: typeof timezone === 'string' ? timezone : 'America/Asuncion',
                     language: typeof language === 'string' ? language : 'es',
                     currency: typeof currency === 'string' ? currency : 'USD',
+                    termsVersion: typeof termsVersion === 'string' ? termsVersion : '1.0.0',
                 };
             }
             req.session.save(() => {
@@ -408,7 +410,7 @@ export function registerNativeOAuth(app: Express) {
 
         // Microsoft Signup Route
         app.get('/api/auth/microsoft/signup', (req: Request, res: Response, next) => {
-            const { companyName, slug, timezone, language, currency } = req.query;
+            const { companyName, slug, timezone, language, currency, termsVersion } = req.query;
             if (typeof companyName === 'string' && typeof slug === 'string') {
                 (req.session as any).pendingSignup = {
                     companyName: companyName.slice(0, 200),
@@ -416,6 +418,7 @@ export function registerNativeOAuth(app: Express) {
                     timezone: typeof timezone === 'string' ? timezone : 'America/Asuncion',
                     language: typeof language === 'string' ? language : 'es',
                     currency: typeof currency === 'string' ? currency : 'USD',
+                    termsVersion: typeof termsVersion === 'string' ? termsVersion : '1.0.0',
                 };
             }
             req.session.save(() => {
@@ -492,6 +495,8 @@ export function registerNativeOAuth(app: Express) {
                     const sessionToken = await sdk.createSessionToken(provisionedUser.openId, {
                         name: user.name || '',
                         expiresInMs: ONE_YEAR_MS,
+                        ipAddress: req.ip,
+                        userAgent: req.headers['user-agent'] as string,
                     });
 
                     // Set cookie

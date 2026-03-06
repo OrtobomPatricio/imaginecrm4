@@ -145,6 +145,7 @@ export default function Signup() {
             timezone: form.timezone,
             language: form.language,
             currency: form.currency,
+            termsVersion: '1.0.0',
         });
         const width = 500;
         const height = 600;

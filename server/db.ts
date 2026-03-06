@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import mysql from "mysql2/promise";
 import { nanoid } from "nanoid";
-import { InsertUser, users, tenants, appSettings } from "../drizzle/schema";
+import { InsertUser, users, tenants, appSettings, termsAcceptance } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 import { logger } from "./_core/logger";
@@ -176,7 +176,18 @@ export async function resolveProvisionedOAuthUser(openId: string, email?: string
 
   if (!email) return null;
   const usersByEmail = await getUsersByEmail(email);
-  if (usersByEmail.length === 1) return usersByEmail[0];
+  if (usersByEmail.length === 1) {
+    // Link the OAuth provider's openId so future logins are direct (no email fallback)
+    const matched = usersByEmail[0];
+    const database = await getDb();
+    if (database) {
+      await database.update(users)
+        .set({ openId })
+        .where(eq(users.id, matched.id));
+      matched.openId = openId;
+    }
+    return matched;
+  }
   if (usersByEmail.length > 1) {
     const err = new Error("OAuth user is ambiguous across tenants");
     (err as any).code = "AMBIGUOUS_TENANT";
@@ -187,10 +198,32 @@ export async function resolveProvisionedOAuthUser(openId: string, email?: string
 }
 
 const TRIAL_DAYS = 14;
-const DEFAULT_PERMISSIONS = {
+const RESERVED_SLUGS = new Set([
+  "www", "app", "api", "admin", "superadmin", "platform", "system",
+  "support", "help", "billing", "mail", "ftp", "ssh", "test",
+  "staging", "dev", "demo", "status", "docs", "blog", "cdn",
+]);
+const DEFAULT_PERMISSIONS: Record<string, string[]> = {
   owner: ["*"],
-  admin: ["dashboard.*", "leads.*", "chat.*", "reports.*", "settings.*", "team.*"],
-  agent: ["dashboard.view", "leads.view", "leads.create", "leads.edit", "chat.view", "chat.send"],
+  admin: [
+    "dashboard.*", "leads.*", "kanban.*", "campaigns.*", "chat.*",
+    "helpdesk.*", "scheduling.*", "monitoring.*", "analytics.*",
+    "reports.*", "integrations.*", "settings.*", "users.*", "backups.*",
+  ],
+  supervisor: [
+    "dashboard.view", "leads.view", "leads.update", "leads.create",
+    "kanban.view", "kanban.update", "chat.*", "helpdesk.*",
+    "monitoring.*", "analytics.view", "reports.view", "scheduling.view",
+  ],
+  agent: [
+    "dashboard.view", "leads.view", "leads.create", "leads.update",
+    "leads.edit", "kanban.view", "kanban.update", "chat.view",
+    "chat.send", "helpdesk.view", "scheduling.*",
+  ],
+  viewer: [
+    "dashboard.view", "leads.view", "kanban.view",
+    "analytics.view", "reports.view", "helpdesk.view",
+  ],
 };
 
 /**
@@ -204,6 +237,11 @@ export async function autoProvisionOAuthUser(oauthUser: { openId: string; name?:
 
   const database = await getDb();
   if (!database) return null;
+
+  // Check email uniqueness before creating
+  const existingByEmail = await database.select({ id: users.id }).from(users)
+    .where(eq(users.email, oauthUser.email.trim().toLowerCase())).limit(1);
+  if (existingByEmail.length > 0) return null;
 
   const displayName = oauthUser.name || oauthUser.email.split("@")[0];
   const slug = nanoid(10).toLowerCase();
@@ -253,7 +291,7 @@ export async function autoProvisionOAuthUser(oauthUser: { openId: string; name?:
  */
 export async function createOAuthSignupTenant(
   oauthUser: { openId: string; name?: string; email?: string; platform?: string },
-  signup: { companyName: string; slug: string; timezone?: string; language?: string; currency?: string }
+  signup: { companyName: string; slug: string; timezone?: string; language?: string; currency?: string; termsVersion?: string }
 ) {
   if (!oauthUser.email) return null;
 
@@ -263,6 +301,7 @@ export async function createOAuthSignupTenant(
   const normalizedEmail = oauthUser.email.trim().toLowerCase();
   const slugRegex = /^[a-z0-9][a-z0-9-]{2,48}[a-z0-9]$/;
   if (!slugRegex.test(signup.slug)) return null;
+  if (RESERVED_SLUGS.has(signup.slug)) return null;
 
   const existingTenants = await database.select({ id: tenants.id }).from(tenants).where(eq(tenants.slug, signup.slug)).limit(1);
   if (existingTenants.length > 0) return null;
@@ -294,6 +333,21 @@ export async function createOAuthSignupTenant(
       isActive: true,
       emailVerified: true,
     });
+
+    // Record terms acceptance
+    if (signup.termsVersion) {
+      const userRow = await tx.select({ id: users.id }).from(users)
+        .where(eq(users.openId, oauthUser.openId)).limit(1);
+      if (userRow[0]) {
+        await tx.insert(termsAcceptance).values({
+          tenantId,
+          userId: userRow[0].id,
+          termsVersion: signup.termsVersion,
+          ipAddress: null,
+          userAgent: null,
+        });
+      }
+    }
 
     await tx.insert(appSettings).values({
       tenantId,

@@ -6,10 +6,10 @@ import { logger } from "../_core/logger";
 import { getPayPalBaseUrl, getPayPalAccessToken } from "./billing";
 
 const WEBHOOK_PLANS: Record<string, { maxUsers: number; maxWaNumbers: number; maxMessages: number }> = {
-    free: { maxUsers: 5, maxWaNumbers: 1, maxMessages: 1000 },
-    starter: { maxUsers: 10, maxWaNumbers: 3, maxMessages: 10000 },
-    pro: { maxUsers: 50, maxWaNumbers: 10, maxMessages: 100000 },
-    enterprise: { maxUsers: 9999, maxWaNumbers: 50, maxMessages: 1000000 },
+    free: { maxUsers: 5, maxWaNumbers: 3, maxMessages: 10000 },
+    starter: { maxUsers: 10, maxWaNumbers: 5, maxMessages: 25000 },
+    pro: { maxUsers: 25, maxWaNumbers: 10, maxMessages: 100000 },
+    enterprise: { maxUsers: 9999, maxWaNumbers: 999, maxMessages: 9999999 },
 };
 
 async function syncLicenseForTenant(db: any, tenantId: number, plan: string, status: string) {
