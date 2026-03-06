@@ -444,6 +444,7 @@ export function registerNativeOAuth(app: Express) {
             async (req: Request, res: Response) => {
                 try {
                     const user = (req as any).user;
+                    logger.info({ openId: user?.openId, email: user?.email }, '[OAuth] Microsoft callback - user from passport');
                     if (!user || !user.openId) {
                         return res.redirect('/login?error=no_user_data');
                     }
@@ -528,7 +529,9 @@ export function registerNativeOAuth(app: Express) {
         // Revoke JWT session from DB (same as tRPC logout)
         const token = req.cookies?.[COOKIE_NAME];
         if (token) {
-            try { await sdk.revokeSession(token); } catch { /* ignore */ }
+            try { await sdk.revokeSession(token); } catch (e) {
+                logger.error({ err: e }, '[OAuth] Failed to revoke session during logout');
+            }
         }
         res.clearCookie(COOKIE_NAME);
         (req as any).logout((err: any) => {

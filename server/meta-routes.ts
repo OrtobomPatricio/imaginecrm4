@@ -187,8 +187,13 @@ export function registerMetaRoutes(app: Express) {
             const database = await db.getDb();
             const settings = await getOrCreateAppSettings(database, tenantId);
             const appId = settings.metaConfig?.appId || process.env.META_APP_ID;
-            const appSecretStored = settings.metaConfig?.appSecret || process.env.META_APP_SECRET;
-            const appSecret = appSecretStored ? (decryptSecret(appSecretStored) || appSecretStored) : "";
+            const dbAppSecret = settings.metaConfig?.appSecret;
+            const appSecretStored = dbAppSecret || process.env.META_APP_SECRET;
+            const appSecret = appSecretStored
+                ? dbAppSecret
+                    ? decryptSecret(appSecretStored) || ""   // DB-sourced: strict, no fallback to encrypted value
+                    : (decryptSecret(appSecretStored) || appSecretStored)  // Env-sourced: may be plaintext
+                : "";
 
             if (!appId || !appSecret) {
                 return res.redirect("/settings?tab=distribution&error=missing_credentials");
