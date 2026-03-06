@@ -106,16 +106,22 @@ export function registerNativeOAuth(app: Express) {
         // Google Signup Route (stores company data in session before OAuth redirect)
         app.get('/api/auth/google/signup', (req: Request, res: Response, next) => {
             const { companyName, slug, timezone, language, currency, termsVersion } = req.query;
-            if (typeof companyName === 'string' && typeof slug === 'string') {
-                (req.session as any).pendingSignup = {
-                    companyName: companyName.slice(0, 200),
-                    slug: slug.toLowerCase().slice(0, 50),
-                    timezone: typeof timezone === 'string' ? timezone : 'America/Asuncion',
-                    language: typeof language === 'string' ? language : 'es',
-                    currency: typeof currency === 'string' ? currency : 'USD',
-                    termsVersion: typeof termsVersion === 'string' ? termsVersion : '1.0.0',
-                };
+
+            // Validate required company data before proceeding
+            if (typeof companyName !== 'string' || !companyName.trim() || typeof slug !== 'string' || !slug.trim()) {
+                logger.warn('[OAuth] Google signup missing companyName or slug');
+                return res.redirect('/signup?error=oauth_signup_failed');
             }
+
+            (req.session as any).pendingSignup = {
+                companyName: companyName.slice(0, 200),
+                slug: slug.toLowerCase().slice(0, 50),
+                timezone: typeof timezone === 'string' ? timezone : 'America/Asuncion',
+                language: typeof language === 'string' ? language : 'es',
+                currency: typeof currency === 'string' ? currency : 'USD',
+                termsVersion: typeof termsVersion === 'string' ? termsVersion : '1.0.0',
+            };
+
             req.session.save((err) => {
                 if (err) {
                     logger.error({ err }, '[OAuth] Failed to save session before Google signup redirect');
@@ -124,17 +130,31 @@ export function registerNativeOAuth(app: Express) {
                 passport.authenticate('google', {
                     scope: ['profile', 'email'],
                     state: true,
-                } as any)(req, res, next);
+                } as any)(req, res, (authErr: any) => {
+                    if (authErr) {
+                        logger.error({ err: authErr }, '[OAuth] Google authenticate error');
+                        return res.redirect('/signup?error=google_auth_failed');
+                    }
+                    next();
+                });
             });
         });
 
         // Google Login Route
         app.get(
             '/api/auth/google',
-            passport.authenticate('google', {
-                scope: ['profile', 'email'],
-                state: true, // CSRF protection via session-backed state parameter
-            } as any)
+            (req: Request, res: Response, next) => {
+                passport.authenticate('google', {
+                    scope: ['profile', 'email'],
+                    state: true,
+                } as any)(req, res, (err: any) => {
+                    if (err) {
+                        logger.error({ err }, '[OAuth] Google login authenticate error');
+                        return res.redirect('/login?error=google_auth_failed');
+                    }
+                    next();
+                });
+            }
         );
 
         // Google Callback Route
@@ -261,16 +281,22 @@ export function registerNativeOAuth(app: Express) {
         // Facebook Signup Route
         app.get('/api/auth/facebook/signup', (req: Request, res: Response, next) => {
             const { companyName, slug, timezone, language, currency, termsVersion } = req.query;
-            if (typeof companyName === 'string' && typeof slug === 'string') {
-                (req.session as any).pendingSignup = {
-                    companyName: companyName.slice(0, 200),
-                    slug: slug.toLowerCase().slice(0, 50),
-                    timezone: typeof timezone === 'string' ? timezone : 'America/Asuncion',
-                    language: typeof language === 'string' ? language : 'es',
-                    currency: typeof currency === 'string' ? currency : 'USD',
-                    termsVersion: typeof termsVersion === 'string' ? termsVersion : '1.0.0',
-                };
+
+            // Validate required company data before proceeding
+            if (typeof companyName !== 'string' || !companyName.trim() || typeof slug !== 'string' || !slug.trim()) {
+                logger.warn('[OAuth] Facebook signup missing companyName or slug');
+                return res.redirect('/signup?error=oauth_signup_failed');
             }
+
+            (req.session as any).pendingSignup = {
+                companyName: companyName.slice(0, 200),
+                slug: slug.toLowerCase().slice(0, 50),
+                timezone: typeof timezone === 'string' ? timezone : 'America/Asuncion',
+                language: typeof language === 'string' ? language : 'es',
+                currency: typeof currency === 'string' ? currency : 'USD',
+                termsVersion: typeof termsVersion === 'string' ? termsVersion : '1.0.0',
+            };
+
             req.session.save((err) => {
                 if (err) {
                     logger.error('Failed to save session before Facebook signup redirect', { error: err.message });
@@ -279,17 +305,31 @@ export function registerNativeOAuth(app: Express) {
                 passport.authenticate('facebook', {
                     scope: ['email'],
                     state: true,
-                } as any)(req, res, next);
+                } as any)(req, res, (authErr: any) => {
+                    if (authErr) {
+                        logger.error({ err: authErr }, '[OAuth] Facebook authenticate error');
+                        return res.redirect('/signup?error=facebook_auth_failed');
+                    }
+                    next();
+                });
             });
         });
 
         // Facebook Login Route
         app.get(
             '/api/auth/facebook',
-            passport.authenticate('facebook', {
-                scope: ['email'],
-                state: true, // CSRF protection via session-backed state parameter
-            } as any)
+            (req: Request, res: Response, next) => {
+                passport.authenticate('facebook', {
+                    scope: ['email'],
+                    state: true,
+                } as any)(req, res, (err: any) => {
+                    if (err) {
+                        logger.error({ err }, '[OAuth] Facebook login authenticate error');
+                        return res.redirect('/login?error=facebook_auth_failed');
+                    }
+                    next();
+                });
+            }
         );
 
         // Facebook Callback Route
