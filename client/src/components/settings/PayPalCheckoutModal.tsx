@@ -1,11 +1,21 @@
-import React, { useState } from "react";
-import {
-    PayPalScriptProvider,
-    PayPalButtons,
-} from "@paypal/react-paypal-js";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, X, ShieldCheck, CreditCard } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+
+/* ── PayPal SDK type (minimal) ── */
+interface PayPalNamespace {
+    Buttons?: (opts: Record<string, unknown>) => {
+        render: (el: HTMLElement) => Promise<void>;
+        close: () => Promise<void>;
+    };
+}
+
+declare global {
+    interface Window {
+        paypal?: PayPalNamespace;
+    }
+}
 
 interface PayPalCheckoutModalProps {
     planKey: "starter" | "pro" | "enterprise";
@@ -28,6 +38,92 @@ export function PayPalCheckoutModal({
 }: PayPalCheckoutModalProps) {
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState(false);
+    const [sdkReady, setSdkReady] = useState(false);
+    const [sdkError, setSdkError] = useState(false);
+    const buttonsContainerRef = useRef<HTMLDivElement>(null);
+    const buttonsInstanceRef = useRef<{ close: () => Promise<void> } | null>(null);
+    const createSub = trpc.billing.createSubscription.useMutation();
+
+    // Load PayPal SDK script
+    useEffect(() => {
+        if (!paypalClientId) return;
+
+        // Check if SDK already loaded with correct client ID
+        const existingScript = document.querySelector<HTMLScriptElement>(
+            'script[data-paypal-sdk]'
+        );
+        if (existingScript && window.paypal?.Buttons) {
+            setSdkReady(true);
+            return;
+        }
+
+        // Remove any old PayPal script
+        if (existingScript) {
+            existingScript.remove();
+            delete window.paypal;
+        }
+
+        const script = document.createElement("script");
+        script.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(paypalClientId)}&vault=true&intent=subscription&locale=es_ES`;
+        script.setAttribute("data-paypal-sdk", "true");
+        script.async = true;
+        script.onload = () => setSdkReady(true);
+        script.onerror = () => setSdkError(true);
+        document.head.appendChild(script);
+
+        return () => {
+            // Don't remove on unmount — PayPal SDK should stay cached
+        };
+    }, [paypalClientId]);
+
+    // Render PayPal Buttons when SDK is ready
+    useEffect(() => {
+        if (!sdkReady || !window.paypal?.Buttons || !buttonsContainerRef.current || success) return;
+
+        const container = buttonsContainerRef.current;
+        container.innerHTML = "";
+
+        const buttons = window.paypal.Buttons({
+            style: {
+                shape: "rect",
+                color: "gold",
+                layout: "vertical",
+                label: "subscribe",
+            },
+            createSubscription: async () => {
+                try {
+                    setError(null);
+                    const result = await createSub.mutateAsync({
+                        plan: planKey as "starter" | "pro" | "enterprise",
+                    });
+                    return result.subscriptionId;
+                } catch {
+                    setError("Error al crear la suscripción. Intenta de nuevo.");
+                    throw new Error("Failed to create subscription");
+                }
+            },
+            onApprove: async (data: { subscriptionID?: string }) => {
+                if (data.subscriptionID) {
+                    setSuccess(true);
+                    onSubscriptionCreated(data.subscriptionID, planKey);
+                }
+            },
+            onError: () => {
+                setError("Error en el pago con PayPal. Intenta de nuevo.");
+            },
+            onCancel: () => {
+                setError("Pago cancelado.");
+            },
+        });
+
+        buttonsInstanceRef.current = buttons;
+        buttons.render(container);
+
+        return () => {
+            buttonsInstanceRef.current?.close().catch(() => {});
+            buttonsInstanceRef.current = null;
+        };
+    }, [sdkReady, planKey, success]);
 
     if (!paypalClientId) {
         return (
@@ -66,32 +162,26 @@ export function PayPalCheckoutModal({
                             <div className="text-green-600 text-lg font-semibold mb-2">¡Suscripción activada!</div>
                             <p className="text-sm text-muted-foreground">Tu Plan {planName} ya está activo.</p>
                         </div>
+                    ) : sdkError ? (
+                        <div className="text-center py-6">
+                            <p className="text-destructive text-sm">No se pudo cargar PayPal. Recarga la página e intenta de nuevo.</p>
+                        </div>
                     ) : (
-                        <PayPalScriptProvider
-                            options={{
-                                clientId: paypalClientId,
-                                vault: true,
-                                intent: "subscription",
-                                components: "buttons",
-                                locale: "es_ES",
-                            }}
-                        >
-                            <div className="space-y-4">
-                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                    <CreditCard className="h-4 w-4 shrink-0" />
-                                    <span>Paga con PayPal o tarjeta de crédito/débito a través de la ventana segura de PayPal.</span>
-                                </div>
-
-                                <PayPalSubscriptionButtons
-                                    planKey={planKey}
-                                    onApprove={(subId) => {
-                                        setSuccess(true);
-                                        onSubscriptionCreated(subId, planKey);
-                                    }}
-                                    onError={(msg) => setError(msg)}
-                                />
+                        <div className="space-y-4">
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <CreditCard className="h-4 w-4 shrink-0" />
+                                <span>Paga con PayPal o tarjeta de crédito/débito a través de la ventana segura de PayPal.</span>
                             </div>
-                        </PayPalScriptProvider>
+
+                            {!sdkReady && (
+                                <div className="flex items-center justify-center py-8">
+                                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                                    <span className="ml-2 text-sm text-muted-foreground">Cargando PayPal...</span>
+                                </div>
+                            )}
+
+                            <div ref={buttonsContainerRef} className={sdkReady ? "min-h-[150px]" : "hidden"} />
+                        </div>
                     )}
 
                     <div className="mt-4 flex items-center justify-center gap-2 text-xs text-muted-foreground">
@@ -101,51 +191,5 @@ export function PayPalCheckoutModal({
                 </div>
             </div>
         </div>
-    );
-}
-
-/* ── PayPal Buttons (subscription) ──────────────── */
-function PayPalSubscriptionButtons({
-    planKey,
-    onApprove,
-    onError,
-}: {
-    planKey: string;
-    onApprove: (subscriptionId: string) => void;
-    onError: (msg: string) => void;
-}) {
-    const createSub = trpc.billing.createSubscription.useMutation();
-
-    return (
-        <PayPalButtons
-            style={{
-                shape: "rect",
-                color: "gold",
-                layout: "vertical",
-                label: "subscribe",
-            }}
-            createSubscription={async () => {
-                try {
-                    const result = await createSub.mutateAsync({
-                        plan: planKey as "starter" | "pro" | "enterprise",
-                    });
-                    return result.subscriptionId;
-                } catch {
-                    onError("Error al crear la suscripción. Intenta de nuevo.");
-                    throw new Error("Failed to create subscription");
-                }
-            }}
-            onApprove={async (data) => {
-                if (data.subscriptionID) {
-                    onApprove(data.subscriptionID);
-                }
-            }}
-            onError={() => {
-                onError("Error en el pago con PayPal. Intenta de nuevo.");
-            }}
-            onCancel={() => {
-                onError("Pago cancelado.");
-            }}
-        />
     );
 }
