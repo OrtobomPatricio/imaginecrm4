@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { protectedProcedure, permissionProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
-import { tenants, license, users, whatsappNumbers } from "../../drizzle/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { tenants, license } from "../../drizzle/schema";
+import { eq, and } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { logger } from "../_core/logger";
 
@@ -403,6 +403,12 @@ export const billingRouter = router({
                 });
             }
 
+            // Validate format before interpolating into URL
+            if (!/^[A-Za-z0-9_-]+$/.test(subId)) {
+                logger.error({ subId, tenantId: ctx.tenantId }, "[Billing] Invalid subscription ID format in DB");
+                throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "ID de suscripción corrupto." });
+            }
+
             try {
                 const token = await getPayPalAccessToken();
                 const baseUrl = getPayPalBaseUrl();
@@ -467,7 +473,7 @@ export const billingRouter = router({
     /** Confirm subscription after PayPal redirect (called from frontend on success) */
     confirmSubscription: permissionProcedure("settings.manage")
         .input(z.object({
-            subscriptionId: z.string().min(1),
+            subscriptionId: z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/, "ID de suscripción inválido"),
             plan: z.enum(["starter", "pro", "enterprise"]),
         }))
         .mutation(async ({ input, ctx }) => {

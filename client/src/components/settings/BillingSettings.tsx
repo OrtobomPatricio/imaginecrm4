@@ -363,6 +363,12 @@ function BillingActions({ isActive }: { isActive: boolean }) {
                     ¡Suscripción activada correctamente!
                 </div>
             )}
+            {confirmSub.isError && (
+                <div className="flex items-center gap-2 text-sm text-destructive p-2 bg-destructive/10 rounded">
+                    <AlertTriangle className="h-4 w-4" />
+                    Error al confirmar la suscripción. Intenta de nuevo o contacta soporte.
+                </div>
+            )}
             {cancelled && (
                 <div className="flex items-center gap-2 text-sm text-amber-600 p-2 bg-amber-50 dark:bg-amber-950/30 rounded">
                     <AlertTriangle className="h-4 w-4" />
