@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 // SecurityTabContent removed — its sections (IPs, logs, sessions) are now handled by SecurityConfigEditor + ActivityLogsViewer
 import { Forbidden } from "@/components/Forbidden";
 
@@ -84,6 +84,37 @@ export default function Settings() {
   return (
     <SettingsContent />
   );
+}
+
+/* Error boundary scoped to billing tab so it doesn't crash the entire page */
+class BillingErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="border border-destructive/30 rounded-lg p-6 text-center space-y-3">
+          <p className="text-destructive font-medium">Error al cargar Facturación</p>
+          <p className="text-sm text-muted-foreground">{this.state.error?.message}</p>
+          <button
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm"
+            onClick={() => this.setState({ hasError: false, error: null })}
+          >
+            Reintentar
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 function SettingsContent() {
@@ -681,7 +712,9 @@ function SettingsContent() {
         </TabsContent>
 
         <TabsContent value="billing" className="space-y-4">
-          <BillingSettings />
+          <BillingErrorBoundary>
+            <BillingSettings />
+          </BillingErrorBoundary>
         </TabsContent>
 
       </Tabs>

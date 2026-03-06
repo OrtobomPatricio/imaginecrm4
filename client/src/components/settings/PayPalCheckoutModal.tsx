@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, X, ShieldCheck, CreditCard } from "lucide-react";
 import { trpc } from "@/lib/trpc";

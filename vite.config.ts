@@ -12,15 +12,13 @@ const plugins = [
     workbox: {
       globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
       maximumFileSizeToCacheInBytes: 10 * 1024 * 1024, // 10 MB
+      skipWaiting: true,
+      clientsClaim: true,
+      cleanupOutdatedCaches: true,
       runtimeCaching: [
         {
           urlPattern: /^\/api\/trpc\//,
-          handler: "NetworkFirst",
-          options: {
-            cacheName: "trpc-api-cache",
-            expiration: { maxEntries: 50, maxAgeSeconds: 300 },
-            networkTimeoutSeconds: 5,
-          },
+          handler: "NetworkOnly",
         },
         {
           urlPattern: /^\/api\/uploads\//,
