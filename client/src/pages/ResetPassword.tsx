@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Lock, CheckCircle2, XCircle } from "lucide-react";
+import PasswordStrengthMeter, { validatePassword } from "@/components/PasswordStrengthMeter";
 import { useState, useEffect } from "react";
 
 export default function ResetPassword() {
@@ -33,8 +34,8 @@ export default function ResetPassword() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (password.length < 8) {
-      toast.error("La contraseña debe tener al menos 8 caracteres");
+    if (!validatePassword(password)) {
+      toast.error("La contraseña no cumple los requisitos de seguridad");
       return;
     }
     if (password !== confirmPassword) {
@@ -98,6 +99,7 @@ export default function ResetPassword() {
                   onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
+              <PasswordStrengthMeter password={password} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="confirm">Confirmar Contraseña</Label>
@@ -113,7 +115,7 @@ export default function ResetPassword() {
                 />
               </div>
             </div>
-            <Button type="submit" className="w-full" disabled={resetMutation.isPending}>
+            <Button type="submit" className="w-full" disabled={resetMutation.isPending || !validatePassword(password) || password !== confirmPassword}>
               {resetMutation.isPending ? "Actualizando..." : "Restablecer Contraseña"}
             </Button>
           </form>

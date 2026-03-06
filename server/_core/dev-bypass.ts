@@ -84,7 +84,7 @@ export function registerDevBypass(app: Express) {
       path: "/",
       sameSite: "lax",
       secure: false,
-      maxAge: 365 * 24 * 60 * 60 * 1000, // 1 año
+      maxAge: 1000 * 60 * 60 * 24 * 30, // 30 días
     });
     res.redirect("/");
   });

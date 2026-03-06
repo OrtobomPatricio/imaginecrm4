@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useTheme } from "@/contexts/ThemeContext";
-import { MessageCircle, Moon, Sun, Mail, Lock, ArrowRight } from "lucide-react";
+import { MessageCircle, Moon, Sun, Mail, Lock, ArrowRight, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -71,13 +71,12 @@ export default function Login() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const email = formData.email.trim();
-    const password = formData.password.trim();
-    if (!email || !password) {
+    if (!email || !formData.password) {
       toast.error("Ingresá email y contraseña");
       return;
     }
 
-    login.mutate({ email, password });
+    login.mutate({ email, password: formData.password });
   };
 
   const handleOAuthLogin = (provider: 'google' | 'microsoft' | 'facebook') => {
@@ -294,10 +293,20 @@ export default function Login() {
 
                 <Button
                   type="submit"
+                  disabled={login.isPending}
                   className="w-full h-11 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white shadow-lg shadow-purple-500/25 transition-all duration-300 hover:shadow-xl hover:shadow-purple-500/30"
                 >
-                  Iniciar Sesión
-                  <ArrowRight className="ml-2 h-4 w-4" />
+                  {login.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Ingresando...
+                    </>
+                  ) : (
+                    <>
+                      Iniciar Sesión
+                      <ArrowRight className="ml-2 h-4 w-4" />
+                    </>
+                  )}
                 </Button>
 
                 <div className="text-center text-sm">

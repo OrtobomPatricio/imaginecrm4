@@ -30,7 +30,16 @@ export const onboardingRouter = router({
     saveStep: protectedProcedure
         .input(z.object({
             step: z.enum(['company', 'team', 'whatsapp', 'import', 'first-message']),
-            data: z.any().optional(),
+            data: z.union([
+                z.object({
+                    name: z.string().max(200).optional(),
+                    timezone: z.string().max(100).optional(),
+                    language: z.string().max(10).optional(),
+                    currency: z.string().max(10).optional(),
+                }).passthrough(),
+                z.array(z.object({ email: z.string().email(), role: z.string().max(50) })),
+                z.null(),
+            ]).optional(),
             completed: z.boolean()
         }))
         .mutation(async ({ input, ctx }) => {

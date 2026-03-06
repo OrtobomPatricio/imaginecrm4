@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { useTheme } from "@/contexts/ThemeContext";
 import { MessageCircle, Moon, Sun, Lock, Loader2, ShieldCheck, MailWarning, ArrowLeft } from "lucide-react";
+import PasswordStrengthMeter, { validatePassword } from "@/components/PasswordStrengthMeter";
 
 export default function SetupAccount() {
     const [, setLocation] = useLocation();
@@ -30,8 +31,8 @@ export default function SetupAccount() {
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (password.length < 8) {
-            toast.error("La contraseña debe tener al menos 8 caracteres");
+        if (!validatePassword(password)) {
+            toast.error("La contraseña no cumple los requisitos de seguridad");
             return;
         }
         if (password !== confirm) {
@@ -45,7 +46,7 @@ export default function SetupAccount() {
         accept.mutate({ token, password });
     };
 
-    const passwordValid = password.length >= 8;
+    const passwordValid = validatePassword(password);
     const passwordsMatch = password === confirm && confirm.length > 0;
 
     if (!token) {
@@ -163,12 +164,7 @@ export default function SetupAccount() {
                                             className="pl-10"
                                         />
                                     </div>
-                                    {password.length > 0 && (
-                                        <p className={`text-xs flex items-center gap-1 ${passwordValid ? "text-green-500" : "text-muted-foreground"}`}>
-                                            {passwordValid ? <ShieldCheck className="h-3 w-3" /> : null}
-                                            {passwordValid ? "Contraseña válida" : "Mínimo 8 caracteres"}
-                                        </p>
-                                    )}
+                                    <PasswordStrengthMeter password={password} />
                                 </div>
 
                                 <div className="space-y-2">

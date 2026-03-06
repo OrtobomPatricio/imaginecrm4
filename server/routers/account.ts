@@ -203,7 +203,10 @@ export const accountRouter = router({
     resetPassword: publicProcedure
         .input(z.object({
             token: z.string().min(10),
-            newPassword: z.string().min(8, "La contraseña debe tener al menos 8 caracteres").max(128),
+            newPassword: z.string().min(8, "La contraseña debe tener al menos 8 caracteres").max(128)
+                .regex(/[A-Z]/, "La contraseña debe contener al menos una mayúscula")
+                .regex(/[a-z]/, "La contraseña debe contener al menos una minúscula")
+                .regex(/[0-9]/, "La contraseña debe contener al menos un número"),
         }))
         .mutation(async ({ input }) => {
             const db = await getDb();
@@ -263,7 +266,10 @@ export const accountRouter = router({
     changePassword: protectedProcedure
         .input(z.object({
             currentPassword: z.string().max(128),
-            newPassword: z.string().min(8, "La contraseña debe tener al menos 8 caracteres").max(128),
+            newPassword: z.string().min(8, "La contraseña debe tener al menos 8 caracteres").max(128)
+                .regex(/[A-Z]/, "La contraseña debe contener al menos una mayúscula")
+                .regex(/[a-z]/, "La contraseña debe contener al menos una minúscula")
+                .regex(/[0-9]/, "La contraseña debe contener al menos un número"),
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();

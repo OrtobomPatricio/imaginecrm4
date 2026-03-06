@@ -96,8 +96,9 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
                     toast({ title: "¡Bienvenido!", description: "Onboarding completado con éxito." });
                 },
                 onError: () => {
-                    // Even if backend fails, let the user proceed
-                    setCurrentStep('completed');
+                    // Do NOT mark as completed — show error and let user retry
+                    setIsCompleting(false);
+                    toast({ title: "Error", description: "No se pudo completar el onboarding. Intenta de nuevo.", variant: "destructive" });
                 },
             });
         }

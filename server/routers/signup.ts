@@ -106,7 +106,7 @@ export const signupRouter = router({
             timezone: z.string().default("America/Asuncion"),
             language: z.string().default("es"),
             currency: z.string().default("USD"),
-            termsVersion: z.string().optional(),
+            termsVersion: z.string().min(1, "Debes aceptar los términos de servicio"),
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
@@ -118,7 +118,7 @@ export const signupRouter = router({
             try {
                 await authRateLimit(rateLimitKey);
             } catch (e: any) {
-                return { success: false, error: e.message };
+                throw e; // Re-throw TRPCError (TOO_MANY_REQUESTS) so HTTP 429 is returned
             }
 
             // Normalize email
@@ -176,8 +176,9 @@ export const signupRouter = router({
                     });
                     tenantId = tenantResult[0].insertId;
 
-                    // 2. Create owner user with email verification token
-                    emailVerifyToken = crypto.randomBytes(32).toString("hex");
+                    // 2. Create owner user with email verification token (timestamp-prefixed for reliable 24h expiry)
+                    const ts = Date.now().toString(36);
+                    emailVerifyToken = `${ts}.${crypto.randomBytes(32).toString("hex")}`;
 
                     const userResult = await tx.insert(users).values({
                         tenantId,

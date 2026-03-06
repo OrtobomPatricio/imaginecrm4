@@ -92,6 +92,7 @@ export const authRouter = router({
             loginMethod: u.loginMethod,
             isActive: u.isActive,
             hasSeenTour: u.hasSeenTour,
+            emailVerified: (u as any).emailVerified ?? true,
         };
     }),
 
@@ -123,7 +124,6 @@ export const authRouter = router({
             if (!db) return { success: false, error: "Database not available" };
 
             const normalizedEmail = input.email.trim().toLowerCase();
-            const trimmedPassword = input.password.trim();
 
             // Rate limiting por email e IP
             const ip = getClientIp(ctx.req);
@@ -132,7 +132,7 @@ export const authRouter = router({
             try {
                 await authRateLimit(rateLimitKey);
             } catch (e: any) {
-                return { success: false, error: e.message };
+                throw e; // Re-throw TRPCError (TOO_MANY_REQUESTS) so HTTP 429 is returned
             }
 
             // SECURITY FIX (MT-01): Resolve tenantId from request context
@@ -178,11 +178,8 @@ export const authRouter = router({
                 return { success: false, error: "Cuenta desactivada. Contacte al administrador." };
             }
 
-            // Try with trimmed password first, then original as fallback
-            let valid = await bcrypt.compare(trimmedPassword, user[0].password);
-            if (!valid && trimmedPassword !== input.password) {
-                valid = await bcrypt.compare(input.password, user[0].password);
-            }
+            // Compare password directly — no trimming to preserve full entropy
+            const valid = await bcrypt.compare(input.password, user[0].password);
             if (!valid) {
                 logger.warn({ email: normalizedEmail, userId: user[0].id, ip }, "[Auth] Login failed: invalid password");
                 return { success: false, error: "Credenciales inválidas" };

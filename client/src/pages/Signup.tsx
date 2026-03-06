@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { useTheme } from "@/contexts/ThemeContext";
+import PasswordStrengthMeter, { validatePassword } from "@/components/PasswordStrengthMeter";
 import {
     MessageCircle, Moon, Sun, Building2, User, Mail, Lock,
     ArrowRight, ArrowLeft, Loader2, Check, X, Globe
@@ -81,8 +82,8 @@ export default function Signup() {
             toast.error("Las contraseñas no coinciden");
             return;
         }
-        if (form.password.length < 8) {
-            toast.error("La contraseña debe tener al menos 8 caracteres");
+        if (!validatePassword(form.password)) {
+            toast.error("La contraseña no cumple los requisitos de seguridad");
             return;
         }
         if (!acceptedTerms) {
@@ -104,7 +105,7 @@ export default function Signup() {
     };
 
     const canProceedCompany = form.companyName.length >= 2 && form.slug.length >= 3 && slugCheck.data?.available;
-    const canProceedAccount = form.ownerName.length >= 2 && form.email.includes("@") && form.password.length >= 8 && form.password === form.confirmPassword;
+    const canProceedAccount = form.ownerName.length >= 2 && /^[^@]+@[^@]+\.[^@]+$/.test(form.email) && validatePassword(form.password) && form.password === form.confirmPassword;
 
     const updateField = (field: string, value: string) => {
         setForm(prev => ({ ...prev, [field]: value }));
@@ -317,9 +318,8 @@ export default function Signup() {
                                             onChange={(e) => updateField("password", e.target.value)}
                                         />
                                     </div>
-                                    {form.password.length > 0 && form.password.length < 8 && (
-                                        <p className="text-xs text-red-500">Mínimo 8 caracteres</p>
-                                    )}
+                                    <PasswordStrengthMeter password={form.password}
+                                    />
                                 </div>
 
                                 <div className="space-y-2">
