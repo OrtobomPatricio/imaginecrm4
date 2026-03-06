@@ -87,17 +87,28 @@ export const helpdeskRouter = router({
       const db = await getDb();
       if (!db) throw new Error("Database not available");
 
-      // Replace membership atomically (best effort)
-      await db.delete(supportUserQueues).where(and(eq(supportUserQueues.tenantId, ctx.tenantId), eq(supportUserQueues.queueId, input.queueId)));
+      // Validate all userIds belong to this tenant
       if (input.userIds.length) {
-        await db.insert(supportUserQueues).values(
-          input.userIds.map(uid => ({
-            tenantId: ctx.tenantId,
-            queueId: input.queueId,
-            userId: uid,
-          }))
-        );
+        const validUsers = await db.select({ id: users.id }).from(users)
+          .where(and(eq(users.tenantId, ctx.tenantId), sql`${users.id} IN (${sql.join(input.userIds.map(id => sql`${id}`), sql`, `)})`))
+        const validIds = new Set(validUsers.map(u => u.id));
+        const invalid = input.userIds.filter(id => !validIds.has(id));
+        if (invalid.length) throw new Error("Algunos usuarios no pertenecen a este tenant");
       }
+
+      // Replace membership atomically in a transaction
+      await db.transaction(async (tx) => {
+        await tx.delete(supportUserQueues).where(and(eq(supportUserQueues.tenantId, ctx.tenantId), eq(supportUserQueues.queueId, input.queueId)));
+        if (input.userIds.length) {
+          await tx.insert(supportUserQueues).values(
+            input.userIds.map(uid => ({
+              tenantId: ctx.tenantId,
+              queueId: input.queueId,
+              userId: uid,
+            }))
+          );
+        }
+      });
       return { ok: true };
     }),
 
@@ -141,8 +152,10 @@ export const helpdeskRouter = router({
 
       const whereClause = and(...whereParts);
 
-      const query = db.select().from(conversations);
-      if (whereClause) query.where(whereClause);
+      let query = db.select().from(conversations);
+      if (whereClause) {
+        query = query.where(whereClause) as typeof query;
+      }
 
       return query.orderBy(desc(conversations.lastMessageAt)).limit(input.limit);
     }),
@@ -169,6 +182,14 @@ export const helpdeskRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database not available");
+
+      // Validate target user belongs to this tenant
+      if (input.assignedToId !== null) {
+        const [targetUser] = await db.select({ id: users.id }).from(users)
+          .where(and(eq(users.id, input.assignedToId), eq(users.tenantId, ctx.tenantId))).limit(1);
+        if (!targetUser) throw new Error("El usuario asignado no pertenece a este tenant");
+      }
+
       await db.update(conversations)
         .set({
           assignedToId: input.assignedToId,

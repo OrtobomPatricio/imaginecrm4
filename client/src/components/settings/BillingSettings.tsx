@@ -51,6 +51,7 @@ export function BillingSettings() {
     const isExpired = Boolean(license.expiresAt && new Date(license.expiresAt) < new Date());
     const isTrial = license.status === 'trial';
     const isActive = license.status === 'active' && !isExpired;
+    const hasPaidSubscription = isActive && license.plan !== 'free' && license.plan !== 'starter' || (data as any)?.paypalSubscriptionId;
 
     // Calculate trial days remaining
     const trialEndsAt = (license as any).trialEndsAt ? new Date((license as any).trialEndsAt) : null;
@@ -376,7 +377,7 @@ function BillingActions({ isActive }: { isActive: boolean }) {
                 </div>
             )}
             <div className="flex gap-3 flex-wrap">
-                {isActive ? (
+                {hasPaidSubscription ? (
                     <>
                         <Button
                             onClick={() => {
@@ -470,7 +471,7 @@ function BillingActions({ isActive }: { isActive: boolean }) {
                         </div>
                         <p className="text-sm text-muted-foreground">
                             Al cancelar, tu cuenta pasará al plan <strong>Gratis</strong> con las limitaciones correspondientes
-                            (5 usuarios, 1 número WhatsApp, 1.000 mensajes/mes). Puedes volver a suscribirte en cualquier momento.
+                            (5 usuarios, 3 números WhatsApp, 10.000 mensajes/mes). Puedes volver a suscribirte en cualquier momento.
                         </p>
                         {cancelSub.isError && (
                             <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-lg">

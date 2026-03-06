@@ -512,7 +512,7 @@ export default function Signup() {
                                     </div>
                                     <div className="flex justify-between">
                                         <span className="text-muted-foreground">Plan:</span>
-                                        <span className="font-medium text-green-500">Gratis</span>
+                                        <span className="font-medium text-green-500">Pro (prueba gratuita 14 días)</span>
                                     </div>
                                 </div>
 

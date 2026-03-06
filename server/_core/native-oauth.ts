@@ -57,6 +57,7 @@ export function registerNativeOAuth(app: Express) {
         cookie: {
             secure: isProd,
             httpOnly: true,
+            sameSite: 'lax', // Required for OAuth redirects back from provider
             maxAge: 10 * 60 * 1000, // 10 min for OAuth state
         },
     };
@@ -115,7 +116,11 @@ export function registerNativeOAuth(app: Express) {
                     termsVersion: typeof termsVersion === 'string' ? termsVersion : '1.0.0',
                 };
             }
-            req.session.save(() => {
+            req.session.save((err) => {
+                if (err) {
+                    logger.error({ err }, '[OAuth] Failed to save session before Google signup redirect');
+                    return res.redirect('/signup?error=session_save_failed');
+                }
                 passport.authenticate('google', {
                     scope: ['profile', 'email'],
                     state: true,
@@ -266,7 +271,11 @@ export function registerNativeOAuth(app: Express) {
                     termsVersion: typeof termsVersion === 'string' ? termsVersion : '1.0.0',
                 };
             }
-            req.session.save(() => {
+            req.session.save((err) => {
+                if (err) {
+                    logger.error('Failed to save session before Facebook signup redirect', { error: err.message });
+                    return res.redirect('/signup?error=session_save_failed');
+                }
                 passport.authenticate('facebook', {
                     scope: ['email'],
                     state: true,
@@ -419,7 +428,11 @@ export function registerNativeOAuth(app: Express) {
                     termsVersion: typeof termsVersion === 'string' ? termsVersion : '1.0.0',
                 };
             }
-            req.session.save(() => {
+            req.session.save((err) => {
+                if (err) {
+                    logger.error('Failed to save session before Microsoft signup redirect', { error: err.message });
+                    return res.redirect('/signup?error=session_save_failed');
+                }
                 passport.authenticate('azuread-openidconnect', {
                     failureRedirect: '/login?error=microsoft_init_failed',
                 })(req, res, next);

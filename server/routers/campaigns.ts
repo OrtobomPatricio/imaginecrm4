@@ -46,7 +46,7 @@ export const campaignsRouter = router({
             if (!db) return { count: 0 };
 
             // Simple filter by stage for now
-            const conditions = [eq(leads.tenantId, ctx.tenantId)];
+            const conditions = [eq(leads.tenantId, ctx.tenantId), sql`${leads.deletedAt} IS NULL`];
             if (input.pipelineStageId) {
                 conditions.push(eq(leads.pipelineStageId, input.pipelineStageId));
             }
@@ -86,7 +86,7 @@ export const campaignsRouter = router({
 
                 const config = campaign.audienceConfig as any;
 
-                const conditions: any[] = [eq(leads.tenantId, ctx.tenantId)];
+                const conditions: any[] = [eq(leads.tenantId, ctx.tenantId), sql`${leads.deletedAt} IS NULL`];
                 if (config?.pipelineStageId) {
                     conditions.push(eq(leads.pipelineStageId, config.pipelineStageId));
                 }

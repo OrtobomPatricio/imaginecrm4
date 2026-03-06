@@ -55,8 +55,8 @@ export const licensingRouter = router({
 
         const defaultLicense = {
             status: 'trial' as const,
-            plan: 'starter',
-            maxUsers: 10,
+            plan: 'free',
+            maxUsers: 5,
             maxWhatsappNumbers: 3,
             maxMessagesPerMonth: 10000,
         };
@@ -78,9 +78,9 @@ export const licensingRouter = router({
                 trialEndsAt,
             } : {
                 status: 'trial',
-                plan: 'starter',
+                plan: 'free',
                 expiresAt: null,
-                maxUsers: 10,
+                maxUsers: 5,
                 maxWhatsappNumbers: 3,
                 maxMessagesPerMonth: 10000,
                 features: [],
@@ -92,9 +92,9 @@ export const licensingRouter = router({
                 activeNumbers: activeNumbers[0]?.count || 0,
             },
             limits: {
-                maxUsers: lic.maxUsers || 10,
-                maxWhatsappNumbers: lic.maxWhatsappNumbers || 3,
-                maxMessagesPerMonth: lic.maxMessagesPerMonth || 10000,
+                maxUsers: lic.maxUsers ?? 5,
+                maxWhatsappNumbers: lic.maxWhatsappNumbers ?? 3,
+                maxMessagesPerMonth: lic.maxMessagesPerMonth ?? 10000,
             },
         };
     }),

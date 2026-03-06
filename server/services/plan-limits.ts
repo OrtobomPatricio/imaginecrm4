@@ -46,10 +46,10 @@ export async function getPlanLimits(tenantId: number): Promise<PlanLimits> {
 
     if (lic) {
         return {
-            maxUsers: lic.maxUsers || DEFAULT_PLAN_LIMITS[lic.plan]?.maxUsers || 5,
-            maxWhatsappNumbers: lic.maxWhatsappNumbers || DEFAULT_PLAN_LIMITS[lic.plan]?.maxWhatsappNumbers || 3,
-            maxMessagesPerMonth: lic.maxMessagesPerMonth || DEFAULT_PLAN_LIMITS[lic.plan]?.maxMessagesPerMonth || 10000,
-            maxLeads: DEFAULT_PLAN_LIMITS[lic.plan]?.maxLeads || 500,
+            maxUsers: lic.maxUsers ?? DEFAULT_PLAN_LIMITS[lic.plan]?.maxUsers ?? 5,
+            maxWhatsappNumbers: lic.maxWhatsappNumbers ?? DEFAULT_PLAN_LIMITS[lic.plan]?.maxWhatsappNumbers ?? 3,
+            maxMessagesPerMonth: lic.maxMessagesPerMonth ?? DEFAULT_PLAN_LIMITS[lic.plan]?.maxMessagesPerMonth ?? 10000,
+            maxLeads: DEFAULT_PLAN_LIMITS[lic.plan]?.maxLeads ?? 500,
         };
     }
 
@@ -155,15 +155,11 @@ export async function checkMessageQuota(tenantId: number): Promise<{ allowed: bo
 
     // Try atomic Redis counter first (race-condition-free)
     try {
-        const redisUrl = process.env.REDIS_URL;
-        if (redisUrl) {
-            const Redis = (await import("ioredis")).default;
-            const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1, lazyConnect: true });
-            await redis.connect();
+        const redis = await getQuotaRedis();
+        if (redis) {
             const key = `quota:msgs:${tenantId}:${monthKey}`;
             const current = await redis.get(key);
             const used = current ? parseInt(current, 10) : 0;
-            await redis.quit();
             return {
                 allowed: used < limits.maxMessagesPerMonth,
                 used,
@@ -192,6 +188,23 @@ export async function checkMessageQuota(tenantId: number): Promise<{ allowed: bo
     };
 }
 
+// Shared Redis connection for quota operations (avoids per-call connection churn)
+let _quotaRedis: any = null;
+async function getQuotaRedis() {
+    const redisUrl = process.env.REDIS_URL;
+    if (!redisUrl) return null;
+    if (_quotaRedis && _quotaRedis.status === "ready") return _quotaRedis;
+    try {
+        const Redis = (await import("ioredis")).default;
+        _quotaRedis = new Redis(redisUrl, { maxRetriesPerRequest: 1, lazyConnect: true });
+        await _quotaRedis.connect();
+        return _quotaRedis;
+    } catch {
+        _quotaRedis = null;
+        return null;
+    }
+}
+
 /**
  * Atomically increment the Redis message counter after a message is sent.
  * Call this AFTER successfully inserting the message into chat_messages.
@@ -199,11 +212,8 @@ export async function checkMessageQuota(tenantId: number): Promise<{ allowed: bo
  */
 export async function incrementMessageCounter(tenantId: number): Promise<void> {
     try {
-        const redisUrl = process.env.REDIS_URL;
-        if (!redisUrl) return;
-        const Redis = (await import("ioredis")).default;
-        const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1, lazyConnect: true });
-        await redis.connect();
+        const redis = await getQuotaRedis();
+        if (!redis) return;
         const now = new Date();
         const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
         const key = `quota:msgs:${tenantId}:${monthKey}`;
@@ -212,7 +222,6 @@ export async function incrementMessageCounter(tenantId: number): Promise<void> {
             // First message this month — set TTL to 35 days
             await redis.expire(key, 35 * 24 * 3600);
         }
-        await redis.quit();
     } catch {
         // Best-effort: if Redis fails, DB count is the fallback
     }

@@ -1,7 +1,6 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
 import type { User } from "../../drizzle/schema";
 import { sdk } from "./sdk";
-import { getDevBypassUser } from "./dev-bypass";
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];

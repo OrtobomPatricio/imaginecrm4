@@ -66,7 +66,8 @@ export const workflowsRouter = router({
             const db = await getDb();
             if (!db) throw new Error("DB error");
 
-            await db.update(workflows).set(input).where(and(eq(workflows.tenantId, ctx.tenantId), eq(workflows.id, input.id)));
+            const { id, ...data } = input;
+            await db.update(workflows).set(data).where(and(eq(workflows.tenantId, ctx.tenantId), eq(workflows.id, id)));
             return { success: true };
         }),
 

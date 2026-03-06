@@ -56,8 +56,8 @@ const requireUser = t.middleware(async opts => {
 
       const tenant = tenantRows[0];
       if (tenant) {
-        // Check if tenant is suspended
-        if (tenant.status === "suspended") {
+        // Check if tenant is suspended or canceled
+        if (tenant.status === "suspended" || tenant.status === "canceled") {
           const isAllowed = path.startsWith("auth.") || path.startsWith("billing.") || path.startsWith("settings.getBilling") || path.startsWith("trial.");
           if (!isAllowed) {
             throw new TRPCError({
@@ -85,6 +85,9 @@ const requireUser = t.middleware(async opts => {
               await db.update(license).set({
                 plan: "free",
                 status: "active",
+                maxUsers: 5,
+                maxWhatsappNumbers: 3,
+                maxMessagesPerMonth: 10000,
                 updatedAt: new Date(),
               }).where(eq(license.id, lic.id));
             }
@@ -269,7 +272,7 @@ export const permissionProcedure = (permission: string) =>
     })
   );
 
-export const adminProcedure = t.procedure.use(
+export const adminProcedure = protectedProcedure.use(
   t.middleware(async opts => {
     const { ctx, next } = opts;
 
