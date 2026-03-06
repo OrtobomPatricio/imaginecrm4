@@ -624,7 +624,7 @@ async function ensureAppSettings() {
       logger.info("seed: appSettings empty, creating defaults");
       await db.insert(appSettings).values({
         tenantId: 1,
-        companyName: "Imagine Lab CRM",
+        companyName: "Imagine CRM",
         timezone: "America/Asuncion",
         language: "es",
         currency: "PYG",

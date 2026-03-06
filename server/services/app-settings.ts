@@ -24,7 +24,7 @@ export async function getOrCreateAppSettings(dbOrNull: MySql2Database<any> | nul
         id: 0,
         tenantId,
         singleton: 1,
-        companyName: "Imagine Lab CRM",
+        companyName: "Imagine CRM",
         logoUrl: null,
         timezone: "America/Asuncion",
         language: "es",

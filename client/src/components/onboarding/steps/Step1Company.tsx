@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -32,6 +33,7 @@ const schema = z.object({
 export default function Step1Company() {
     const { nextStep } = useOnboarding();
     const updateCompanyMutation = trpc.onboarding.updateCompany.useMutation();
+    const settingsQuery = trpc.settings.get.useQuery(undefined, { retry: false });
 
     const form = useForm<z.infer<typeof schema>>({
         resolver: zodResolver(schema),
@@ -42,6 +44,21 @@ export default function Step1Company() {
             currency: "PYG",
         }
     });
+
+    // Pre-fill from existing tenant settings (set during signup)
+    const hasReset = useRef(false);
+    useEffect(() => {
+        if (settingsQuery.data && !hasReset.current) {
+            hasReset.current = true;
+            const s = settingsQuery.data as any;
+            form.reset({
+                name: s.companyName || form.getValues("name"),
+                timezone: s.timezone || form.getValues("timezone"),
+                language: s.language || form.getValues("language"),
+                currency: s.currency || form.getValues("currency"),
+            });
+        }
+    }, [settingsQuery.data, form]);
 
     const onSubmit = (values: z.infer<typeof schema>) => {
         // Fire backend save as best-effort, don't block UI

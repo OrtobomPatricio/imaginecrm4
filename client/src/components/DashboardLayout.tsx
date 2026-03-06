@@ -179,7 +179,7 @@ export default function DashboardLayout({
               <MessageCircle className="w-8 h-8 text-primary-foreground" />
             </div>
             <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent text-center">
-              Imagine Lab CRM
+              Imagine CRM
             </h1>
             <p className="text-sm text-muted-foreground text-center max-w-sm">
               Sistema completo de gestión de leads y campañas de WhatsApp

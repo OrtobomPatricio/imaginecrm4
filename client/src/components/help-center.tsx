@@ -166,7 +166,7 @@ export function HelpCenter({ open, onOpenChange }: { open?: boolean; onOpenChang
             Contactar Soporte Técnico
             <ExternalLink className="h-4 w-4" />
           </Button>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-medium pt-2">Imagine Lab CRM v1.0</p>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-medium pt-2">Imagine CRM v1.0</p>
         </div>
       </SheetContent>
     </Sheet>

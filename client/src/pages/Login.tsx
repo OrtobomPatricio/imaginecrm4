@@ -152,7 +152,7 @@ export default function Login() {
               <MessageCircle className="h-8 w-8 text-white" />
             </div>
             <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-400 via-pink-400 to-purple-400 bg-clip-text text-transparent">
-              Imagine Lab CRM
+              Imagine CRM
             </h1>
             <p className="text-muted-foreground mt-2">
               Sistema de Gestión WhatsApp
@@ -313,6 +313,12 @@ export default function Login() {
                   <span className="text-muted-foreground">¿No tienes cuenta? </span>
                   <a href="/signup" className="text-primary hover:underline font-medium">
                     Crear cuenta
+                  </a>
+                </div>
+
+                <div className="text-center">
+                  <a href="/" className="text-xs text-muted-foreground hover:text-primary transition-colors">
+                    ← Volver al inicio
                   </a>
                 </div>
               </form>

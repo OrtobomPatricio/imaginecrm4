@@ -202,7 +202,7 @@ async function loadPermissionsMatrix(tenantId: number): Promise<Record<string, s
     if (existing.length === 0) {
       await db.insert(appSettings).values({
         tenantId,
-        companyName: "Imagine Lab CRM",
+        companyName: "Imagine CRM",
         timezone: "America/Asuncion",
         language: "es",
         currency: "PYG",
