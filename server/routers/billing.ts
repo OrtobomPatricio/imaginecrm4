@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { protectedProcedure, permissionProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
-import { tenants, license } from "../../drizzle/schema";
-import { eq, and } from "drizzle-orm";
+import { tenants, license, users, whatsappNumbers } from "../../drizzle/schema";
+import { eq, and, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { logger } from "../_core/logger";
 
@@ -116,7 +116,7 @@ export const billingRouter = router({
         }),
 
     /** Create a PayPal subscription for a plan upgrade */
-    createSubscription: protectedProcedure
+    createSubscription: permissionProcedure("settings.manage")
         .input(z.object({
             plan: z.enum(["starter", "pro", "enterprise"]),
         }))
@@ -155,7 +155,7 @@ export const billingRouter = router({
                             locale: "es-ES",
                             shipping_preference: "NO_SHIPPING",
                             user_action: "SUBSCRIBE_NOW",
-                            return_url: `${returnBase}/settings?tab=billing&success=true&plan=${input.plan}&tenantId=${ctx.tenantId}`,
+                            return_url: `${returnBase}/settings?tab=billing&success=true&plan=${input.plan}`,
                             cancel_url: `${returnBase}/settings?tab=billing&cancelled=true`,
                         },
                         custom_id: `${ctx.tenantId}|${input.plan}`,
@@ -187,8 +187,8 @@ export const billingRouter = router({
         }),
 
     /** Get PayPal subscription management link */
-    getManageUrl: protectedProcedure
-        .mutation(async ({ ctx }) => {
+    getManageUrl: permissionProcedure("settings.manage")
+        .query(async ({ ctx }) => {
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
@@ -214,7 +214,7 @@ export const billingRouter = router({
         }),
 
     /** Create a PayPal vault setup token for inline card fields */
-    createVaultSetupToken: protectedProcedure
+    createVaultSetupToken: permissionProcedure("settings.manage")
         .input(z.object({
             plan: z.enum(["starter", "pro", "enterprise"]),
         }))
@@ -271,7 +271,7 @@ export const billingRouter = router({
         }),
 
     /** Complete card subscription: vault the card, then create subscription with payment source */
-    completeCardSubscription: protectedProcedure
+    completeCardSubscription: permissionProcedure("settings.manage")
         .input(z.object({
             plan: z.enum(["starter", "pro", "enterprise"]),
             vaultSetupToken: z.string().min(1),
@@ -387,7 +387,7 @@ export const billingRouter = router({
         }),
 
     /** Cancel active PayPal subscription */
-    cancelSubscription: protectedProcedure
+    cancelSubscription: permissionProcedure("settings.manage")
         .mutation(async ({ ctx }) => {
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -465,7 +465,7 @@ export const billingRouter = router({
         }),
 
     /** Confirm subscription after PayPal redirect (called from frontend on success) */
-    confirmSubscription: protectedProcedure
+    confirmSubscription: permissionProcedure("settings.manage")
         .input(z.object({
             subscriptionId: z.string().min(1),
             plan: z.enum(["starter", "pro", "enterprise"]),
@@ -493,9 +493,10 @@ export const billingRouter = router({
                     });
                 }
 
-                // Verify this subscription belongs to this tenant
+                // Verify this subscription belongs to this tenant (MANDATORY)
                 const expectedCustomId = `${ctx.tenantId}|${input.plan}`;
-                if (sub.custom_id && sub.custom_id !== expectedCustomId) {
+                if (!sub.custom_id || sub.custom_id !== expectedCustomId) {
+                    logger.warn({ tenantId: ctx.tenantId, customId: sub.custom_id, expected: expectedCustomId }, "[Billing] custom_id mismatch on confirm");
                     throw new TRPCError({ code: "FORBIDDEN", message: "Suscripción no válida para este tenant." });
                 }
 

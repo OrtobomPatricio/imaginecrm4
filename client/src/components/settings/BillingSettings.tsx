@@ -306,11 +306,7 @@ function BillingActions({ isActive }: { isActive: boolean }) {
             setCheckoutPlan(null);
         },
     });
-    const manageUrl = trpc.billing.getManageUrl.useMutation({
-        onSuccess: (data) => {
-            if (data.url) window.open(data.url, "_blank");
-        },
-    });
+    const manageUrl = trpc.billing.getManageUrl.useQuery(undefined, { enabled: false });
     const cancelSub = trpc.billing.cancelSubscription.useMutation({
         onSuccess: () => {
             billingPlan.refetch();
@@ -377,10 +373,14 @@ function BillingActions({ isActive }: { isActive: boolean }) {
                 {isActive ? (
                     <>
                         <Button
-                            onClick={() => manageUrl.mutate()}
-                            disabled={manageUrl.isPending}
+                            onClick={() => {
+                                manageUrl.refetch().then((res) => {
+                                    if (res.data?.url) window.open(res.data.url, "_blank");
+                                });
+                            }}
+                            disabled={manageUrl.isFetching}
                         >
-                            {manageUrl.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            {manageUrl.isFetching && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                             Gestionar Suscripción
                         </Button>
                         <Button

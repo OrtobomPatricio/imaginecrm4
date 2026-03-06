@@ -1,9 +1,32 @@
 import type { Express, Request, Response } from "express";
 import { getDb } from "../db";
-import { tenants } from "../../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { tenants, license } from "../../drizzle/schema";
+import { eq, and } from "drizzle-orm";
 import { logger } from "../_core/logger";
 import { getPayPalBaseUrl, getPayPalAccessToken } from "./billing";
+
+const WEBHOOK_PLANS: Record<string, { maxUsers: number; maxWaNumbers: number; maxMessages: number }> = {
+    free: { maxUsers: 5, maxWaNumbers: 1, maxMessages: 1000 },
+    starter: { maxUsers: 10, maxWaNumbers: 3, maxMessages: 10000 },
+    pro: { maxUsers: 50, maxWaNumbers: 10, maxMessages: 100000 },
+    enterprise: { maxUsers: 9999, maxWaNumbers: 50, maxMessages: 1000000 },
+};
+
+async function syncLicenseForTenant(db: any, tenantId: number, plan: string, status: string) {
+    const limits = WEBHOOK_PLANS[plan] ?? WEBHOOK_PLANS.free;
+    const [existing] = await db.select().from(license)
+        .where(eq(license.tenantId, tenantId)).limit(1);
+    if (existing) {
+        await db.update(license).set({
+            status,
+            plan,
+            maxUsers: limits.maxUsers,
+            maxWhatsappNumbers: limits.maxWaNumbers,
+            maxMessagesPerMonth: limits.maxMessages,
+            updatedAt: new Date(),
+        }).where(and(eq(license.tenantId, tenantId), eq(license.id, existing.id)));
+    }
+}
 
 /**
  * PayPal Webhook Handler
@@ -132,6 +155,8 @@ export function registerPayPalWebhookRoutes(app: Express): void {
                             status: "active",
                         } as any).where(eq(tenants.id, parsed.tenantId));
 
+                        await syncLicenseForTenant(db, parsed.tenantId, parsed.plan, "active");
+
                         logger.info(
                             { tenantId: parsed.tenantId, plan: parsed.plan, subscriptionId },
                             "[PayPalWebhook] Subscription activated"
@@ -151,7 +176,11 @@ export function registerPayPalWebhookRoutes(app: Express): void {
                     if (parsed) {
                         await db.update(tenants).set({
                             plan: "free",
+                            paypalSubscriptionId: null,
                         } as any).where(eq(tenants.id, parsed.tenantId));
+
+                        await syncLicenseForTenant(db, parsed.tenantId, "free", "active");
+
                         logger.warn({ subscriptionId, tenantId: parsed.tenantId }, "[PayPalWebhook] Subscription cancelled → free");
                     } else {
                         // Reject: require valid custom_id to prevent cross-tenant modification
@@ -170,6 +199,9 @@ export function registerPayPalWebhookRoutes(app: Express): void {
                         await db.update(tenants).set({
                             status: "suspended",
                         } as any).where(eq(tenants.id, parsed.tenantId));
+
+                        await syncLicenseForTenant(db, parsed.tenantId, parsed.plan, "expired");
+
                         logger.error({ subscriptionId, tenantId: parsed.tenantId }, "[PayPalWebhook] Subscription suspended");
                     } else {
                         // Reject: require valid custom_id to prevent cross-tenant modification
@@ -182,11 +214,19 @@ export function registerPayPalWebhookRoutes(app: Express): void {
                 case "PAYMENT.SALE.COMPLETED": {
                     const billingAgreementId = resource.billing_agreement_id as string | undefined;
                     if (billingAgreementId) {
-                        await db.update(tenants).set({
-                            status: "active",
-                        } as any).where(eq((tenants as any).paypalSubscriptionId, billingAgreementId));
-
-                        logger.info({ billingAgreementId }, "[PayPalWebhook] Payment completed, tenant active");
+                        // Validate: find the tenant that owns this subscription
+                        const [tenant] = await db.select({ id: tenants.id })
+                            .from(tenants)
+                            .where(eq((tenants as any).paypalSubscriptionId, billingAgreementId))
+                            .limit(1);
+                        if (tenant) {
+                            await db.update(tenants).set({
+                                status: "active",
+                            } as any).where(eq(tenants.id, tenant.id));
+                            logger.info({ billingAgreementId, tenantId: tenant.id }, "[PayPalWebhook] Payment completed, tenant active");
+                        } else {
+                            logger.warn({ billingAgreementId }, "[PayPalWebhook] PAYMENT.SALE.COMPLETED — no tenant found");
+                        }
                     }
                     break;
                 }
@@ -196,11 +236,18 @@ export function registerPayPalWebhookRoutes(app: Express): void {
                 case "PAYMENT.SALE.REFUNDED": {
                     const billingAgreementId = resource.billing_agreement_id as string | undefined;
                     if (billingAgreementId) {
-                        await db.update(tenants).set({
-                            status: "suspended",
-                        } as any).where(eq((tenants as any).paypalSubscriptionId, billingAgreementId));
-
-                        logger.error({ billingAgreementId }, "[PayPalWebhook] Payment denied/refunded, tenant suspended");
+                        const [tenant] = await db.select({ id: tenants.id })
+                            .from(tenants)
+                            .where(eq((tenants as any).paypalSubscriptionId, billingAgreementId))
+                            .limit(1);
+                        if (tenant) {
+                            await db.update(tenants).set({
+                                status: "suspended",
+                            } as any).where(eq(tenants.id, tenant.id));
+                            logger.error({ billingAgreementId, tenantId: tenant.id }, "[PayPalWebhook] Payment denied/refunded, tenant suspended");
+                        } else {
+                            logger.warn({ billingAgreementId }, "[PayPalWebhook] PAYMENT.SALE.DENIED — no tenant found");
+                        }
                     }
                     break;
                 }
