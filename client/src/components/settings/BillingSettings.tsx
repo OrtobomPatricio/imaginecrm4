@@ -291,6 +291,11 @@ export function BillingSettings() {
  * Inline PayPal checkout with card fields + PayPal button.
  */
 function BillingActions({ isActive }: { isActive: boolean }) {
+    const [showPlans, setShowPlans] = React.useState(false);
+    const [checkoutPlan, setCheckoutPlan] = React.useState<"starter" | "pro" | "enterprise" | null>(null);
+    const [cancelled, setCancelled] = React.useState(false);
+    const [showCancelConfirm, setShowCancelConfirm] = React.useState(false);
+
     const billingPlan = trpc.billing.getCurrentPlan.useQuery();
     const licensingStatus = trpc.licensing.getStatus.useQuery();
     const paypalConfig = trpc.billing.getPayPalConfig.useQuery();
@@ -306,7 +311,6 @@ function BillingActions({ isActive }: { isActive: boolean }) {
             if (data.url) window.open(data.url, "_blank");
         },
     });
-
     const cancelSub = trpc.billing.cancelSubscription.useMutation({
         onSuccess: () => {
             billingPlan.refetch();
@@ -315,10 +319,6 @@ function BillingActions({ isActive }: { isActive: boolean }) {
         },
     });
 
-    const [showPlans, setShowPlans] = React.useState(false);
-    const [checkoutPlan, setCheckoutPlan] = React.useState<"starter" | "pro" | "enterprise" | null>(null);
-    const [cancelled, setCancelled] = React.useState(false);
-    const [showCancelConfirm, setShowCancelConfirm] = React.useState(false);
     const allPlans = billingPlan.data?.allPlans;
     const currentPlan = billingPlan.data?.plan || "free";
     const isTrial = licensingStatus.data?.license?.status === 'trial';
