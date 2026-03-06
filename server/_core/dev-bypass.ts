@@ -22,7 +22,7 @@ const DEV_USER = {
   role: "owner",
   loginMethod: "dev",
   isActive: true,
-  hasSeenTour: false,
+  hasSeenTour: true,
   createdAt: new Date(),
   updatedAt: new Date(),
   lastSignedIn: new Date(),
