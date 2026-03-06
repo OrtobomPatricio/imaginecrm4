@@ -34,7 +34,10 @@ export const whatsappRouter = router({
                     }
                 })
                 .from(whatsappConnections)
-                .leftJoin(whatsappNumbers, eq(whatsappConnections.whatsappNumberId, whatsappNumbers.id))
+                .leftJoin(whatsappNumbers, and(
+                    eq(whatsappConnections.whatsappNumberId, whatsappNumbers.id),
+                    eq(whatsappNumbers.tenantId, ctx.tenantId),
+                ))
                 .where(eq(whatsappConnections.tenantId, ctx.tenantId))
                 .orderBy(whatsappConnections.createdAt);
 
@@ -199,7 +202,11 @@ export const whatsappRouter = router({
             return [];
         }
 
-        const plainToken = decryptSecret(connection[0].accessToken) || connection[0].accessToken;
+        const plainToken = decryptSecret(connection[0].accessToken);
+        if (!plainToken) {
+            logger.error({ tenantId: ctx.tenantId }, "[WhatsApp] Failed to decrypt access token");
+            throw new Error("Failed to decrypt WhatsApp credentials");
+        }
 
         try {
             return await fetchCloudTemplates({

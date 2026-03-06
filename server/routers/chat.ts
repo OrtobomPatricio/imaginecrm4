@@ -44,6 +44,11 @@ async function assertConversationAccess(ctx: any, conversationId: number): Promi
     const userRole = (ctx.user?.role || "viewer") as string;
     const isPrivileged = ["owner", "admin", "supervisor"].includes(userRole);
 
+    // Viewers cannot access individual conversations
+    if (userRole === "viewer") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Los usuarios con rol viewer no pueden acceder a conversaciones" });
+    }
+
     if (!isPrivileged && userRole === "agent") {
         if (conv[0].assignedToId !== ctx.user?.id) {
             throw new TRPCError({ code: "FORBIDDEN", message: "No tiene acceso a esta conversación" });
@@ -158,9 +163,13 @@ export const chatRouter = router({
                     whereClause = and(whereClause, eq(conversations.whatsappNumberId, input.whatsappNumberId));
                 }
 
-                // Privacy Filter: Agents only see their assigned chats
+                // Privacy Filter: Agents only see their assigned chats; viewers see none
                 const userRole = (ctx.user?.role || "viewer") as string;
                 const isPrivileged = ["owner", "admin", "supervisor"].includes(userRole);
+
+                if (userRole === "viewer") {
+                    return [];
+                }
 
                 if (!isPrivileged && ctx.user && userRole === "agent") {
                     const assignedFilter = eq(conversations.assignedToId, ctx.user.id);
@@ -230,6 +239,8 @@ export const chatRouter = router({
                 if (convs.length === 0) return [];
 
                 const convIds = convs.map(c => c.id);
+                // Fetch only a bounded set: 1 per conversation using one row per convId dedup
+                // Limit total rows fetched to avoid loading all messages
                 const lastMessages = await db
                     .select({
                         conversationId: chatMessages.conversationId,
@@ -240,7 +251,8 @@ export const chatRouter = router({
                     })
                     .from(chatMessages)
                     .where(and(eq(chatMessages.tenantId, ctx.tenantId), inArray(chatMessages.conversationId, convIds)))
-                    .orderBy(desc(chatMessages.id));
+                    .orderBy(desc(chatMessages.id))
+                    .limit(convIds.length * 2);
 
                 // Map last messages to conversations
                 const lastMsgMap = new Map();
@@ -333,6 +345,10 @@ export const chatRouter = router({
 
             const userRole = (ctx.user?.role || "viewer") as string;
             const isPrivileged = ["owner", "admin", "supervisor"].includes(userRole);
+
+            if (userRole === "viewer") {
+                return [];
+            }
 
             let whereClause: any = eq(chatMessages.tenantId, ctx.tenantId);
             if (input.whatsappNumberId) {
@@ -603,7 +619,7 @@ export const chatRouter = router({
 
                 if (!page || !page.accessToken) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Página de Facebook no conectada o sin token" });
 
-                const accessToken = decryptSecret(page.accessToken) || page.accessToken;
+                const accessToken = decryptSecret(page.accessToken);
                 if (!accessToken) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Error desencriptando token de Facebook" });
 
                 // Construct message payload
@@ -767,7 +783,10 @@ export const chatRouter = router({
                             throw new TRPCError({ code: "PRECONDITION_FAILED", message: "WhatsApp Cloud API no configurado correctamente" });
                         }
 
-                        const accessToken = decryptSecret(conn.accessToken) || conn.accessToken;
+                        const accessToken = decryptSecret(conn.accessToken);
+                        if (!accessToken) {
+                            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Error desencriptando token de WhatsApp" });
+                        }
                         const result = await sendCloudMessage({
                             accessToken,
                             phoneNumberId: conn.phoneNumberId,
@@ -831,6 +850,19 @@ export const chatRouter = router({
                 const normalizedContactPhone = channel === 'whatsapp' ? normalizeContactPhone(input.contactPhone) : input.contactPhone;
 
                 logger.info("[CreateConversation] Creating with phone:", normalizedContactPhone);
+
+                // Check for existing conversation to avoid duplicates
+                const existingConv = await db.select({ id: conversations.id }).from(conversations)
+                    .where(and(
+                        eq(conversations.tenantId, ctx.tenantId),
+                        eq(conversations.contactPhone, normalizedContactPhone),
+                        ...(input.whatsappNumberId ? [eq(conversations.whatsappNumberId, input.whatsappNumberId)] : []),
+                        ...(input.facebookPageId ? [eq(conversations.facebookPageId, input.facebookPageId)] : []),
+                    )).limit(1);
+
+                if (existingConv[0]) {
+                    return { id: existingConv[0].id, success: true, existing: true };
+                }
 
                 const result = await db.insert(conversations).values({
                     tenantId: ctx.tenantId,

@@ -141,7 +141,8 @@ export const accountRouter = router({
             try {
                 await authRateLimit(rateLimitKey);
             } catch (e: any) {
-                // Still return success to prevent timing attacks
+                // Still return success to prevent timing attacks, but log for monitoring
+                logger.warn({ ip, email: input.email }, "[Account] Password reset rate-limited");
                 return { success: true, message: "Si el email existe, recibirás un enlace de recuperación." };
             }
 

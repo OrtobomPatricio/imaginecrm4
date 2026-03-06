@@ -216,6 +216,10 @@ export const authRouter = router({
             const db = await getDb();
             if (!db) throw new Error("Database not available");
 
+            // Rate limit by IP to prevent brute-force token guessing
+            const ip = getClientIp(ctx.req);
+            await authRateLimit(`invite:${ip}`);
+
             const user = await db.select().from(users).where(eq(users.invitationToken, input.token)).limit(1);
             if (!user[0]) throw new Error("Invalid token");
 
@@ -228,8 +232,8 @@ export const authRouter = router({
                 throw new Error("Account has been disabled by an administrator");
             }
 
-            // Block replay: If user already has a password, the invitation was already accepted
-            if (user[0].password) {
+            // Block replay: If user already has a password or is already active with login method set, the invitation was already accepted
+            if (user[0].password || (user[0].isActive && user[0].loginMethod)) {
                 throw new Error("La invitación ya fue aceptada. Inicia sesión con tu contraseña.");
             }
 
@@ -263,7 +267,7 @@ export const authRouter = router({
                 name: user[0].name || '',
                 expiresInMs: ONE_YEAR_MS,
                 ipAddress: getClientIp(ctx.req),
-                userAgent: ctx.req.headers[\"user-agent\"] as string,
+                userAgent: ctx.req.headers["user-agent"] as string,
             });
             const cookieOptions = getSessionCookieOptions(ctx.req);
             ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });

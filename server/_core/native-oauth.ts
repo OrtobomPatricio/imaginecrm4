@@ -26,19 +26,8 @@ declare global {
     }
 }
 
-// Serialize user for session
-passport.serializeUser((user: any, done: any) => {
-    done(null, user.openId);
-});
-
-passport.deserializeUser(async (openId: string, done: any) => {
-    try {
-        const user = await db.getUserByOpenId(openId);
-        done(null, user || null);
-    } catch (error) {
-        done(error, null);
-    }
-});
+// Note: serializeUser/deserializeUser not needed since all passport.authenticate
+// calls use session: false. The app uses its own JWT-based session system.
 
 /**
  * Register OAuth routes for Google and Microsoft authentication
@@ -186,17 +175,23 @@ export function registerNativeOAuth(app: Express) {
                     }
 
                     const ownerEmail = process.env.OWNER_EMAIL;
-                    const isOwner = ownerEmail && user.email && user.email.toLowerCase() === ownerEmail.toLowerCase();
+                    const isOwner = ownerEmail && user.email && user.email.toLowerCase() === ownerEmail.toLowerCase() && provisionedUser.tenantId === 1;
 
-                    await db.upsertUser({
+                    // Only update loginMethod and lastSignedIn on returning logins.
+                    // Name/email only filled if the DB record is empty (avoid overwriting admin edits).
+                    // Role: only promote to owner on first login when matching OWNER_EMAIL on tenant 1.
+                    const upsertData: Parameters<typeof db.upsertUser>[0] = {
                         tenantId: provisionedUser.tenantId,
                         openId: provisionedUser.openId,
-                        name: user.name || provisionedUser.name || null,
-                        email: user.email || provisionedUser.email || null,
+                        name: provisionedUser.name ? undefined : (user.name || null),
+                        email: provisionedUser.email ? undefined : (user.email || null),
                         loginMethod: 'google',
                         lastSignedIn: new Date(),
-                        role: isOwner ? 'owner' : provisionedUser.role,
-                    });
+                    };
+                    if (isOwner && provisionedUser.role !== 'owner') {
+                        upsertData.role = 'owner';
+                    }
+                    await db.upsertUser(upsertData);
 
                     // Create session token
                     const sessionToken = await sdk.createSessionToken(provisionedUser.openId, {
@@ -331,17 +326,20 @@ export function registerNativeOAuth(app: Express) {
                     }
 
                     const ownerEmail = process.env.OWNER_EMAIL;
-                    const isOwner = ownerEmail && user.email && user.email.toLowerCase() === ownerEmail.toLowerCase();
+                    const isOwner = ownerEmail && user.email && user.email.toLowerCase() === ownerEmail.toLowerCase() && provisionedUser.tenantId === 1;
 
-                    await db.upsertUser({
+                    const upsertData: Parameters<typeof db.upsertUser>[0] = {
                         tenantId: provisionedUser.tenantId,
                         openId: provisionedUser.openId,
-                        name: user.name || provisionedUser.name || null,
-                        email: user.email || provisionedUser.email || null,
+                        name: provisionedUser.name ? undefined : (user.name || null),
+                        email: provisionedUser.email ? undefined : (user.email || null),
                         loginMethod: 'facebook',
                         lastSignedIn: new Date(),
-                        role: isOwner ? 'owner' : provisionedUser.role,
-                    });
+                    };
+                    if (isOwner && provisionedUser.role !== 'owner') {
+                        upsertData.role = 'owner';
+                    }
+                    await db.upsertUser(upsertData);
 
                     // Create session token
                     const sessionToken = await sdk.createSessionToken(provisionedUser.openId, {
@@ -479,17 +477,20 @@ export function registerNativeOAuth(app: Express) {
                     }
 
                     const ownerEmail = process.env.OWNER_EMAIL;
-                    const isOwner = ownerEmail && user.email && user.email.toLowerCase() === ownerEmail.toLowerCase();
+                    const isOwner = ownerEmail && user.email && user.email.toLowerCase() === ownerEmail.toLowerCase() && provisionedUser.tenantId === 1;
 
-                    await db.upsertUser({
+                    const upsertData: Parameters<typeof db.upsertUser>[0] = {
                         tenantId: provisionedUser.tenantId,
                         openId: provisionedUser.openId,
-                        name: user.name || provisionedUser.name || null,
-                        email: user.email || provisionedUser.email || null,
+                        name: provisionedUser.name ? undefined : (user.name || null),
+                        email: provisionedUser.email ? undefined : (user.email || null),
                         loginMethod: 'microsoft',
                         lastSignedIn: new Date(),
-                        role: isOwner ? 'owner' : provisionedUser.role,
-                    });
+                    };
+                    if (isOwner && provisionedUser.role !== 'owner') {
+                        upsertData.role = 'owner';
+                    }
+                    await db.upsertUser(upsertData);
 
                     // Create session token
                     const sessionToken = await sdk.createSessionToken(provisionedUser.openId, {
@@ -523,7 +524,12 @@ export function registerNativeOAuth(app: Express) {
     });
 
     // Logout route
-    app.get('/api/auth/logout', (req: Request, res: Response) => {
+    app.get('/api/auth/logout', async (req: Request, res: Response) => {
+        // Revoke JWT session from DB (same as tRPC logout)
+        const token = req.cookies?.[COOKIE_NAME];
+        if (token) {
+            try { await sdk.revokeSession(token); } catch { /* ignore */ }
+        }
         res.clearCookie(COOKIE_NAME);
         (req as any).logout((err: any) => {
             if (err) {

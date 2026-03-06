@@ -131,9 +131,12 @@ export async function processMetaWebhookPayload(payload: any, _opts: { skipSigna
 
           try {
             // Build tenant-scoped WHERE clause
-            const whereClause = statusTenantId
-              ? and(eq(chatMessages.whatsappMessageId, messageId), eq(chatMessages.tenantId, statusTenantId))
-              : eq(chatMessages.whatsappMessageId, messageId);
+            // SECURITY: Always require tenant scope — never fall back to cross-tenant
+            if (!statusTenantId) {
+              logger.warn({ messageId }, "[Webhook] Cannot resolve tenantId for status update — skipping");
+              continue;
+            }
+            const whereClause = and(eq(chatMessages.whatsappMessageId, messageId), eq(chatMessages.tenantId, statusTenantId));
 
             if (statusValue === "sent") {
               await db
@@ -185,7 +188,11 @@ export async function processMetaWebhookPayload(payload: any, _opts: { skipSigna
       }
 
       const whatsappNumberId = conn[0].whatsappNumberId;
-      const accessToken = decryptSecret(conn[0].accessToken) || "";
+      const accessToken = decryptSecret(conn[0].accessToken);
+      if (!accessToken) {
+        logger.error({ phoneNumberId }, "[Webhook] Failed to decrypt access token for connection");
+        continue;
+      }
 
       // ── CRITICAL: Resolve tenantId from whatsappNumbers ──
       const [waNum] = await db
@@ -269,6 +276,7 @@ export async function processMetaWebhookPayload(payload: any, _opts: { skipSigna
             .select()
             .from(conversations)
             .where(and(
+              eq(conversations.tenantId, tenantId),
               eq(conversations.contactPhone, contactPhone),
               eq(conversations.whatsappNumberId, whatsappNumberId),
               eq(conversations.whatsappConnectionType, "api"),

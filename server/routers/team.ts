@@ -76,7 +76,7 @@ export const teamRouter = router({
             }
 
             const value = input.customRole ? input.customRole.trim() : null;
-            if (value === "owner") throw new TRPCError({ code: "FORBIDDEN", message: "Forbidden role" }); // BLOCK OWNER ESCALATION
+            if (value && value.toLowerCase() === "owner") throw new TRPCError({ code: "FORBIDDEN", message: "Forbidden role" }); // BLOCK OWNER ESCALATION
 
             // Validate customRole (blocks reserved roles + checks matrix)
             if (value) {
@@ -100,6 +100,15 @@ export const teamRouter = router({
             const target = await db.select().from(users).where(and(eq(users.tenantId, ctx.tenantId), eq(users.id, input.userId))).limit(1);
             if (target[0]?.role === "owner" && (ctx.user as any).role !== "owner") {
                 throw new TRPCError({ code: "FORBIDDEN", message: "Only owner can disable owner" });
+            }
+
+            // Prevent disabling the last active owner (orphan tenant)
+            if (!input.isActive && target[0]?.role === "owner") {
+                const activeOwners = await db.select({ id: users.id }).from(users)
+                    .where(and(eq(users.tenantId, ctx.tenantId), eq(users.role, "owner"), eq(users.isActive, true)));
+                if (activeOwners.length <= 1) {
+                    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "No se puede deshabilitar al único owner activo del tenant" });
+                }
             }
 
             await db.update(users).set({ isActive: input.isActive }).where(and(eq(users.tenantId, ctx.tenantId), eq(users.id, input.userId)));

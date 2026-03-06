@@ -177,14 +177,23 @@ export async function resolveProvisionedOAuthUser(openId: string, email?: string
   if (!email) return null;
   const usersByEmail = await getUsersByEmail(email);
   if (usersByEmail.length === 1) {
-    // Link the OAuth provider's openId so future logins are direct (no email fallback)
     const matched = usersByEmail[0];
-    const database = await getDb();
-    if (database) {
-      await database.update(users)
-        .set({ openId })
-        .where(eq(users.id, matched.id));
-      matched.openId = openId;
+    // Only link the new openId if no other user already owns it (prevent identity collision)
+    const existingOwner = await getUserByOpenId(openId);
+    if (existingOwner && existingOwner.id !== matched.id) {
+      logger.warn({ openId, matchedUserId: matched.id, existingOwnerId: existingOwner.id },
+        "[OAuth] openId already belongs to another user — skipping link");
+      return null;
+    }
+    // Link the OAuth provider's openId so future logins are direct (no email fallback)
+    if (!existingOwner) {
+      const database = await getDb();
+      if (database) {
+        await database.update(users)
+          .set({ openId })
+          .where(eq(users.id, matched.id));
+        matched.openId = openId;
+      }
     }
     return matched;
   }

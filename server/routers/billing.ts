@@ -13,10 +13,10 @@ import { logger } from "../_core/logger";
  * Requires PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, and plan IDs env vars.
  *
  * Plans:
- * - free:       5 users, 1 WA number,  1,000 msgs/month
- * - starter:   10 users, 3 WA numbers, 10,000 msgs/month
- * - pro:       50 users, 10 WA numbers, 100,000 msgs/month
- * - enterprise: unlimited
+ * - free:       5 users, 3 WA numbers, 10,000 msgs/month
+ * - starter:   10 users, 5 WA numbers, 25,000 msgs/month
+ * - pro:       25 users, 10 WA numbers, 100,000 msgs/month
+ * - enterprise: 9999 users, 999 WA numbers, 9,999,999 msgs/month
  */
 
 const PLANS = {
@@ -63,22 +63,30 @@ async function getPayPalAccessToken(): Promise<string> {
     const secret = process.env.PAYPAL_CLIENT_SECRET;
     if (!clientId || !secret) throw new Error("PayPal credentials missing");
 
-    const res = await fetch(`${getPayPalBaseUrl()}/v1/oauth2/token`, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-            Authorization: `Basic ${Buffer.from(`${clientId}:${secret}`).toString("base64")}`,
-        },
-        body: "grant_type=client_credentials",
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
 
-    if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`PayPal token error ${res.status}: ${text}`);
+    try {
+        const res = await fetch(`${getPayPalBaseUrl()}/v1/oauth2/token`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+                Authorization: `Basic ${Buffer.from(`${clientId}:${secret}`).toString("base64")}`,
+            },
+            body: "grant_type=client_credentials",
+            signal: controller.signal,
+        });
+
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`PayPal token error ${res.status}: ${text}`);
+        }
+
+        const data = (await res.json()) as { access_token: string };
+        return data.access_token;
+    } finally {
+        clearTimeout(timeout);
     }
-
-    const data = (await res.json()) as { access_token: string };
-    return data.access_token;
 }
 
 export { getPayPalBaseUrl, getPayPalAccessToken };
@@ -369,6 +377,15 @@ export const billingRouter = router({
                         maxMessagesPerMonth: planLimits.maxMessages,
                         updatedAt: new Date(),
                     }).where(and(eq(license.tenantId, ctx.tenantId), eq(license.id, existingLicense.id)));
+                } else {
+                    await db.insert(license).values({
+                        tenantId: ctx.tenantId,
+                        status: 'active',
+                        plan: input.plan,
+                        maxUsers: planLimits.maxUsers,
+                        maxWhatsappNumbers: planLimits.maxWaNumbers,
+                        maxMessagesPerMonth: planLimits.maxMessages,
+                    });
                 }
 
                 logger.info(
@@ -453,6 +470,15 @@ export const billingRouter = router({
                         maxMessagesPerMonth: freeLimits.maxMessages,
                         updatedAt: new Date(),
                     }).where(and(eq(license.tenantId, ctx.tenantId), eq(license.id, existingLicense.id)));
+                } else {
+                    await db.insert(license).values({
+                        tenantId: ctx.tenantId,
+                        status: "active",
+                        plan: "free",
+                        maxUsers: freeLimits.maxUsers,
+                        maxWhatsappNumbers: freeLimits.maxWaNumbers,
+                        maxMessagesPerMonth: freeLimits.maxMessages,
+                    });
                 }
 
                 logger.info(
@@ -530,6 +556,15 @@ export const billingRouter = router({
                         maxMessagesPerMonth: planLimits.maxMessages,
                         updatedAt: new Date(),
                     }).where(and(eq(license.tenantId, ctx.tenantId), eq(license.id, existingLicense.id)));
+                } else {
+                    await db.insert(license).values({
+                        tenantId: ctx.tenantId,
+                        status: 'active',
+                        plan: input.plan,
+                        maxUsers: planLimits.maxUsers,
+                        maxWhatsappNumbers: planLimits.maxWaNumbers,
+                        maxMessagesPerMonth: planLimits.maxMessages,
+                    });
                 }
 
                 logger.info(
