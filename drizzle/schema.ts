@@ -329,6 +329,9 @@ export const templates = mysqlTable("templates", {
   type: mysqlEnum("type", ["whatsapp", "email"]).default("whatsapp").notNull(),
   attachments: json("attachments").$type<{ url: string; name: string; type: string }[]>(), // Array of attachments
   variables: json("variables").$type<string[]>(), // ["name", "company"]
+  metaTemplateName: varchar("metaTemplateName", { length: 150 }),
+  languageCode: varchar("languageCode", { length: 10 }).default("es"),
+  metaComponents: json("metaComponents").$type<any[]>(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

@@ -1,35 +1,22 @@
 import { getDb } from "../db";
 import { license, users, leads, whatsappNumbers, chatMessages } from "../../drizzle/schema";
-import { eq, and, sql, count, gte } from "drizzle-orm";
+import { eq, and, sql, count, gte, desc, ne } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { logger } from "../_core/logger";
+import { PLAN_DEFINITIONS, getPlanResourceLimits, type PlanLimits } from "@shared/plans";
 
 /**
  * Plan Limits Enforcement Service
  *
  * Centralized service to check and enforce plan limits across the system.
  * Used by routers that create resources (leads, users, whatsapp numbers, messages).
- *
- * Default limits per plan:
- * - Free:       5 users, 3 WA numbers, 10,000 msgs/month, 500 leads
- * - Starter:   10 users, 5 WA numbers, 25,000 msgs/month, 2,000 leads
- * - Pro:       25 users, 10 WA numbers, 100,000 msgs/month, unlimited leads
- * - Enterprise: unlimited
+ * Plan definitions are in shared/plans.ts (single source of truth).
  */
 
-interface PlanLimits {
-    maxUsers: number;
-    maxWhatsappNumbers: number;
-    maxMessagesPerMonth: number;
-    maxLeads: number;
-}
+// Re-export for consumers that imported PlanLimits from here
+export type { PlanLimits } from "@shared/plans";
 
-const DEFAULT_PLAN_LIMITS: Record<string, PlanLimits> = {
-    free:       { maxUsers: 5,   maxWhatsappNumbers: 3,  maxMessagesPerMonth: 10000,  maxLeads: 500 },
-    starter:    { maxUsers: 10,  maxWhatsappNumbers: 5,  maxMessagesPerMonth: 25000,  maxLeads: 2000 },
-    pro:        { maxUsers: 25,  maxWhatsappNumbers: 10, maxMessagesPerMonth: 100000, maxLeads: 999999 },
-    enterprise: { maxUsers: 9999, maxWhatsappNumbers: 999, maxMessagesPerMonth: 9999999, maxLeads: 9999999 },
-};
+const DEFAULT_PLAN_LIMITS = PLAN_DEFINITIONS;
 
 /**
  * Get the effective plan limits for a tenant.
@@ -225,4 +212,59 @@ export async function incrementMessageCounter(tenantId: number): Promise<void> {
     } catch {
         // Best-effort: if Redis fails, DB count is the fallback
     }
+}
+
+/**
+ * Enforce resource limits after a plan downgrade.
+ *
+ * When a tenant moves to a lower plan, this function deactivates
+ * excess users (keeping owners and most recently active ones).
+ *
+ * Call this from every downgrade path (cancelSubscription, webhook,
+ * trial expiry, superadmin changePlan).
+ */
+export async function enforceDowngradeLimits(tenantId: number, newPlan: string): Promise<{ deactivatedUsers: number }> {
+    const db = await getDb();
+    if (!db) return { deactivatedUsers: 0 };
+
+    const limits = getPlanResourceLimits(newPlan);
+    let deactivatedUsers = 0;
+
+    // --- Users: deactivate excess (keep owners, then most recently active) ---
+    const activeUsers = await db.select({
+        id: users.id,
+        role: users.role,
+        lastSignedIn: users.lastSignedIn,
+    })
+        .from(users)
+        .where(and(eq(users.tenantId, tenantId), eq(users.isActive, true)))
+        .orderBy(desc(users.lastSignedIn));
+
+    if (activeUsers.length > limits.maxUsers) {
+        // Partition: owners first (never deactivated), then others by last activity
+        const owners = activeUsers.filter(u => u.role === "owner");
+        const nonOwners = activeUsers.filter(u => u.role !== "owner");
+
+        // Keep: all owners + fill remaining slots with most recent non-owners
+        const slotsForNonOwners = Math.max(0, limits.maxUsers - owners.length);
+        const toDeactivate = nonOwners.slice(slotsForNonOwners);
+
+        if (toDeactivate.length > 0) {
+            const idsToDeactivate = toDeactivate.map(u => u.id);
+            const { inArray } = await import("drizzle-orm");
+            await db.update(users)
+                .set({ isActive: false })
+                .where(and(
+                    eq(users.tenantId, tenantId),
+                    inArray(users.id, idsToDeactivate),
+                ));
+            deactivatedUsers = idsToDeactivate.length;
+            logger.warn(
+                { tenantId, newPlan, deactivatedUsers, userIds: idsToDeactivate },
+                "[PlanLimits] Excess users deactivated after downgrade",
+            );
+        }
+    }
+
+    return { deactivatedUsers };
 }

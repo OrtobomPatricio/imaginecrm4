@@ -26,11 +26,75 @@ import {
     leadNotes,
 } from "../../drizzle/schema";
 import { eq, and, sql } from "drizzle-orm";
-import { sendCloudMessage } from "../whatsapp/cloud";
+import { sendCloudMessage, sendCloudTemplate } from "../whatsapp/cloud";
 import { BaileysService } from "./baileys";
 import { decryptSecret } from "../_core/crypto";
 
 import { logger } from "../_core/logger";
+
+// ─── Loop Protection ─────────────────────────────────────────────────────────
+
+/**
+ * Prevents infinite trigger loops (e.g. lead_updated → update_stage → lead_updated).
+ * Tracks (workflowId, entityId) executions with a max recursion depth and cooldown.
+ */
+const MAX_RECURSION_DEPTH = 3;
+const COOLDOWN_MS = 5_000;
+
+// key = `${workflowId}:${entityId}` → current recursion depth
+const _executionDepth = new Map<string, number>();
+// key = `${workflowId}:${entityId}` → timestamp of last completed execution
+const _lastExecution = new Map<string, number>();
+
+function _getGuardKey(workflowId: number, entityId: number): string {
+    return `${workflowId}:${entityId}`;
+}
+
+function _canExecute(workflowId: number, entityId: number): boolean {
+    const key = _getGuardKey(workflowId, entityId);
+
+    // Check recursion depth
+    const depth = _executionDepth.get(key) ?? 0;
+    if (depth >= MAX_RECURSION_DEPTH) {
+        logger.warn(
+            { workflowId, entityId, depth, max: MAX_RECURSION_DEPTH },
+            "[WorkflowEngine] Loop guard: max recursion depth reached, skipping"
+        );
+        return false;
+    }
+
+    // Check cooldown (only applies when not already in a nested call)
+    if (depth === 0) {
+        const last = _lastExecution.get(key);
+        if (last && Date.now() - last < COOLDOWN_MS) {
+            logger.warn(
+                { workflowId, entityId, cooldownMs: COOLDOWN_MS },
+                "[WorkflowEngine] Loop guard: cooldown active, skipping"
+            );
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function _enterExecution(workflowId: number, entityId: number): void {
+    const key = _getGuardKey(workflowId, entityId);
+    _executionDepth.set(key, (_executionDepth.get(key) ?? 0) + 1);
+}
+
+function _exitExecution(workflowId: number, entityId: number): void {
+    const key = _getGuardKey(workflowId, entityId);
+    const current = (_executionDepth.get(key) ?? 1) - 1;
+    if (current <= 0) {
+        _executionDepth.delete(key);
+        _lastExecution.set(key, Date.now());
+        // Auto-cleanup cooldown entries after expiry to prevent memory leaks
+        setTimeout(() => _lastExecution.delete(key), COOLDOWN_MS + 1000);
+    } else {
+        _executionDepth.set(key, current);
+    }
+}
 
 // ─── Tipos públicos ──────────────────────────────────────────────────────────
 
@@ -95,12 +159,21 @@ async function _processEvent(payload: WorkflowEventPayload): Promise<void> {
     for (const workflow of activeWorkflows) {
         if (!_matchesTriggerConfig(workflow.triggerConfig, payload)) continue;
 
+        const entityId = payload.leadId ?? payload.conversationId ?? 0;
+
+        // Loop protection: check recursion depth and cooldown
+        if (!_canExecute(workflow.id, entityId)) continue;
+
         logger.info(
             `[WorkflowEngine] Starting workflow #${workflow.id} for tenant ${payload.tenantId}`
         );
 
-        // Comenzamos la ejecución desde el índice 0
-        await _executeWorkflowInstance(workflow, payload, 0, db);
+        _enterExecution(workflow.id, entityId);
+        try {
+            await _executeWorkflowInstance(workflow, payload, 0, db);
+        } finally {
+            _exitExecution(workflow.id, entityId);
+        }
     }
 }
 
@@ -288,23 +361,48 @@ async function _actionSendTemplate(action: SendTemplateAction, payload: Workflow
     const [template] = await db.select().from(templates).where(and(eq(templates.id, action.templateId), eq(templates.tenantId, payload.tenantId))).limit(1);
     if (!template) throw new Error("Template not found");
 
-    const message = _renderTemplate(template.content, {
-        name: lead.name, phone: lead.phone, email: lead.email ?? "",
-    });
-
     const [conn] = await db.select().from(whatsappConnections).where(and(eq(whatsappConnections.tenantId, payload.tenantId), eq(whatsappConnections.isConnected, true))).limit(1);
     if (!conn) throw new Error("No active WhatsApp connection");
 
     const [waNumber] = await db.select().from(whatsappNumbers).where(and(eq(whatsappNumbers.id, conn.whatsappNumberId), eq(whatsappNumbers.tenantId, payload.tenantId))).limit(1);
     if (!waNumber) throw new Error("WhatsApp number not found");
 
-    // 🔴 FIABILIDAD 3: Resiliencia ante Rate Limits (HTTP 429) de Meta API
+    // Determine if this is a Meta Cloud API template or a text-based template
+    const useCloudTemplate = conn.type === "api" && template.metaTemplateName;
+
+    // For text fallback (Baileys or templates without Meta name), render inline
+    const message = useCloudTemplate
+        ? ""
+        : _renderTemplate(template.content, {
+              name: lead.name, phone: lead.phone, email: lead.email ?? "",
+          });
+
+    // Build Meta components with variable substitution if metaComponents are stored
+    const resolvedComponents = useCloudTemplate && Array.isArray(template.metaComponents)
+        ? _resolveTemplateComponents(template.metaComponents, {
+              name: lead.name, phone: lead.phone, email: lead.email ?? "",
+          })
+        : undefined;
+
+    // Resiliencia ante Rate Limits (HTTP 429) de Meta API
     let attempts = 0;
     const maxAttempts = 3;
 
     while (attempts < maxAttempts) {
         try {
-            if (conn.type === "api") {
+            if (useCloudTemplate) {
+                const accessToken = waNumber.accessToken ? await decryptSecret(waNumber.accessToken) : undefined;
+                if (!accessToken) throw new Error("No access token for Cloud API");
+                await sendCloudTemplate({
+                    phoneNumberId: waNumber.phoneNumberId ?? "",
+                    accessToken,
+                    to: lead.phone,
+                    templateName: template.metaTemplateName!,
+                    languageCode: template.languageCode ?? "es",
+                    components: resolvedComponents,
+                });
+            } else if (conn.type === "api") {
+                // Cloud API but no Meta template — send as text
                 const accessToken = waNumber.accessToken ? await decryptSecret(waNumber.accessToken) : undefined;
                 if (!accessToken) throw new Error("No access token for Cloud API");
                 await sendCloudMessage({
@@ -314,14 +412,13 @@ async function _actionSendTemplate(action: SendTemplateAction, payload: Workflow
             } else {
                 await BaileysService.sendMessage(conn.whatsappNumberId, lead.phone, { text: message });
             }
-            return; // Éxito, salimos del loop
+            return; // Success
         } catch (err: any) {
             attempts++;
             const isRateLimit = err?.response?.status === 429 || err?.message?.includes("Rate limit");
             if (attempts >= maxAttempts || (!isRateLimit && attempts > 1)) {
                 throw new Error(`Failed to send template after ${attempts} attempts. Error: ${err?.message}`);
             }
-            // Exponential backoff: 2s, 4s, 8s...
             const backoffDelay = Math.pow(2, attempts) * 1000;
             logger.warn(`[WorkflowEngine] HTTP 429 / Error sending template. Retrying in ${backoffDelay}ms...`);
             await new Promise(resolve => setTimeout(resolve, backoffDelay));
@@ -356,4 +453,23 @@ async function _actionSendInternalNote(action: SendInternalNoteAction, payload: 
 
 function _renderTemplate(template: string, vars: Record<string, string>): string {
     return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, key) => vars[key] ?? "");
+}
+
+/**
+ * Resolve Meta API template components by substituting {{variable}} placeholders
+ * in parameter text values with lead data.
+ */
+function _resolveTemplateComponents(components: any[], vars: Record<string, string>): any[] {
+    return components.map((comp: any) => {
+        if (!comp.parameters || !Array.isArray(comp.parameters)) return comp;
+        return {
+            ...comp,
+            parameters: comp.parameters.map((param: any) => {
+                if (param.type === "text" && typeof param.text === "string") {
+                    return { ...param, text: _renderTemplate(param.text, vars) };
+                }
+                return param;
+            }),
+        };
+    });
 }

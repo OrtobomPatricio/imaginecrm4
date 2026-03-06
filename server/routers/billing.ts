@@ -6,50 +6,18 @@ import { eq, and } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { logger } from "../_core/logger";
 import crypto from "node:crypto";
+import { PLAN_DEFINITIONS, getPlanDefinition } from "@shared/plans";
 
 /**
  * PayPal Billing Router
  *
  * Manages subscriptions, plan changes, and billing events.
  * Requires PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, and plan IDs env vars.
- *
- * Plans:
- * - free:       5 users, 3 WA numbers, 10,000 msgs/month
- * - starter:   10 users, 5 WA numbers, 25,000 msgs/month
- * - pro:       25 users, 10 WA numbers, 100,000 msgs/month
- * - enterprise: 9999 users, 999 WA numbers, 9,999,999 msgs/month
+ * Plan limits are defined in shared/plans.ts (single source of truth).
  */
 
-const PLANS = {
-    free: {
-        name: "Gratis",
-        maxUsers: 5,
-        maxWaNumbers: 3,
-        maxMessages: 10000,
-        priceMonthly: 0,
-    },
-    starter: {
-        name: "Starter",
-        maxUsers: 10,
-        maxWaNumbers: 5,
-        maxMessages: 25000,
-        priceMonthly: 12.90,
-    },
-    pro: {
-        name: "Pro",
-        maxUsers: 25,
-        maxWaNumbers: 10,
-        maxMessages: 100000,
-        priceMonthly: 32.90,
-    },
-    enterprise: {
-        name: "Enterprise",
-        maxUsers: 9999,
-        maxWaNumbers: 999,
-        maxMessages: 9999999,
-        priceMonthly: 99.90,
-    },
-} as const;
+// Alias for backward-compat within this file
+const PLANS = PLAN_DEFINITIONS;
 
 /* ── PayPal helpers ──────────────────────────────────────────── */
 
@@ -374,8 +342,8 @@ export const billingRouter = router({
                         status: 'active',
                         plan: input.plan,
                         maxUsers: planLimits.maxUsers,
-                        maxWhatsappNumbers: planLimits.maxWaNumbers,
-                        maxMessagesPerMonth: planLimits.maxMessages,
+                        maxWhatsappNumbers: planLimits.maxWhatsappNumbers,
+                        maxMessagesPerMonth: planLimits.maxMessagesPerMonth,
                         updatedAt: new Date(),
                     }).where(and(eq(license.tenantId, ctx.tenantId), eq(license.id, existingLicense.id)));
                 } else {
@@ -385,8 +353,8 @@ export const billingRouter = router({
                         status: 'active',
                         plan: input.plan,
                         maxUsers: planLimits.maxUsers,
-                        maxWhatsappNumbers: planLimits.maxWaNumbers,
-                        maxMessagesPerMonth: planLimits.maxMessages,
+                        maxWhatsappNumbers: planLimits.maxWhatsappNumbers,
+                        maxMessagesPerMonth: planLimits.maxMessagesPerMonth,
                     });
                 }
 
@@ -468,8 +436,8 @@ export const billingRouter = router({
                         status: "active",
                         plan: "free",
                         maxUsers: freeLimits.maxUsers,
-                        maxWhatsappNumbers: freeLimits.maxWaNumbers,
-                        maxMessagesPerMonth: freeLimits.maxMessages,
+                        maxWhatsappNumbers: freeLimits.maxWhatsappNumbers,
+                        maxMessagesPerMonth: freeLimits.maxMessagesPerMonth,
                         updatedAt: new Date(),
                     }).where(and(eq(license.tenantId, ctx.tenantId), eq(license.id, existingLicense.id)));
                 } else {
@@ -479,8 +447,8 @@ export const billingRouter = router({
                         status: "active",
                         plan: "free",
                         maxUsers: freeLimits.maxUsers,
-                        maxWhatsappNumbers: freeLimits.maxWaNumbers,
-                        maxMessagesPerMonth: freeLimits.maxMessages,
+                        maxWhatsappNumbers: freeLimits.maxWhatsappNumbers,
+                        maxMessagesPerMonth: freeLimits.maxMessagesPerMonth,
                     });
                 }
 
@@ -488,6 +456,10 @@ export const billingRouter = router({
                     { tenantId: ctx.tenantId, subscriptionId: subId },
                     "[Billing] Subscription cancelled"
                 );
+
+                // Deactivate excess users that exceed the new free plan limits
+                const { enforceDowngradeLimits } = await import("../services/plan-limits");
+                await enforceDowngradeLimits(ctx.tenantId, "free");
 
                 return { success: true };
             } catch (err: any) {
@@ -555,8 +527,8 @@ export const billingRouter = router({
                         status: 'active',
                         plan: input.plan,
                         maxUsers: planLimits.maxUsers,
-                        maxWhatsappNumbers: planLimits.maxWaNumbers,
-                        maxMessagesPerMonth: planLimits.maxMessages,
+                        maxWhatsappNumbers: planLimits.maxWhatsappNumbers,
+                        maxMessagesPerMonth: planLimits.maxMessagesPerMonth,
                         updatedAt: new Date(),
                     }).where(and(eq(license.tenantId, ctx.tenantId), eq(license.id, existingLicense.id)));
                 } else {
@@ -566,8 +538,8 @@ export const billingRouter = router({
                         status: 'active',
                         plan: input.plan,
                         maxUsers: planLimits.maxUsers,
-                        maxWhatsappNumbers: planLimits.maxWaNumbers,
-                        maxMessagesPerMonth: planLimits.maxMessages,
+                        maxWhatsappNumbers: planLimits.maxWhatsappNumbers,
+                        maxMessagesPerMonth: planLimits.maxMessagesPerMonth,
                     });
                 }
 

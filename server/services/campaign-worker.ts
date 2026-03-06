@@ -346,12 +346,17 @@ async function processWhatsAppCampaignBatch(campaign: typeof campaigns.$inferSel
     let templateName = "";
     let languageCode = "es";
 
+    let templateComponents: any[] | undefined;
     if (campaign.templateId) {
         const tmpl = await db.select().from(templates)
             .where(and(eq(templates.id, campaign.templateId), eq(templates.tenantId, campaign.tenantId)))
             .limit(1);
         if (tmpl[0]) {
-            templateName = tmpl[0].name;
+            templateName = tmpl[0].metaTemplateName ?? tmpl[0].name;
+            languageCode = tmpl[0].languageCode ?? "es";
+            if (Array.isArray(tmpl[0].metaComponents)) {
+                templateComponents = tmpl[0].metaComponents;
+            }
         }
     }
 
@@ -438,7 +443,8 @@ async function processWhatsAppCampaignBatch(campaign: typeof campaigns.$inferSel
                 phoneNumberId,
                 to: phone,
                 templateName,
-                languageCode
+                languageCode,
+                components: templateComponents,
             });
 
             await db.update(campaignRecipients)

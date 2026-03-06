@@ -4,16 +4,11 @@ import { tenants, license } from "../../drizzle/schema";
 import { eq, and } from "drizzle-orm";
 import { logger } from "../_core/logger";
 import { getPayPalBaseUrl, getPayPalAccessToken } from "./billing";
-
-const WEBHOOK_PLANS: Record<string, { maxUsers: number; maxWaNumbers: number; maxMessages: number }> = {
-    free: { maxUsers: 5, maxWaNumbers: 3, maxMessages: 10000 },
-    starter: { maxUsers: 10, maxWaNumbers: 5, maxMessages: 25000 },
-    pro: { maxUsers: 25, maxWaNumbers: 10, maxMessages: 100000 },
-    enterprise: { maxUsers: 9999, maxWaNumbers: 999, maxMessages: 9999999 },
-};
+import { getPlanDefinition, PLAN_DEFINITIONS } from "@shared/plans";
+import { enforceDowngradeLimits } from "../services/plan-limits";
 
 async function syncLicenseForTenant(db: any, tenantId: number, plan: string, status: string) {
-    const limits = WEBHOOK_PLANS[plan] ?? WEBHOOK_PLANS.free;
+    const limits = getPlanDefinition(plan);
     const [existing] = await db.select().from(license)
         .where(eq(license.tenantId, tenantId)).limit(1);
     if (existing) {
@@ -21,8 +16,8 @@ async function syncLicenseForTenant(db: any, tenantId: number, plan: string, sta
             status,
             plan,
             maxUsers: limits.maxUsers,
-            maxWhatsappNumbers: limits.maxWaNumbers,
-            maxMessagesPerMonth: limits.maxMessages,
+            maxWhatsappNumbers: limits.maxWhatsappNumbers,
+            maxMessagesPerMonth: limits.maxMessagesPerMonth,
             updatedAt: new Date(),
         }).where(and(eq(license.tenantId, tenantId), eq(license.id, existing.id)));
     } else {
@@ -32,8 +27,8 @@ async function syncLicenseForTenant(db: any, tenantId: number, plan: string, sta
             status,
             plan,
             maxUsers: limits.maxUsers,
-            maxWhatsappNumbers: limits.maxWaNumbers,
-            maxMessagesPerMonth: limits.maxMessages,
+            maxWhatsappNumbers: limits.maxWhatsappNumbers,
+            maxMessagesPerMonth: limits.maxMessagesPerMonth,
         });
     }
 }
@@ -95,7 +90,7 @@ async function verifyPayPalWebhook(req: Request): Promise<boolean> {
     }
 }
 
-/** Parse custom_id format: "tenantId|plan" — validates plan against known WEBHOOK_PLANS */
+/** Parse custom_id format: "tenantId|plan" — validates plan against known PLAN_DEFINITIONS */
 function parseCustomId(customId?: string): { tenantId: number; plan: string } | null {
     if (!customId) return null;
     const parts = customId.split("|");
@@ -103,7 +98,7 @@ function parseCustomId(customId?: string): { tenantId: number; plan: string } | 
     const tenantId = Number(parts[0]);
     const plan = parts[1];
     if (!tenantId || !plan) return null;
-    if (!(plan in WEBHOOK_PLANS)) {
+    if (!(plan in PLAN_DEFINITIONS)) {
         logger.warn({ customId, plan }, "[PayPalWebhook] Unknown plan in custom_id");
         return null;
     }
@@ -206,6 +201,9 @@ export function registerPayPalWebhookRoutes(app: Express): void {
                             });
 
                             logger.warn({ subscriptionId, tenantId: parsed.tenantId }, "[PayPalWebhook] Subscription cancelled → free");
+
+                            // Deactivate excess users after downgrade to free
+                            await enforceDowngradeLimits(parsed.tenantId, "free");
                         } else {
                             logger.warn({ subscriptionId, tenantId: parsed.tenantId, currentSub: (currentTenant as any)?.paypalSubscriptionId }, "[PayPalWebhook] Subscription cancelled but doesn't match current — skipped");
                         }

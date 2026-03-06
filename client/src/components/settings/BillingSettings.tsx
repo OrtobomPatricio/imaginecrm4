@@ -443,8 +443,8 @@ function BillingActions({ isActive }: { isActive: boolean }) {
                                 </div>
                                 <ul className="text-sm space-y-1 text-muted-foreground">
                                     <li>Hasta {plan.maxUsers} usuarios</li>
-                                    <li>Hasta {plan.maxWaNumbers} números WhatsApp</li>
-                                    <li>Hasta {plan.maxMessages.toLocaleString()} mensajes/mes</li>
+                                    <li>Hasta {plan.maxWhatsappNumbers} números WhatsApp</li>
+                                    <li>Hasta {plan.maxMessagesPerMonth.toLocaleString()} mensajes/mes</li>
                                 </ul>
                                 <Button
                                     className="w-full"

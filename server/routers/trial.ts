@@ -1,10 +1,12 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
-import { tenants } from "../../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { tenants, license } from "../../drizzle/schema";
+import { eq, and } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { logger } from "../_core/logger";
+import { getPlanDefinition } from "@shared/plans";
+import crypto from "node:crypto";
 
 /**
  * Free Trial & Proration Service
@@ -46,6 +48,32 @@ export const trialRouter = router({
                 plan: "pro",
                 trialEndsAt: trialEnd,
             } as any).where(eq(tenants.id, ctx.tenantId));
+
+            // Sync license table with Pro limits so enforcement works correctly
+            const proLimits = getPlanDefinition("pro");
+            const [existingLicense] = await db.select().from(license)
+                .where(eq(license.tenantId, ctx.tenantId)).limit(1);
+
+            if (existingLicense) {
+                await db.update(license).set({
+                    status: "active",
+                    plan: "pro",
+                    maxUsers: proLimits.maxUsers,
+                    maxWhatsappNumbers: proLimits.maxWhatsappNumbers,
+                    maxMessagesPerMonth: proLimits.maxMessagesPerMonth,
+                    updatedAt: new Date(),
+                }).where(and(eq(license.tenantId, ctx.tenantId), eq(license.id, existingLicense.id)));
+            } else {
+                await db.insert(license).values({
+                    tenantId: ctx.tenantId,
+                    key: `lic_trial_${crypto.randomBytes(16).toString("hex")}`,
+                    status: "active",
+                    plan: "pro",
+                    maxUsers: proLimits.maxUsers,
+                    maxWhatsappNumbers: proLimits.maxWhatsappNumbers,
+                    maxMessagesPerMonth: proLimits.maxMessagesPerMonth,
+                });
+            }
 
             logger.info({ tenantId: ctx.tenantId, trialEnd }, "[Trial] 14-day free trial started");
 

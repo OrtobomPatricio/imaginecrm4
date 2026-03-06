@@ -1,4 +1,5 @@
 import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
+import { getPlanDefinition } from '@shared/plans';
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
@@ -82,16 +83,23 @@ const requireUser = t.middleware(async opts => {
             const [lic] = await db.select({ id: license.id }).from(license)
               .where(eq(license.tenantId, ctx.user.tenantId)).limit(1);
             if (lic) {
+              const freeLimits = getPlanDefinition("free");
               await db.update(license).set({
                 plan: "free",
                 status: "active",
-                maxUsers: 5,
-                maxWhatsappNumbers: 3,
-                maxMessagesPerMonth: 10000,
+                maxUsers: freeLimits.maxUsers,
+                maxWhatsappNumbers: freeLimits.maxWhatsappNumbers,
+                maxMessagesPerMonth: freeLimits.maxMessagesPerMonth,
                 updatedAt: new Date(),
               }).where(eq(license.id, lic.id));
             }
           } catch { /* license table may not exist yet */ }
+
+          // Deactivate excess users after trial downgrade
+          try {
+            const { enforceDowngradeLimits } = await import("../services/plan-limits");
+            await enforceDowngradeLimits(ctx.user.tenantId, "free");
+          } catch { /* best-effort */ }
         }
       }
     }

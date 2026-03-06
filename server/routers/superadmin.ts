@@ -293,6 +293,27 @@ export const superadminRouter = router({
                 .set({ plan: input.plan })
                 .where(eq(tenants.id, input.tenantId));
 
+            // Sync license table with new plan limits
+            const { getPlanDefinition } = await import("@shared/plans");
+            const newLimits = getPlanDefinition(input.plan);
+            const { license } = await import("../../drizzle/schema");
+            const [existingLic] = await db.select({ id: license.id }).from(license)
+                .where(eq(license.tenantId, input.tenantId)).limit(1);
+            if (existingLic) {
+                await db.update(license).set({
+                    plan: input.plan,
+                    status: "active",
+                    maxUsers: newLimits.maxUsers,
+                    maxWhatsappNumbers: newLimits.maxWhatsappNumbers,
+                    maxMessagesPerMonth: newLimits.maxMessagesPerMonth,
+                    updatedAt: new Date(),
+                }).where(eq(license.id, existingLic.id));
+            }
+
+            // Enforce downgrade limits (deactivate excess users if downgrading)
+            const { enforceDowngradeLimits } = await import("../services/plan-limits");
+            await enforceDowngradeLimits(input.tenantId, input.plan);
+
             logger.info(
                 { adminId: ctx.user!.id, tenantId: input.tenantId, plan: input.plan },
                 "[Superadmin] Tenant plan changed"
