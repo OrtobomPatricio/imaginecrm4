@@ -14,7 +14,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   microsoft_auth_failed: "Error al autenticar con Microsoft. Intentá de nuevo.",
   microsoft_init_failed: "No se pudo iniciar la autenticación con Microsoft.",
   no_user_data: "No se recibieron datos del proveedor. Intentá de nuevo.",
-  not_provisioned: "Tu cuenta no está registrada en el sistema. Contactá al administrador.",
+  not_provisioned: "No se encontró una cuenta con este email. ¿Necesitás crear una cuenta nueva?",
   ambiguous_tenant: "Tu email está asociado a múltiples organizaciones. Contactá soporte.",
   callback_failed: "Error durante la autenticación. Intentá de nuevo.",
   provider_not_configured: "Este método de inicio de sesión no está configurado.",

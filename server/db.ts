@@ -247,4 +247,67 @@ export async function autoProvisionOAuthUser(oauthUser: { openId: string; name?:
   return getUserByOpenId(oauthUser.openId);
 }
 
+/**
+ * Create a new tenant + owner from OAuth signup with user-provided company data.
+ * Like email signup but uses OAuth identity instead of password.
+ */
+export async function createOAuthSignupTenant(
+  oauthUser: { openId: string; name?: string; email?: string; platform?: string },
+  signup: { companyName: string; slug: string; timezone?: string; language?: string; currency?: string }
+) {
+  if (!oauthUser.email) return null;
+
+  const database = await getDb();
+  if (!database) return null;
+
+  const normalizedEmail = oauthUser.email.trim().toLowerCase();
+  const slugRegex = /^[a-z0-9][a-z0-9-]{2,48}[a-z0-9]$/;
+  if (!slugRegex.test(signup.slug)) return null;
+
+  const existingTenants = await database.select({ id: tenants.id }).from(tenants).where(eq(tenants.slug, signup.slug)).limit(1);
+  if (existingTenants.length > 0) return null;
+
+  const existingUsers = await database.select({ id: users.id }).from(users).where(eq(users.email, normalizedEmail)).limit(1);
+  if (existingUsers.length > 0) return null;
+
+  const displayName = oauthUser.name || normalizedEmail.split("@")[0];
+  const trialEnd = new Date();
+  trialEnd.setDate(trialEnd.getDate() + TRIAL_DAYS);
+
+  await database.transaction(async (tx) => {
+    const tenantResult = await tx.insert(tenants).values({
+      name: signup.companyName,
+      slug: signup.slug,
+      plan: "pro",
+      status: "active",
+      trialEndsAt: trialEnd,
+    });
+    const tenantId = tenantResult[0].insertId;
+
+    await tx.insert(users).values({
+      tenantId,
+      openId: oauthUser.openId,
+      name: displayName,
+      email: normalizedEmail,
+      loginMethod: oauthUser.platform || "oauth",
+      role: "owner",
+      isActive: true,
+      emailVerified: true,
+    });
+
+    await tx.insert(appSettings).values({
+      tenantId,
+      companyName: signup.companyName,
+      timezone: signup.timezone || "America/Asuncion",
+      language: signup.language || "es",
+      currency: signup.currency || "USD",
+      permissionsMatrix: DEFAULT_PERMISSIONS,
+      scheduling: { slotMinutes: 15, maxPerSlot: 6, allowCustomTime: true },
+    });
+  });
+
+  logger.info({ email: normalizedEmail, platform: oauthUser.platform, slug: signup.slug }, "[OAuth Signup] Created new tenant");
+  return getUserByOpenId(oauthUser.openId);
+}
+
 // Feature queries are defined in their respective routers and services.

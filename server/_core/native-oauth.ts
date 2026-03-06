@@ -7,7 +7,7 @@ import session from 'express-session';
 import cookieParser from 'cookie-parser';
 import { COOKIE_NAME, ONE_YEAR_MS } from '@shared/const';
 import * as db from '../db';
-import { autoProvisionOAuthUser } from '../db';
+import { autoProvisionOAuthUser, createOAuthSignupTenant } from '../db';
 import { getSessionCookieOptions } from './cookies';
 import { sdk } from './sdk';
 import { createOAuthSessionStore } from './redis-session-store';
@@ -113,6 +113,26 @@ export function registerNativeOAuth(app: Express) {
             )
         );
 
+        // Google Signup Route (stores company data in session before OAuth redirect)
+        app.get('/api/auth/google/signup', (req: Request, res: Response, next) => {
+            const { companyName, slug, timezone, language, currency } = req.query;
+            if (typeof companyName === 'string' && typeof slug === 'string') {
+                (req.session as any).pendingSignup = {
+                    companyName: companyName.slice(0, 200),
+                    slug: slug.toLowerCase().slice(0, 50),
+                    timezone: typeof timezone === 'string' ? timezone : 'America/Asuncion',
+                    language: typeof language === 'string' ? language : 'es',
+                    currency: typeof currency === 'string' ? currency : 'USD',
+                };
+            }
+            req.session.save(() => {
+                passport.authenticate('google', {
+                    scope: ['profile', 'email'],
+                    state: true,
+                })(req, res, next);
+            });
+        });
+
         // Google Login Route
         app.get(
             '/api/auth/google',
@@ -145,6 +165,17 @@ export function registerNativeOAuth(app: Express) {
                     }
 
                     logger.info({ found: !!provisionedUser, openId: provisionedUser?.openId }, '[OAuth] Google - resolveProvisionedOAuthUser result');
+
+                    if (!provisionedUser) {
+                        const pendingSignup = (req.session as any)?.pendingSignup;
+                        if (pendingSignup) {
+                            delete (req.session as any).pendingSignup;
+                            provisionedUser = await createOAuthSignupTenant(user, pendingSignup);
+                            if (!provisionedUser) {
+                                return res.redirect('/signup?error=oauth_signup_failed');
+                            }
+                        }
+                    }
 
                     if (!provisionedUser) {
                         provisionedUser = await autoProvisionOAuthUser(user);
@@ -226,6 +257,26 @@ export function registerNativeOAuth(app: Express) {
             )
         );
 
+        // Facebook Signup Route
+        app.get('/api/auth/facebook/signup', (req: Request, res: Response, next) => {
+            const { companyName, slug, timezone, language, currency } = req.query;
+            if (typeof companyName === 'string' && typeof slug === 'string') {
+                (req.session as any).pendingSignup = {
+                    companyName: companyName.slice(0, 200),
+                    slug: slug.toLowerCase().slice(0, 50),
+                    timezone: typeof timezone === 'string' ? timezone : 'America/Asuncion',
+                    language: typeof language === 'string' ? language : 'es',
+                    currency: typeof currency === 'string' ? currency : 'USD',
+                };
+            }
+            req.session.save(() => {
+                passport.authenticate('facebook', {
+                    scope: ['email'],
+                    state: true,
+                })(req, res, next);
+            });
+        });
+
         // Facebook Login Route
         app.get(
             '/api/auth/facebook',
@@ -258,6 +309,17 @@ export function registerNativeOAuth(app: Express) {
                     }
 
                     logger.info({ found: !!provisionedUser, openId: provisionedUser?.openId }, '[OAuth] Facebook - resolveProvisionedOAuthUser result');
+
+                    if (!provisionedUser) {
+                        const pendingSignup = (req.session as any)?.pendingSignup;
+                        if (pendingSignup) {
+                            delete (req.session as any).pendingSignup;
+                            provisionedUser = await createOAuthSignupTenant(user, pendingSignup);
+                            if (!provisionedUser) {
+                                return res.redirect('/signup?error=oauth_signup_failed');
+                            }
+                        }
+                    }
 
                     if (!provisionedUser) {
                         provisionedUser = await autoProvisionOAuthUser(user);
@@ -344,6 +406,25 @@ export function registerNativeOAuth(app: Express) {
             )
         );
 
+        // Microsoft Signup Route
+        app.get('/api/auth/microsoft/signup', (req: Request, res: Response, next) => {
+            const { companyName, slug, timezone, language, currency } = req.query;
+            if (typeof companyName === 'string' && typeof slug === 'string') {
+                (req.session as any).pendingSignup = {
+                    companyName: companyName.slice(0, 200),
+                    slug: slug.toLowerCase().slice(0, 50),
+                    timezone: typeof timezone === 'string' ? timezone : 'America/Asuncion',
+                    language: typeof language === 'string' ? language : 'es',
+                    currency: typeof currency === 'string' ? currency : 'USD',
+                };
+            }
+            req.session.save(() => {
+                passport.authenticate('azuread-openidconnect', {
+                    failureRedirect: '/login?error=microsoft_init_failed',
+                })(req, res, next);
+            });
+        });
+
         // Microsoft Login Route
         app.get(
             '/api/auth/microsoft',
@@ -374,6 +455,17 @@ export function registerNativeOAuth(app: Express) {
                             return res.redirect('/login?error=ambiguous_tenant');
                         }
                         throw error;
+                    }
+
+                    if (!provisionedUser) {
+                        const pendingSignup = (req.session as any)?.pendingSignup;
+                        if (pendingSignup) {
+                            delete (req.session as any).pendingSignup;
+                            provisionedUser = await createOAuthSignupTenant(user, pendingSignup);
+                            if (!provisionedUser) {
+                                return res.redirect('/signup?error=oauth_signup_failed');
+                            }
+                        }
                     }
 
                     if (!provisionedUser) {
