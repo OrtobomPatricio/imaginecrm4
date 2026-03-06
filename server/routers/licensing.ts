@@ -102,15 +102,18 @@ export const licensingRouter = router({
     /**
      * Update license (for manual activation or syncing with payment provider)
      */
+    /**
+     * Update license metadata (key, status, features).
+     * Plan limits (maxUsers, maxWhatsappNumbers, maxMessagesPerMonth) are
+     * managed exclusively by the PayPal webhook / billing flow to prevent
+     * tenant admins from self-escalating their resource quotas.
+     */
     updateLicense: permissionProcedure("settings.manage")
         .input(z.object({
             key: z.string().optional(),
             status: z.enum(["active", "expired", "canceled", "trial"]).optional(),
             plan: z.string().optional(),
             expiresAt: z.date().optional(),
-            maxUsers: z.number().optional(),
-            maxWhatsappNumbers: z.number().optional(),
-            maxMessagesPerMonth: z.number().optional(),
             features: z.array(z.string()).optional(),
         }))
         .mutation(async ({ input, ctx }) => {
@@ -128,15 +131,17 @@ export const licensingRouter = router({
                     .where(and(eq(license.tenantId, ctx.tenantId), eq(license.id, existing.id)));
             } else {
                 if (!input.key) throw new Error("License key is required");
+                const { getPlanLimits } = await import("../services/plan-limits");
+                const limits = await getPlanLimits(ctx.tenantId);
                 await db.insert(license).values({
                     tenantId: ctx.tenantId,
                     key: input.key,
                     status: input.status || 'trial',
                     plan: input.plan || 'starter',
                     expiresAt: input.expiresAt,
-                    maxUsers: input.maxUsers || 5,
-                    maxWhatsappNumbers: input.maxWhatsappNumbers || 3,
-                    maxMessagesPerMonth: input.maxMessagesPerMonth || 10000,
+                    maxUsers: limits.maxUsers,
+                    maxWhatsappNumbers: limits.maxWhatsappNumbers,
+                    maxMessagesPerMonth: limits.maxMessagesPerMonth,
                     features: input.features || [],
                 });
             }

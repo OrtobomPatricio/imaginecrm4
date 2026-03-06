@@ -340,7 +340,9 @@ async function startServer() {
 
   // Start Server
   const preferredPort = parseInt(process.env.PORT || "3000");
-  const port = process.env.NODE_ENV === "production"
+  const shouldUseStrictPort =
+    process.env.NODE_ENV === "production" || process.env.E2E_STRICT_PORT === "1";
+  const port = shouldUseStrictPort
     ? preferredPort
     : await findAvailablePort(preferredPort);
 

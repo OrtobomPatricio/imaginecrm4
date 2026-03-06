@@ -31,6 +31,14 @@ export const trialRouter = router({
                 });
             }
 
+            // Prevent re-use: if trialEndsAt is already set, a trial was already consumed
+            if ((tenant as any)?.trialEndsAt) {
+                throw new TRPCError({
+                    code: "BAD_REQUEST",
+                    message: "Ya has utilizado tu periodo de prueba gratuito.",
+                });
+            }
+
             const trialEnd = new Date();
             trialEnd.setDate(trialEnd.getDate() + 14);
 

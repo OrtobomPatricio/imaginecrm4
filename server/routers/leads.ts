@@ -2,7 +2,7 @@ import { z } from "zod";
 import { eq, desc, asc, and, sql, inArray } from "drizzle-orm";
 import { leads, pipelines, pipelineStages, whatsappNumbers, users } from "../../drizzle/schema";
 import { getDb } from "../db";
-import { permissionProcedure, protectedProcedure, router } from "../_core/trpc";
+import { permissionProcedure, router } from "../_core/trpc";
 import { dispatchIntegrationEvent } from "../_core/integrationDispatch";
 import { leadsToCSV, parseCSV, importLeadsFromCSV } from "../services/backup";
 import { COMMISSION_RATES } from "../../shared/const";
@@ -38,7 +38,7 @@ const phoneValidator = z.string().trim().superRefine((val, ctx) => {
 });
 
 export const leadsRouter = router({
-    search: protectedProcedure
+    search: permissionProcedure("leads.view")
         .input(z.object({
             query: z.string().trim().min(1),
             limit: z.number().default(10)
