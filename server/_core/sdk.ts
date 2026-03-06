@@ -43,6 +43,16 @@ class OAuthService {
 
   private decodeState(state: string): string {
     const redirectUri = atob(state);
+    // Validate redirect URI against allowed origins to prevent open redirect
+    const allowedOrigins = [
+      process.env.VITE_OAUTH_PORTAL_URL,
+      process.env.CLIENT_URL,
+      process.env.APP_URL,
+    ].filter(Boolean) as string[];
+    if (allowedOrigins.length > 0 && !allowedOrigins.some(origin => redirectUri.startsWith(origin))) {
+      logger.warn({ redirectUri }, "[OAuth] State redirect URI not in allowlist, defaulting to /");
+      return "/";
+    }
     return redirectUri;
   }
 

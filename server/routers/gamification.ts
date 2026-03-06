@@ -13,7 +13,7 @@ export const gamificationRouter = router({
         }),
 
         unlock: protectedProcedure
-            .input(z.object({ type: z.string(), metadata: z.any().optional() }))
+            .input(z.object({ type: z.string().min(1).max(100), metadata: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])).optional() }))
             .mutation(async ({ input, ctx }) => {
                 const db = await getDb();
                 if (!db || !ctx.user) return { success: false };

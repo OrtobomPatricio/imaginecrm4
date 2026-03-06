@@ -413,10 +413,14 @@ export function registerWhatsAppWebhookRoutes(app: Express) {
   app.get("/api/whatsapp/webhook", (req: Request, res: Response) => {
     const verifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
     const mode = req.query["hub.mode"];
-    const token = req.query["hub.verify_token"];
+    const token = String(req.query["hub.verify_token"] ?? "");
     const challenge = req.query["hub.challenge"];
 
-    if (mode === "subscribe" && token === verifyToken) {
+    // Use timing-safe comparison to prevent side-channel leaks
+    const tokenMatch = verifyToken && token.length === verifyToken.length &&
+      crypto.timingSafeEqual(Buffer.from(token), Buffer.from(verifyToken));
+
+    if (mode === "subscribe" && tokenMatch) {
       logger.info("whatsapp webhook verified");
       res.status(200).send(challenge);
     } else {

@@ -16,7 +16,8 @@ export async function createContext(
   let user: User | null = null;
 
   // DEV BYPASS: En desarrollo, usar usuario automático si existe
-  const isDev = process.env.NODE_ENV !== "production";
+  // SECURITY: Positive match only — bypass ONLY if NODE_ENV is explicitly "development"
+  const isDev = process.env.NODE_ENV === "development";
   const devBypassUser = (opts.req as any).devBypassUser;
   
   if (isDev && devBypassUser) {

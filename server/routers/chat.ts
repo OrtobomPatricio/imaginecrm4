@@ -703,13 +703,22 @@ export const chatRouter = router({
                         // Resolve file path from mediaUrl
                         let filePath: string | null = null;
                         if (input.mediaUrl) {
-                            // Extract filename from URL (e.g., /api/uploads/filename -> filename)
+                            // Extract filename from URL and validate it doesn't contain traversal
                             const filename = path.basename(input.mediaUrl);
+                            if (!filename || filename.includes('..') || filename.includes('\0')) {
+                                throw new TRPCError({ code: "BAD_REQUEST", message: "Nombre de archivo inválido" });
+                            }
                             filePath = path.join(process.cwd(), "storage/uploads", filename);
+
+                            // Ensure resolved path stays within uploads directory
+                            const uploadsDir = path.resolve(process.cwd(), "storage/uploads");
+                            if (!path.resolve(filePath).startsWith(uploadsDir)) {
+                                throw new TRPCError({ code: "BAD_REQUEST", message: "Ruta de archivo inválida" });
+                            }
 
                             // Verify file exists
                             if (!fs.existsSync(filePath)) {
-                                throw new TRPCError({ code: "NOT_FOUND", message: `Archivo no encontrado: ${filePath}` });
+                                throw new TRPCError({ code: "NOT_FOUND", message: "Archivo no encontrado" });
                             }
                         }
 

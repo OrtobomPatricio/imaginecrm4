@@ -37,8 +37,8 @@ export const workflowsRouter = router({
             name: z.string().min(1).max(200),
             description: z.string().max(1000).optional(),
             triggerType: z.enum(["lead_created", "lead_updated", "msg_received", "campaign_link_clicked"]),
-            triggerConfig: z.record(z.string(), z.unknown()).optional(),
-            actions: z.array(z.record(z.string(), z.unknown())).optional(),
+            triggerConfig: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
+            actions: z.array(z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(z.string())]))).optional(),
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
@@ -58,8 +58,8 @@ export const workflowsRouter = router({
             name: z.string().max(200).optional(),
             description: z.string().max(1000).optional(),
             triggerType: z.enum(["lead_created", "lead_updated", "msg_received", "campaign_link_clicked"]).optional(),
-            triggerConfig: z.record(z.string(), z.unknown()).optional(),
-            actions: z.array(z.record(z.string(), z.unknown())).optional(),
+            triggerConfig: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
+            actions: z.array(z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(z.string())]))).optional(),
             isActive: z.boolean().optional(),
         }))
         .mutation(async ({ input, ctx }) => {
