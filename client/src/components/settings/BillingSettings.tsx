@@ -319,6 +319,10 @@ function BillingActions({ isActive }: { isActive: boolean }) {
     const allPlans = billingPlan.data?.allPlans;
     const currentPlan = billingPlan.data?.plan || "free";
     const isTrial = licensingStatus.data?.license?.status === 'trial';
+    const hasPaidSubscription = Boolean(
+        (isActive && currentPlan !== 'free' && currentPlan !== 'starter') ||
+        (licensingStatus.data as any)?.paypalSubscriptionId
+    );
 
     // On mount, check if returning from PayPal success/cancel redirect (legacy fallback)
     React.useEffect(() => {

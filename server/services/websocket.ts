@@ -131,10 +131,6 @@ export async function initWebSocket(server: HttpServer): Promise<SocketIOServer>
         try {
             // DEV BYPASS: Allow all connections in dev mode with bypass auth
             if (process.env.NODE_ENV === "development" && process.env.VITE_DEV_BYPASS_AUTH === "1") {
-                if (process.env.NODE_ENV === "production") {
-                    logger.error("[WebSocket] FATAL: DEV_BYPASS_AUTH cannot be enabled in production");
-                    return next(new Error("Authentication required"));
-                }
                 socket.data.userId = 1; // Default dev user
                 socket.data.userRole = "owner";
                 socket.data.userName = "Dev User";

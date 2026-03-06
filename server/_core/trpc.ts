@@ -98,8 +98,11 @@ const requireUser = t.middleware(async opts => {
   } catch (err: any) {
     // Re-throw FORBIDDEN (billing lock) — it's intentional
     if (err instanceof TRPCError) throw err;
-    // Swallow DB/schema errors so the billing check never crashes the request
-    // (e.g. trialEndsAt column missing from DB)
+    logger.error({ err: safeError(err), tenantId: ctx.user?.tenantId, path }, "billing lock check failed");
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "No se pudo validar el estado de facturacion. Intente nuevamente en unos minutos.",
+    });
   }
 
   return next({

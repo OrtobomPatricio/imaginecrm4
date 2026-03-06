@@ -144,7 +144,11 @@ export async function createApp() {
   ].filter(Boolean) as string[]);
 
   app.use((req, res, next) => {
-    if (req.path.startsWith("/api/whatsapp") || req.path.startsWith("/api/webhooks") || req.path.startsWith("/api/meta")) {
+    const isSignedWebhookPath =
+      req.path === "/api/whatsapp/webhook" ||
+      req.path === "/api/meta/webhook" ||
+      req.path === "/api/webhooks/paypal";
+    if (isSignedWebhookPath) {
       return next();
     }
     const method = req.method.toUpperCase();

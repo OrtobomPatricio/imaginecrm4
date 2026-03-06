@@ -5,6 +5,7 @@ import { tenants, license } from "../../drizzle/schema";
 import { eq, and } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { logger } from "../_core/logger";
+import crypto from "node:crypto";
 
 /**
  * PayPal Billing Router
@@ -380,6 +381,7 @@ export const billingRouter = router({
                 } else {
                     await db.insert(license).values({
                         tenantId: ctx.tenantId,
+                        key: `lic_${crypto.randomBytes(16).toString("hex")}`,
                         status: 'active',
                         plan: input.plan,
                         maxUsers: planLimits.maxUsers,
@@ -473,6 +475,7 @@ export const billingRouter = router({
                 } else {
                     await db.insert(license).values({
                         tenantId: ctx.tenantId,
+                        key: `lic_${crypto.randomBytes(16).toString("hex")}`,
                         status: "active",
                         plan: "free",
                         maxUsers: freeLimits.maxUsers,
@@ -559,6 +562,7 @@ export const billingRouter = router({
                 } else {
                     await db.insert(license).values({
                         tenantId: ctx.tenantId,
+                        key: `lic_${crypto.randomBytes(16).toString("hex")}`,
                         status: 'active',
                         plan: input.plan,
                         maxUsers: planLimits.maxUsers,

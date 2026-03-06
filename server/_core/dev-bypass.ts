@@ -44,7 +44,12 @@ export function registerDevBypass(app: Express) {
   app.use((req: Request, res: Response, next: NextFunction) => {
     // SECURITY: Only allow bypass for localhost requests
     const host = req.hostname || req.headers.host || "";
-    const isLocalhost = host === "localhost" || host === "127.0.0.1" || host.startsWith("localhost:");
+    const isLocalhost =
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "::1" ||
+      host === "[::1]" ||
+      host.startsWith("localhost:");
     if (!isLocalhost) {
       return next();
     }

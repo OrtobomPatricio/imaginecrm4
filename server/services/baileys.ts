@@ -204,7 +204,7 @@ export const BaileysService = {
 
         // Setup Auth State: prefer Redis (multi-instance safe) → fallback to encrypted file system
         let state: any;
-        let saveCreds: () => Promise<void>;
+        let saveCreds: () => Promise<void> = async () => {};
         let usingRedis = false;
 
         if (process.env.REDIS_URL) {

@@ -777,6 +777,17 @@ function IntegrationForm({ id, onSuccess }: { id: number | null, onSuccess: () =
 // --- Developer Webhooks (webhooks router with HMAC signing & delivery logs) ---
 
 function DeveloperWebhooks() {
+  type WebhookEvent =
+    | "lead.created"
+    | "lead.updated"
+    | "lead.status_changed"
+    | "message.received"
+    | "message.sent"
+    | "conversation.assigned"
+    | "note.created"
+    | "task.created"
+    | "task.completed";
+
   const { data: webhooks = [], refetch } = trpc.webhooks.list.useQuery();
   const { data: eventTypes = [] } = trpc.webhooks.getEventTypes.useQuery();
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -798,21 +809,22 @@ function DeveloperWebhooks() {
   });
   const testWebhook = trpc.webhooks.test.useMutation({
     onSuccess: (data) => {
-      if (data.success) toast.success(`Test exitoso (${data.statusCode})`);
-      else toast.error(`Test falló: ${data.statusCode}`);
+      const statusCode = data.success ? data.status : 0;
+      if (data.success) toast.success(`Test exitoso (${statusCode})`);
+      else toast.error(`Test fallo (${statusCode})`);
     },
     onError: (e) => toast.error(e.message),
   });
   const regenerateSecret = trpc.webhooks.regenerateSecret.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       toast.success("Secreto regenerado");
-      if (data.secret) setRevealedSecrets(prev => ({ ...prev, [data.id]: data.secret }));
+      if (data.secret) setRevealedSecrets(prev => ({ ...prev, [variables.id]: data.secret }));
       refetch();
     },
     onError: (e) => toast.error(e.message),
   });
 
-  const [form, setForm] = useState({ name: "", url: "", events: [] as string[], active: true });
+  const [form, setForm] = useState({ name: "", url: "", events: [] as WebhookEvent[], active: true });
 
   const closeForm = () => {
     setIsFormOpen(false);
@@ -838,7 +850,7 @@ function DeveloperWebhooks() {
     }
   };
 
-  const toggleEvent = (evt: string) => {
+  const toggleEvent = (evt: WebhookEvent) => {
     setForm(p => ({
       ...p,
       events: p.events.includes(evt)
@@ -965,13 +977,13 @@ function DeveloperWebhooks() {
                 <Label>Eventos</Label>
                 <div className="grid grid-cols-2 gap-2 border rounded-md p-3 max-h-[200px] overflow-y-auto">
                   {eventTypes.map((et: any) => (
-                    <div key={et.event} className="flex items-center space-x-2">
+                    <div key={et.value} className="flex items-center space-x-2">
                       <Checkbox
-                        id={`dev-evt-${et.event}`}
-                        checked={form.events.includes(et.event)}
-                        onCheckedChange={() => toggleEvent(et.event)}
+                        id={`dev-evt-${et.value}`}
+                        checked={form.events.includes(et.value as WebhookEvent)}
+                        onCheckedChange={() => toggleEvent(et.value as WebhookEvent)}
                       />
-                      <Label htmlFor={`dev-evt-${et.event}`} className="cursor-pointer font-normal text-sm">
+                      <Label htmlFor={`dev-evt-${et.value}`} className="cursor-pointer font-normal text-sm">
                         <span>{et.label}</span>
                         {et.description && <span className="block text-[10px] text-muted-foreground">{et.description}</span>}
                       </Label>

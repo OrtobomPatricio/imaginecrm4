@@ -124,7 +124,7 @@ export function registerNativeOAuth(app: Express) {
                 passport.authenticate('google', {
                     scope: ['profile', 'email'],
                     state: true,
-                })(req, res, next);
+                } as any)(req, res, next);
             });
         });
 
@@ -134,7 +134,7 @@ export function registerNativeOAuth(app: Express) {
             passport.authenticate('google', {
                 scope: ['profile', 'email'],
                 state: true, // CSRF protection via session-backed state parameter
-            })
+            } as any)
         );
 
         // Google Callback Route
@@ -279,7 +279,7 @@ export function registerNativeOAuth(app: Express) {
                 passport.authenticate('facebook', {
                     scope: ['email'],
                     state: true,
-                })(req, res, next);
+                } as any)(req, res, next);
             });
         });
 
@@ -289,7 +289,7 @@ export function registerNativeOAuth(app: Express) {
             passport.authenticate('facebook', {
                 scope: ['email'],
                 state: true, // CSRF protection via session-backed state parameter
-            })
+            } as any)
         );
 
         // Facebook Callback Route
