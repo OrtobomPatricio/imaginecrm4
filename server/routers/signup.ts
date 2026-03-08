@@ -241,8 +241,8 @@ export const signupRouter = router({
                 ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
 
                 // Send verification email (non-blocking)
-                const appUrl = process.env.APP_URL || `https://${slug}.imaginecrm.com`;
-                const verifyUrl = `${appUrl}/verify-email?token=${emailVerifyToken}`;
+                const appUrl = process.env.APP_URL || `${ctx.req.protocol}://${ctx.req.get('host')}`;
+                const verifyUrl = `${appUrl}/verify-email?token=${emailVerifyToken}&tenant=${encodeURIComponent(slug)}`;
                 sendEmail({
                     tenantId,
                     to: input.email,

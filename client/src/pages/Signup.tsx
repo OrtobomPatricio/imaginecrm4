@@ -451,7 +451,7 @@ export default function Signup() {
                                 </div>
 
                                 <div className="space-y-2">
-                                    <Label htmlFor="slug">URL de tu CRM</Label>
+                                    <Label htmlFor="slug">Identificador de tu organización</Label>
                                     <div className="relative">
                                         <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                         <Input
@@ -464,7 +464,7 @@ export default function Signup() {
                                     </div>
                                     <div className="flex items-center gap-2 text-xs">
                                         <span className="text-muted-foreground">
-                                            {form.slug}.imaginecrm.com
+                                            Organización: {form.slug || '...'}
                                         </span>
                                         {slugToCheck && slugCheck.data && (
                                             slugCheck.data.available ? (

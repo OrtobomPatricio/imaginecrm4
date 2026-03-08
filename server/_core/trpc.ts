@@ -80,7 +80,7 @@ const requireActiveBilling = t.middleware(async opts => {
 
     // Check if tenant is suspended or canceled
     if (tenant.status === "suspended" || tenant.status === "canceled") {
-      const isAllowed = path.startsWith("auth.") || path.startsWith("billing.") || path.startsWith("settings.getBilling") || path.startsWith("trial.");
+      const isAllowed = path.startsWith("auth.") || path.startsWith("billing.") || path.startsWith("settings.getBilling") || path.startsWith("trial.") || path.startsWith("account.") || path.startsWith("sessions.") || path.startsWith("security.");
       if (!isAllowed) {
         throw new TRPCError({
           code: "FORBIDDEN",

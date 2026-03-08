@@ -8,10 +8,17 @@ export default function VerifyEmail() {
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
   const [message, setMessage] = useState("");
 
+  const params = new URLSearchParams(window.location.search);
+  const tenantSlug = params.get("tenant") || "";
+
   const verifyMutation = trpc.account.verifyEmail.useMutation({
     onSuccess: (data) => {
       setStatus("success");
       setMessage(data.message);
+      // Persist tenant so login page pre-fills the organization field
+      if (tenantSlug) {
+        localStorage.setItem("tenant-slug", tenantSlug);
+      }
     },
     onError: (err) => {
       setStatus("error");
@@ -20,7 +27,6 @@ export default function VerifyEmail() {
   });
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
     const token = params.get("token");
     if (token) {
       verifyMutation.mutate({ token });
@@ -29,6 +35,10 @@ export default function VerifyEmail() {
       setMessage("No se proporcionó un token de verificación.");
     }
   }, []);
+
+  const loginUrl = tenantSlug
+    ? `/login?tenant=${encodeURIComponent(tenantSlug)}`
+    : "/login";
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
@@ -48,7 +58,7 @@ export default function VerifyEmail() {
             <>
               <CheckCircle2 className="h-12 w-12 text-green-500" />
               <p className="text-center font-medium">{message}</p>
-              <Button onClick={() => window.location.href = "/login"} className="mt-4">
+              <Button onClick={() => window.location.href = loginUrl} className="mt-4">
                 Iniciar Sesión
               </Button>
             </>
@@ -57,7 +67,7 @@ export default function VerifyEmail() {
             <>
               <XCircle className="h-12 w-12 text-red-500" />
               <p className="text-center text-red-600">{message}</p>
-              <Button variant="outline" onClick={() => window.location.href = "/login"} className="mt-4">
+              <Button variant="outline" onClick={() => window.location.href = loginUrl} className="mt-4">
                 Volver al Login
               </Button>
             </>

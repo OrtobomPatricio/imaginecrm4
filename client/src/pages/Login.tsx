@@ -108,6 +108,9 @@ export default function Login() {
       return;
     }
 
+    // Persist slug so it survives the OAuth redirect round-trip
+    localStorage.setItem("tenant-slug", tenantSlug);
+
     const width = 500;
     const height = 600;
     const left = Math.round(window.screenX + (window.outerWidth - width) / 2);

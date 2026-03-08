@@ -26,6 +26,16 @@ declare global {
     }
 }
 
+/** Build a login/signup error redirect preserving the tenant slug when available. */
+function loginErrorUrl(path: string, req: Request): string {
+    const slug = (req.session as any)?.oauthTenantSlug;
+    if (slug && !path.includes('tenant=')) {
+        const sep = path.includes('?') ? '&' : '?';
+        return `${path}${sep}tenant=${encodeURIComponent(slug)}`;
+    }
+    return path;
+}
+
 // Note: serializeUser/deserializeUser not needed since all passport.authenticate
 // calls use session: false. The app uses its own JWT-based session system.
 
@@ -159,7 +169,7 @@ export function registerNativeOAuth(app: Express) {
                     } as any)(req, res, (err: any) => {
                         if (err) {
                             logger.error({ err }, '[OAuth] Google login authenticate error');
-                            return res.redirect('/login?error=google_auth_failed');
+                            return res.redirect(loginErrorUrl('/login?error=google_auth_failed', req));
                         }
                         next();
                     });
@@ -175,19 +185,21 @@ export function registerNativeOAuth(app: Express) {
                 try {
                     const user = req.user as Express.User;
                     logger.info({ openId: user?.openId, email: user?.email }, '[OAuth] Google callback - user from passport');
-                    if (!user || !user.openId) {
-                        return res.redirect('/login?error=no_user_data');
-                    }
 
                     const oauthTenantSlug = (req.session as any)?.oauthTenantSlug || null;
                     if (oauthTenantSlug) delete (req.session as any).oauthTenantSlug;
+                    const tenantParam = oauthTenantSlug ? `&tenant=${encodeURIComponent(oauthTenantSlug)}` : '';
+
+                    if (!user || !user.openId) {
+                        return res.redirect(`/login?error=no_user_data${tenantParam}`);
+                    }
 
                     let provisionedUser;
                     try {
                         provisionedUser = await db.resolveProvisionedOAuthUser(user.openId, user.email || null, oauthTenantSlug);
                     } catch (error: any) {
                         if (error?.code === "AMBIGUOUS_TENANT") {
-                            return res.redirect('/login?error=ambiguous_tenant');
+                            return res.redirect(`/login?error=ambiguous_tenant${tenantParam}`);
                         }
                         throw error;
                     }
@@ -208,7 +220,7 @@ export function registerNativeOAuth(app: Express) {
                     if (!provisionedUser) {
                         provisionedUser = await autoProvisionOAuthUser(user);
                         if (!provisionedUser) {
-                            return res.redirect('/login?error=not_provisioned');
+                            return res.redirect(`/login?error=not_provisioned${tenantParam}`);
                         }
                     }
 
@@ -247,7 +259,7 @@ export function registerNativeOAuth(app: Express) {
                     res.redirect('/oauth-complete');
                 } catch (error) {
                     logger.error('[OAuth] Google callback failed:', error);
-                    res.redirect('/login?error=callback_failed');
+                    res.redirect(loginErrorUrl('/login?error=callback_failed', req));
                 }
             }
         );
@@ -347,7 +359,7 @@ export function registerNativeOAuth(app: Express) {
                     } as any)(req, res, (err: any) => {
                         if (err) {
                             logger.error({ err }, '[OAuth] Facebook login authenticate error');
-                            return res.redirect('/login?error=facebook_auth_failed');
+                            return res.redirect(loginErrorUrl('/login?error=facebook_auth_failed', req));
                         }
                         next();
                     });
@@ -363,19 +375,21 @@ export function registerNativeOAuth(app: Express) {
                 try {
                     const user = req.user as Express.User;
                     logger.info({ openId: user?.openId, email: user?.email }, '[OAuth] Facebook callback - user from passport');
-                    if (!user || !user.openId) {
-                        return res.redirect('/login?error=no_user_data');
-                    }
 
                     const oauthTenantSlug = (req.session as any)?.oauthTenantSlug || null;
                     if (oauthTenantSlug) delete (req.session as any).oauthTenantSlug;
+                    const tenantParam = oauthTenantSlug ? `&tenant=${encodeURIComponent(oauthTenantSlug)}` : '';
+
+                    if (!user || !user.openId) {
+                        return res.redirect(`/login?error=no_user_data${tenantParam}`);
+                    }
 
                     let provisionedUser;
                     try {
                         provisionedUser = await db.resolveProvisionedOAuthUser(user.openId, user.email || null, oauthTenantSlug);
                     } catch (error: any) {
                         if (error?.code === 'AMBIGUOUS_TENANT') {
-                            return res.redirect('/login?error=ambiguous_tenant');
+                            return res.redirect(`/login?error=ambiguous_tenant${tenantParam}`);
                         }
                         throw error;
                     }
@@ -396,7 +410,7 @@ export function registerNativeOAuth(app: Express) {
                     if (!provisionedUser) {
                         provisionedUser = await autoProvisionOAuthUser(user);
                         if (!provisionedUser) {
-                            return res.redirect('/login?error=not_provisioned');
+                            return res.redirect(`/login?error=not_provisioned${tenantParam}`);
                         }
                     }
 
@@ -432,7 +446,7 @@ export function registerNativeOAuth(app: Express) {
                     res.redirect('/oauth-complete');
                 } catch (error) {
                     logger.error('[OAuth] Facebook callback failed:', error);
-                    res.redirect('/login?error=callback_failed');
+                    res.redirect(loginErrorUrl('/login?error=callback_failed', req));
                 }
             }
         );
@@ -536,19 +550,21 @@ export function registerNativeOAuth(app: Express) {
                 try {
                     const user = (req as any).user;
                     logger.info({ openId: user?.openId, email: user?.email }, '[OAuth] Microsoft callback - user from passport');
-                    if (!user || !user.openId) {
-                        return res.redirect('/login?error=no_user_data');
-                    }
 
                     const oauthTenantSlug = (req.session as any)?.oauthTenantSlug || null;
                     if (oauthTenantSlug) delete (req.session as any).oauthTenantSlug;
+                    const tenantParam = oauthTenantSlug ? `&tenant=${encodeURIComponent(oauthTenantSlug)}` : '';
+
+                    if (!user || !user.openId) {
+                        return res.redirect(`/login?error=no_user_data${tenantParam}`);
+                    }
 
                     let provisionedUser;
                     try {
                         provisionedUser = await db.resolveProvisionedOAuthUser(user.openId, user.email || null, oauthTenantSlug);
                     } catch (error: any) {
                         if (error?.code === "AMBIGUOUS_TENANT") {
-                            return res.redirect('/login?error=ambiguous_tenant');
+                            return res.redirect(`/login?error=ambiguous_tenant${tenantParam}`);
                         }
                         throw error;
                     }
@@ -567,7 +583,7 @@ export function registerNativeOAuth(app: Express) {
                     if (!provisionedUser) {
                         provisionedUser = await autoProvisionOAuthUser(user);
                         if (!provisionedUser) {
-                            return res.redirect('/login?error=not_provisioned');
+                            return res.redirect(`/login?error=not_provisioned${tenantParam}`);
                         }
                     }
 
@@ -602,7 +618,7 @@ export function registerNativeOAuth(app: Express) {
                     res.redirect('/oauth-complete');
                 } catch (error) {
                     logger.error('[OAuth] Microsoft callback failed:', error);
-                    res.redirect('/login?error=callback_failed');
+                    res.redirect(loginErrorUrl('/login?error=callback_failed', req));
                 }
             }
         );
