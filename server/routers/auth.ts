@@ -137,7 +137,7 @@ export const authRouter = router({
             }
 
             // SECURITY FIX (MT-01): Resolve tenantId from explicit slug first,
-            // then fall back to request context (header/subdomain).
+            // then auto-resolve from email if the user belongs to a single tenant.
             let tenantId: number | null = null;
             if (input.tenantSlug) {
                 const slug = input.tenantSlug.trim().toLowerCase();
@@ -150,12 +150,20 @@ export const authRouter = router({
                     return { success: false, error: "Organización no encontrada." };
                 }
             } else {
-                try {
-                    tenantId = await resolveTenantFromRequest(ctx.req);
-                } catch (e) {
-                    logger.error({ err: e, email: normalizedEmail, ip }, "[Auth] Tenant resolution failed");
-                    return { success: false, error: "No se pudo determinar el contexto del tenant. Intente de nuevo." };
+                // No slug provided — auto-resolve by looking up the email across tenants
+                const matches = await db.select({ tenantId: users.tenantId })
+                    .from(users)
+                    .where(eq(users.email, normalizedEmail))
+                    .limit(3); // Only need to know if 0, 1, or >1
+
+                const uniqueTenants = [...new Set(matches.map(m => m.tenantId))];
+
+                if (uniqueTenants.length === 1) {
+                    tenantId = uniqueTenants[0];
+                } else if (uniqueTenants.length > 1) {
+                    return { success: false, error: "Tu email está en varias organizaciones. Ingresá el nombre de tu organización para continuar." };
                 }
+                // If 0 matches, tenantId stays null — will return "Credenciales inválidas" below
             }
 
             let user;
@@ -165,18 +173,8 @@ export const authRouter = router({
                     .where(and(eq(users.email, normalizedEmail), eq(users.tenantId, tenantId)))
                     .limit(1);
             } else {
-                // Platform-level login: in production, only allow platform owner (superadmin) on tenantId=1
-                if (process.env.NODE_ENV === "production") {
-                    user = await db.select().from(users)
-                        .where(and(eq(users.email, normalizedEmail), eq(users.tenantId, 1), eq(users.role, "owner")))
-                        .limit(1);
-                } else {
-                    // Dev mode: allow any user on tenant 1 for convenience
-                    user = await db.select().from(users)
-                        .where(and(eq(users.email, normalizedEmail), eq(users.tenantId, 1)))
-                        .limit(1);
-                }
-                logger.warn({ email: normalizedEmail, ip }, "[Auth] Login without tenant context — restricted to platform tenant");
+                // No tenant resolved and no email matches — return generic error
+                return { success: false, error: "Credenciales inválidas" };
             }
 
             if (!user[0] || !user[0].password) {

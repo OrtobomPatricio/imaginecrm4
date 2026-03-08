@@ -88,35 +88,31 @@ export default function Login() {
     const email = formData.email.trim();
     const tenantSlug = formData.tenantSlug.trim().toLowerCase();
 
-    if (!tenantSlug) {
-      toast.error("Ingresá la organización");
-      return;
-    }
-
     if (!email || !formData.password) {
       toast.error("Ingresá email y contraseña");
       return;
     }
 
-    login.mutate({ email, password: formData.password, tenantSlug });
+    // tenantSlug is optional — backend auto-resolves if email belongs to one org
+    login.mutate({ email, password: formData.password, tenantSlug: tenantSlug || undefined });
   };
 
   const handleOAuthLogin = (provider: 'google' | 'microsoft' | 'facebook') => {
     const tenantSlug = formData.tenantSlug.trim().toLowerCase();
-    if (!tenantSlug) {
-      toast.error("Ingresá la organización antes de continuar con OAuth");
-      return;
-    }
 
     // Persist slug so it survives the OAuth redirect round-trip
-    localStorage.setItem("tenant-slug", tenantSlug);
+    if (tenantSlug) {
+      localStorage.setItem("tenant-slug", tenantSlug);
+    }
 
     const width = 500;
     const height = 600;
     const left = Math.round(window.screenX + (window.outerWidth - width) / 2);
     const top = Math.round(window.screenY + (window.outerHeight - height) / 2);
 
-    const oauthUrl = `/api/auth/${provider}?tenant=${encodeURIComponent(tenantSlug)}`;
+    const oauthUrl = tenantSlug
+      ? `/api/auth/${provider}?tenant=${encodeURIComponent(tenantSlug)}`
+      : `/api/auth/${provider}`;
     const popup = window.open(
       oauthUrl,
       'oauth-popup',
@@ -289,21 +285,6 @@ export default function Login() {
               {/* Email Form */}
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="tenantSlug">Organización</Label>
-                  <div className="relative">
-                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="tenantSlug"
-                      type="text"
-                      placeholder="mi-empresa"
-                      className="pl-10 bg-card/50 border-border/50 focus:border-primary"
-                      value={formData.tenantSlug}
-                      onChange={(e) => setFormData({ ...formData, tenantSlug: e.target.value })}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
                   <Label htmlFor="email">Email</Label>
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -341,6 +322,23 @@ export default function Login() {
                       className="pl-10 bg-card/50 border-border/50 focus:border-primary"
                       value={formData.password}
                       onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="tenantSlug" className="text-muted-foreground text-xs">
+                    Organización <span className="opacity-60">(opcional)</span>
+                  </Label>
+                  <div className="relative">
+                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      id="tenantSlug"
+                      type="text"
+                      placeholder="solo si tenés varias organizaciones"
+                      className="pl-10 bg-card/50 border-border/50 focus:border-primary text-sm"
+                      value={formData.tenantSlug}
+                      onChange={(e) => setFormData({ ...formData, tenantSlug: e.target.value })}
                     />
                   </div>
                 </div>
