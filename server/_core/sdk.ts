@@ -49,9 +49,21 @@ class OAuthService {
       process.env.CLIENT_URL,
       process.env.APP_URL,
     ].filter(Boolean) as string[];
-    if (allowedOrigins.length > 0 && !allowedOrigins.some(origin => redirectUri.startsWith(origin))) {
-      logger.warn({ redirectUri }, "[OAuth] State redirect URI not in allowlist, defaulting to /");
-      return "/";
+    if (allowedOrigins.length > 0) {
+      let isAllowed = false;
+      try {
+        const parsed = new URL(redirectUri);
+        isAllowed = allowedOrigins.some(origin => {
+          try {
+            const allowed = new URL(origin);
+            return parsed.hostname === allowed.hostname && parsed.protocol === allowed.protocol;
+          } catch { return false; }
+        });
+      } catch { /* malformed URI */ }
+      if (!isAllowed) {
+        logger.warn({ redirectUri }, "[OAuth] State redirect URI not in allowlist, defaulting to /");
+        return "/";
+      }
     }
     return redirectUri;
   }

@@ -41,15 +41,27 @@ async function assertConversationAccess(ctx: any, conversationId: number): Promi
         throw new TRPCError({ code: "NOT_FOUND", message: "Conversation not found" });
     }
 
-    const userRole = (ctx.user?.role || "viewer") as string;
-    const isPrivileged = ["owner", "admin", "supervisor"].includes(userRole);
+    // Use the effective role (respects customRole) instead of only base role
+    const { computeEffectiveRole } = await import("../_core/rbac");
+    const { appSettings } = await import("../../drizzle/schema");
+    const { eq: eqOp } = await import("drizzle-orm");
+    const settings = await db.select().from(appSettings).where(eqOp(appSettings.tenantId, ctx.tenantId)).limit(1);
+    const matrix = settings[0]?.permissionsMatrix ?? {};
+    const effectiveRole = computeEffectiveRole({
+        baseRole: ctx.user?.role || "viewer",
+        customRole: ctx.user?.customRole,
+        permissionsMatrix: matrix,
+    });
+
+    const isPrivileged = ["owner", "admin", "supervisor"].includes(effectiveRole);
 
     // Viewers cannot access individual conversations
-    if (userRole === "viewer") {
+    if (effectiveRole === "viewer") {
         throw new TRPCError({ code: "FORBIDDEN", message: "Los usuarios con rol viewer no pueden acceder a conversaciones" });
     }
 
-    if (!isPrivileged && userRole === "agent") {
+    // Agents can only access conversations assigned to them
+    if (!isPrivileged) {
         if (conv[0].assignedToId !== ctx.user?.id) {
             throw new TRPCError({ code: "FORBIDDEN", message: "No tiene acceso a esta conversación" });
         }

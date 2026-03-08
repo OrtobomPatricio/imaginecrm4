@@ -146,6 +146,9 @@ export const webhooksRouter = router({
                 throw new Error("Webhook not found");
             }
 
+            // SSRF protection: re-validate URL before fetch
+            await assertSafeOutboundUrl(webhook[0].url);
+
             // Send test payload
             const testPayload = {
                 event: "test",

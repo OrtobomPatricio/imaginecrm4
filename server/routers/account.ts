@@ -133,15 +133,15 @@ export const accountRouter = router({
     requestPasswordReset: publicProcedure
         .input(z.object({
             email: z.string().email(),
-            tenantSlug: z.string().min(2).max(100),
+            tenantSlug: z.string().max(100).optional(),
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-            // Rate limiting
+            // Rate limiting — scope to both IP and email to prevent mass enumerate
             const ip = getClientIp(ctx.req);
-            const rateLimitKey = `reset:${ip}`;
+            const rateLimitKey = `reset:${ip}:${input.email.trim().toLowerCase()}`;
             try {
                 await authRateLimit(rateLimitKey);
             } catch (e: any) {
@@ -151,24 +151,45 @@ export const accountRouter = router({
             }
 
             const normalizedEmail = input.email.trim().toLowerCase();
-            const normalizedSlug = input.tenantSlug.trim().toLowerCase();
-
             const { tenants } = await import("../../drizzle/schema");
 
-            const [tenant] = await db.select({ id: tenants.id })
-                .from(tenants)
-                .where(eq(tenants.slug, normalizedSlug))
-                .limit(1);
+            let tenantId: number | null = null;
+            let tenantSlugForUrl = "";
 
-            // Always return success to prevent enumeration
-            if (!tenant) {
-                logger.info({ email: normalizedEmail, tenantSlug: normalizedSlug }, "[Account] Password reset requested for unknown tenant");
-                return { success: true, message: "Si el email existe, recibirás un enlace de recuperación." };
+            if (input.tenantSlug?.trim()) {
+                const normalizedSlug = input.tenantSlug.trim().toLowerCase();
+                const [tenant] = await db.select({ id: tenants.id, slug: tenants.slug })
+                    .from(tenants)
+                    .where(eq(tenants.slug, normalizedSlug))
+                    .limit(1);
+                if (!tenant) {
+                    return { success: true, message: "Si el email existe, recibirás un enlace de recuperación." };
+                }
+                tenantId = tenant.id;
+                tenantSlugForUrl = normalizedSlug;
+            } else {
+                // Auto-resolve: find which tenant(s) this email belongs to
+                const matches = await db.select({ tenantId: users.tenantId })
+                    .from(users)
+                    .where(eq(users.email, normalizedEmail))
+                    .limit(3);
+
+                const uniqueTenants = [...new Set(matches.map(m => m.tenantId))];
+                if (uniqueTenants.length === 1) {
+                    tenantId = uniqueTenants[0];
+                    // Resolve slug for the URL
+                    const [t] = await db.select({ slug: tenants.slug }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+                    tenantSlugForUrl = t?.slug || "";
+                } else {
+                    // 0 or multiple matches — return success (anti-enumeration)
+                    logger.info({ email: normalizedEmail, matchCount: uniqueTenants.length }, "[Account] Password reset: no unique tenant match");
+                    return { success: true, message: "Si el email existe, recibirás un enlace de recuperación." };
+                }
             }
 
             const [user] = await db.select()
                 .from(users)
-                .where(and(eq(users.email, normalizedEmail), eq(users.tenantId, tenant.id)))
+                .where(and(eq(users.email, normalizedEmail), eq(users.tenantId, tenantId!)))
                 .limit(1);
 
             // Always return success (prevent email enumeration)
@@ -189,7 +210,7 @@ export const accountRouter = router({
                 .where(eq(users.id, user.id));
 
             const appUrl = process.env.APP_URL || process.env.CLIENT_URL || "https://crm-imagine-crm.yk50nb.easypanel.host";
-            const resetUrl = `${appUrl}/reset-password?token=${resetToken}&tenant=${encodeURIComponent(normalizedSlug)}`;
+            const resetUrl = `${appUrl}/reset-password?token=${resetToken}&tenant=${encodeURIComponent(tenantSlugForUrl)}`;
 
             const emailResult = await sendEmail({
                 tenantId: user.tenantId,

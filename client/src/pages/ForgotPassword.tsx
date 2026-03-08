@@ -30,11 +30,6 @@ export default function ForgotPassword() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!tenantSlug.trim()) {
-      toast.error("Ingresá la organización");
-      return;
-    }
-
     if (!email.trim()) {
       toast.error("Ingresá tu email");
       return;
@@ -42,7 +37,7 @@ export default function ForgotPassword() {
 
     requestReset.mutate({
       email: email.trim(),
-      tenantSlug: tenantSlug.trim().toLowerCase(),
+      tenantSlug: tenantSlug.trim().toLowerCase() || undefined,
     });
   };
 
@@ -60,7 +55,7 @@ export default function ForgotPassword() {
           <CardContent className="flex flex-col items-center gap-4 py-8">
             <CheckCircle2 className="h-12 w-12 text-green-500" />
             <p className="text-center text-muted-foreground">
-              Si el email <strong>{email}</strong> existe en la organización <strong>{tenantSlug}</strong>,
+              Si el email <strong>{email}</strong> existe,
               recibirás un enlace para restablecer tu contraseña.
             </p>
             <Button
@@ -84,27 +79,12 @@ export default function ForgotPassword() {
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Recuperar contraseña</CardTitle>
           <CardDescription>
-            Ingresá tu organización y tu email para enviarte el enlace de recuperación
+            Ingresá tu email para enviarte el enlace de recuperación
           </CardDescription>
         </CardHeader>
 
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="tenantSlug">Organización</Label>
-              <div className="relative">
-                <Building2 className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="tenantSlug"
-                  type="text"
-                  placeholder="mi-empresa"
-                  className="pl-10"
-                  value={tenantSlug}
-                  onChange={(e) => setTenantSlug(e.target.value)}
-                />
-              </div>
-            </div>
-
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <div className="relative">
@@ -116,6 +96,23 @@ export default function ForgotPassword() {
                   className="pl-10"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="tenantSlug" className="text-muted-foreground text-xs">
+                Organización <span className="opacity-60">(opcional)</span>
+              </Label>
+              <div className="relative">
+                <Building2 className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                <Input
+                  id="tenantSlug"
+                  type="text"
+                  placeholder="solo si tenés varias organizaciones"
+                  className="pl-10 text-sm"
+                  value={tenantSlug}
+                  onChange={(e) => setTenantSlug(e.target.value)}
                 />
               </div>
             </div>

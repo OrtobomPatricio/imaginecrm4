@@ -77,7 +77,10 @@ export const teamRouter = router({
             }
 
             const value = input.customRole ? input.customRole.trim() : null;
-            if (value && value.toLowerCase() === "owner") throw new TRPCError({ code: "FORBIDDEN", message: "Forbidden role" }); // BLOCK OWNER ESCALATION
+            const RESERVED_ROLES = ["owner", "admin", "supervisor", "agent", "viewer"];
+            if (value && RESERVED_ROLES.includes(value.toLowerCase())) {
+                throw new TRPCError({ code: "FORBIDDEN", message: "Cannot use a built-in role name as custom role" });
+            }
 
             // Validate customRole (blocks reserved roles + checks matrix)
             if (value) {
