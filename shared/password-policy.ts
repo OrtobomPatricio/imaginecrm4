@@ -22,3 +22,10 @@ export function validatePassword(password: string): { valid: boolean; failures: 
         .map(r => r.label);
     return { valid: failures.length === 0, failures };
 }
+
+/** Returns a human-readable error message if password fails validation, or null if valid. */
+export function getPasswordValidationMessage(password: string): string | null {
+    const result = validatePassword(password);
+    if (result.valid) return null;
+    return `La contraseña no cumple los requisitos: ${result.failures.join(", ")}`;
+}

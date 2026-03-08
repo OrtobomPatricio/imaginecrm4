@@ -29,8 +29,9 @@ describe("Security Services Integration", () => {
             const noUpper = validatePassword("mystrongpass!123");
             expect(noUpper.valid).toBe(false);
 
-            const noSpecial = validatePassword("MyStr0ngPassWord");
-            expect(noSpecial.valid).toBe(false);
+            // Unified policy: uppercase + lowercase + digit (no special char required)
+            const noDigit = validatePassword("MyStrongPassWord");
+            expect(noDigit.valid).toBe(false);
         });
     });
 

@@ -72,7 +72,13 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         if (currentIndex < STEPS.length - 1) {
             const next = STEPS[currentIndex + 1];
 
-            // Advance UI immediately
+            // company step is already persisted via mutateAsync in Step1Company
+            if (currentStep === 'company') {
+                setCurrentStep(next);
+                return;
+            }
+
+            // Advance UI immediately for non-critical steps
             setCurrentStep(next);
 
             // Best-effort backend sync (fire and forget)
@@ -84,23 +90,19 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
             // Finalize — save first-message step, then complete
             setIsCompleting(true);
 
-            // Save the last step synchronously, then finalize
-            saveStepMutation.mutate(
-                { step: 'first-message' as any, data, completed: true },
-                { onError: () => {} }
-            );
-
-            completeMutation.mutate(undefined, {
-                onSuccess: () => {
+            void (async () => {
+                try {
+                    await saveStepMutation.mutateAsync(
+                        { step: 'first-message' as any, data, completed: true }
+                    );
+                    await completeMutation.mutateAsync();
                     setCurrentStep('completed');
                     toast({ title: "¡Bienvenido!", description: "Onboarding completado con éxito." });
-                },
-                onError: () => {
-                    // Do NOT mark as completed — show error and let user retry
+                } catch {
                     setIsCompleting(false);
                     toast({ title: "Error", description: "No se pudo completar el onboarding. Intenta de nuevo.", variant: "destructive" });
-                },
-            });
+                }
+            })();
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentStep]);

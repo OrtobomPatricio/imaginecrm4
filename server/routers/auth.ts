@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { nanoid } from "nanoid";
 import { eq, and } from "drizzle-orm";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH, validatePassword as validateSharedPassword } from "@shared/password-policy";
 import { users, tenants, termsAcceptance } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
@@ -217,11 +218,13 @@ export const authRouter = router({
     acceptInvitation: publicProcedure
         .input(z.object({
             token: z.string(),
-            password: z.string().min(8).max(128)
-                .regex(/[A-Z]/, "La contraseña debe contener al menos una mayúscula")
-                .regex(/[a-z]/, "La contraseña debe contener al menos una minúscula")
-                .regex(/[0-9]/, "La contraseña debe contener al menos un número"),
-            termsVersion: z.string().optional(), // Match request for termsVersion
+            password: z.string()
+                .min(PASSWORD_MIN_LENGTH, `La contraseña debe tener al menos ${PASSWORD_MIN_LENGTH} caracteres`)
+                .max(PASSWORD_MAX_LENGTH)
+                .refine((value) => validateSharedPassword(value).valid, {
+                    message: "La contraseña debe incluir mayúscula, minúscula y número",
+                }),
+            termsVersion: z.string().optional(),
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();

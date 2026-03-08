@@ -10,6 +10,7 @@ import { getClientIp } from "../services/security";
 import { authRateLimit, clearRateLimit } from "../_core/trpc-rate-limit";
 import { TRPCError } from "@trpc/server";
 import { logger } from "../_core/logger";
+import { PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH, validatePassword as validateSharedPassword } from "../../shared/password-policy";
 
 /**
  * Account Router
@@ -130,7 +131,10 @@ export const accountRouter = router({
      * Always returns success to prevent email enumeration.
      */
     requestPasswordReset: publicProcedure
-        .input(z.object({ email: z.string().email(), tenantSlug: z.string().optional() }))
+        .input(z.object({
+            email: z.string().email(),
+            tenantSlug: z.string().min(2).max(100),
+        }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -146,48 +150,26 @@ export const accountRouter = router({
                 return { success: true, message: "Si el email existe, recibirás un enlace de recuperación." };
             }
 
-            // Multi-tenant fix: scope to specific tenant when slug is provided
-            let matchedUsers: (typeof users.$inferSelect)[] | undefined;
-            if (input.tenantSlug) {
-                const { tenants } = await import("../../drizzle/schema");
-                const [tenant] = await db.select({ id: tenants.id })
-                    .from(tenants)
-                    .where(eq(tenants.slug, input.tenantSlug.trim().toLowerCase()))
-                    .limit(1);
-                if (tenant) {
-                    matchedUsers = await db.select()
-                        .from(users)
-                        .where(and(eq(users.email, input.email), eq(users.tenantId, tenant.id)))
-                        .limit(1);
-                } else {
-                    matchedUsers = [];
-                }
-            } else {
-                // Fallback: try x-tenant-slug header for tenant context
-                const headerSlug = ctx.req.headers?.["x-tenant-slug"];
-                if (headerSlug && typeof headerSlug === "string") {
-                    const { tenants } = await import("../../drizzle/schema");
-                    const [tenant] = await db.select({ id: tenants.id })
-                        .from(tenants)
-                        .where(eq(tenants.slug, headerSlug.trim().toLowerCase()))
-                        .limit(1);
-                    if (tenant) {
-                        matchedUsers = await db.select()
-                            .from(users)
-                            .where(and(eq(users.email, input.email), eq(users.tenantId, tenant.id)))
-                            .limit(1);
-                    }
-                }
-                // No tenant context at all: find first match (single-tenant backward compat)
-                if (!matchedUsers) {
-                    matchedUsers = await db.select()
-                        .from(users)
-                        .where(eq(users.email, input.email))
-                        .limit(1);
-                }
+            const normalizedEmail = input.email.trim().toLowerCase();
+            const normalizedSlug = input.tenantSlug.trim().toLowerCase();
+
+            const { tenants } = await import("../../drizzle/schema");
+
+            const [tenant] = await db.select({ id: tenants.id })
+                .from(tenants)
+                .where(eq(tenants.slug, normalizedSlug))
+                .limit(1);
+
+            // Always return success to prevent enumeration
+            if (!tenant) {
+                logger.info({ email: normalizedEmail, tenantSlug: normalizedSlug }, "[Account] Password reset requested for unknown tenant");
+                return { success: true, message: "Si el email existe, recibirás un enlace de recuperación." };
             }
 
-            const user = matchedUsers[0];
+            const [user] = await db.select()
+                .from(users)
+                .where(and(eq(users.email, normalizedEmail), eq(users.tenantId, tenant.id)))
+                .limit(1);
 
             // Always return success (prevent email enumeration)
             if (!user) {
@@ -240,10 +222,12 @@ export const accountRouter = router({
     resetPassword: publicProcedure
         .input(z.object({
             token: z.string().min(10),
-            newPassword: z.string().min(8, "La contraseña debe tener al menos 8 caracteres").max(128)
-                .regex(/[A-Z]/, "La contraseña debe contener al menos una mayúscula")
-                .regex(/[a-z]/, "La contraseña debe contener al menos una minúscula")
-                .regex(/[0-9]/, "La contraseña debe contener al menos un número"),
+            newPassword: z.string()
+                .min(PASSWORD_MIN_LENGTH, `La contraseña debe tener al menos ${PASSWORD_MIN_LENGTH} caracteres`)
+                .max(PASSWORD_MAX_LENGTH)
+                .refine((value) => validateSharedPassword(value).valid, {
+                    message: "La contraseña debe incluir mayúscula, minúscula y número",
+                }),
         }))
         .mutation(async ({ input }) => {
             const db = await getDb();
@@ -303,10 +287,12 @@ export const accountRouter = router({
     changePassword: protectedProcedure
         .input(z.object({
             currentPassword: z.string().max(128),
-            newPassword: z.string().min(8, "La contraseña debe tener al menos 8 caracteres").max(128)
-                .regex(/[A-Z]/, "La contraseña debe contener al menos una mayúscula")
-                .regex(/[a-z]/, "La contraseña debe contener al menos una minúscula")
-                .regex(/[0-9]/, "La contraseña debe contener al menos un número"),
+            newPassword: z.string()
+                .min(PASSWORD_MIN_LENGTH, `La contraseña debe tener al menos ${PASSWORD_MIN_LENGTH} caracteres`)
+                .max(PASSWORD_MAX_LENGTH)
+                .refine((value) => validateSharedPassword(value).valid, {
+                    message: "La contraseña debe incluir mayúscula, minúscula y número",
+                }),
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();

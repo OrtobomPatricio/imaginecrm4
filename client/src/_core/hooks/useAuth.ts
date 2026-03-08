@@ -36,6 +36,11 @@ export function useAuth(options?: UseAuthOptions) {
       }
       throw error;
     } finally {
+      try {
+        localStorage.removeItem("tenant-slug");
+      } catch {
+        // ignore
+      }
       utils.auth.me.setData(undefined, null);
       await utils.auth.me.invalidate();
     }

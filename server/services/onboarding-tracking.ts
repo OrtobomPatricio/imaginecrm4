@@ -106,15 +106,23 @@ export async function updateOnboardingStep(
         updatePayload.firstMessageCompleted = completed;
     }
 
+    const mustPersist = step === "company" || step === "first-message";
+
     try {
         await db.update(onboardingProgress)
             .set(updatePayload)
             .where(eq(onboardingProgress.tenantId, tenantId));
     } catch (error) {
         if (isOnboardingSchemaIssue(error)) {
-            logger.warn({ tenantId, err: error }, "[Onboarding] onboarding_progress table/schema missing; skipping step persistence");
+            logger.warn({ tenantId, err: error }, "[Onboarding] onboarding_progress table/schema missing");
+            if (mustPersist) {
+                throw new Error("Onboarding persistence unavailable");
+            }
         } else {
             logger.error({ tenantId, err: error }, "[Onboarding] Failed to update onboarding_progress");
+            if (mustPersist) {
+                throw error;
+            }
         }
     }
 
@@ -136,10 +144,10 @@ export async function finalizeOnboarding(tenantId: number) {
             .where(eq(onboardingProgress.tenantId, tenantId));
     } catch (error) {
         if (isOnboardingSchemaIssue(error)) {
-            logger.warn({ tenantId, err: error }, "[Onboarding] onboarding_progress table/schema missing during finalize; skipping completedAt update");
-        } else {
-            throw error;
+            logger.error({ tenantId, err: error }, "[Onboarding] onboarding_progress table/schema missing during finalize");
+            throw new Error("Onboarding progress storage is not available");
         }
+        throw error;
     }
 
     // 2. Ensure tenant status is 'active'

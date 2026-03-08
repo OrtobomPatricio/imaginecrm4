@@ -8,6 +8,7 @@ import { users, appSettings } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { permissionProcedure, router } from "../_core/trpc";
 import { sendEmail } from "../_core/email";
+import { PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH, validatePassword as validateSharedPassword } from "../../shared/password-policy";
 import { logAccess } from "../services/security";
 
 export const teamRouter = router({
@@ -121,8 +122,13 @@ export const teamRouter = router({
         .input(z.object({
             name: z.string().min(1),
             email: z.string().email(),
-            password: z.string().min(8).max(128), // Password required for manual creation
-            role: z.enum(["admin", "supervisor", "agent", "viewer"]), // Owner cannot be created this way
+            password: z.string()
+                .min(PASSWORD_MIN_LENGTH, `La contraseña debe tener al menos ${PASSWORD_MIN_LENGTH} caracteres`)
+                .max(PASSWORD_MAX_LENGTH)
+                .refine((value) => validateSharedPassword(value).valid, {
+                    message: "La contraseña debe incluir mayúscula, minúscula y número",
+                }),
+            role: z.enum(["admin", "supervisor", "agent", "viewer"]),
         }))
         .mutation(async ({ input, ctx }) => {
             // Enforce plan limits before creating a user

@@ -4,15 +4,24 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Mail, ArrowLeft, CheckCircle2 } from "lucide-react";
-import { useState } from "react";
+import { Mail, ArrowLeft, CheckCircle2, Building2 } from "lucide-react";
+import { useEffect, useState } from "react";
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
+  const [tenantSlug, setTenantSlug] = useState("");
   const [sent, setSent] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tenantFromQuery = params.get("tenant")?.trim().toLowerCase() ?? "";
+    const tenantFromStorage = localStorage.getItem("tenant-slug")?.trim().toLowerCase() ?? "";
+    setTenantSlug(tenantFromQuery || tenantFromStorage);
+  }, []);
 
   const requestReset = trpc.account.requestPasswordReset.useMutation({
     onSuccess: () => {
+      localStorage.setItem("tenant-slug", tenantSlug.trim().toLowerCase());
       setSent(true);
     },
     onError: (err) => toast.error(err.message || "Error al enviar el email"),
@@ -20,29 +29,48 @@ export default function ForgotPassword() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email) {
-      toast.error("Ingresa tu email");
+
+    if (!tenantSlug.trim()) {
+      toast.error("Ingresá la organización");
       return;
     }
-    requestReset.mutate({ email });
+
+    if (!email.trim()) {
+      toast.error("Ingresá tu email");
+      return;
+    }
+
+    requestReset.mutate({
+      email: email.trim(),
+      tenantSlug: tenantSlug.trim().toLowerCase(),
+    });
   };
+
+  const loginHref = tenantSlug.trim()
+    ? `/login?tenant=${encodeURIComponent(tenantSlug.trim().toLowerCase())}`
+    : "/login";
 
   if (sent) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
-            <CardTitle className="text-2xl">Email Enviado</CardTitle>
+            <CardTitle className="text-2xl">Email enviado</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col items-center gap-4 py-8">
             <CheckCircle2 className="h-12 w-12 text-green-500" />
             <p className="text-center text-muted-foreground">
-              Si el email <strong>{email}</strong> está registrado, recibirás un enlace para restablecer tu contraseña.
-              Revisa tu bandeja de entrada y spam.
+              Si el email <strong>{email}</strong> existe en la organización <strong>{tenantSlug}</strong>,
+              recibirás un enlace para restablecer tu contraseña.
             </p>
-            <Button variant="outline" onClick={() => window.location.href = "/login"} className="mt-4">
+            <Button
+              variant="outline"
+              onClick={() => (window.location.href = loginHref)}
+              className="mt-4"
+              type="button"
+            >
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Volver al Login
+              Volver al login
             </Button>
           </CardContent>
         </Card>
@@ -54,11 +82,29 @@ export default function ForgotPassword() {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Recuperar Contraseña</CardTitle>
-          <CardDescription>Ingresa tu email y te enviaremos un enlace para restablecer tu contraseña</CardDescription>
+          <CardTitle className="text-2xl">Recuperar contraseña</CardTitle>
+          <CardDescription>
+            Ingresá tu organización y tu email para enviarte el enlace de recuperación
+          </CardDescription>
         </CardHeader>
+
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="tenantSlug">Organización</Label>
+              <div className="relative">
+                <Building2 className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                <Input
+                  id="tenantSlug"
+                  type="text"
+                  placeholder="mi-empresa"
+                  className="pl-10"
+                  value={tenantSlug}
+                  onChange={(e) => setTenantSlug(e.target.value)}
+                />
+              </div>
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <div className="relative">
@@ -73,12 +119,19 @@ export default function ForgotPassword() {
                 />
               </div>
             </div>
+
             <Button type="submit" className="w-full" disabled={requestReset.isPending}>
-              {requestReset.isPending ? "Enviando..." : "Enviar Enlace de Recuperación"}
+              {requestReset.isPending ? "Enviando..." : "Enviar enlace de recuperación"}
             </Button>
-            <Button variant="ghost" className="w-full" onClick={() => window.location.href = "/login"}>
+
+            <Button
+              variant="ghost"
+              className="w-full"
+              onClick={() => (window.location.href = loginHref)}
+              type="button"
+            >
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Volver al Login
+              Volver al login
             </Button>
           </form>
         </CardContent>

@@ -4,6 +4,7 @@ import { nanoid } from "nanoid";
 import crypto from "node:crypto";
 import { eq } from "drizzle-orm";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH, validatePassword as validateSharedPassword } from "@shared/password-policy";
 import { tenants, users, appSettings, termsAcceptance } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { publicProcedure, router } from "../_core/trpc";
@@ -99,10 +100,12 @@ export const signupRouter = router({
             slug: z.string().min(3).max(50),
             ownerName: z.string().min(2).max(100),
             email: z.string().email(),
-            password: z.string().min(8, "La contraseña debe tener al menos 8 caracteres").max(128)
-                .regex(/[A-Z]/, "La contraseña debe contener al menos una mayúscula")
-                .regex(/[a-z]/, "La contraseña debe contener al menos una minúscula")
-                .regex(/[0-9]/, "La contraseña debe contener al menos un número"),
+            password: z.string()
+                .min(PASSWORD_MIN_LENGTH, `La contraseña debe tener al menos ${PASSWORD_MIN_LENGTH} caracteres`)
+                .max(PASSWORD_MAX_LENGTH)
+                .refine((value) => validateSharedPassword(value).valid, {
+                    message: "La contraseña debe incluir mayúscula, minúscula y número",
+                }),
             timezone: z.string().default("America/Asuncion"),
             language: z.string().default("es"),
             currency: z.string().default("USD"),

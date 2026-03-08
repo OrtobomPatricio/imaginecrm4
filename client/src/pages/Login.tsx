@@ -30,21 +30,31 @@ export default function Login() {
   });
   const [enabledProviders, setEnabledProviders] = useState<string[]>([]);
 
-  // Fetch enabled OAuth providers + handle URL error params
+  // Fetch enabled OAuth providers + handle URL error/tenant params
   useEffect(() => {
     fetch("/api/auth/providers")
       .then((r) => r.ok ? r.json() : { providers: [] })
       .then((data) => setEnabledProviders(data.providers ?? []))
       .catch(() => setEnabledProviders([]));
 
-    // Show error from OAuth redirect
     const params = new URLSearchParams(window.location.search);
     const error = params.get("error");
+    const tenantFromQuery = params.get("tenant")?.trim().toLowerCase() ?? "";
+    const tenantFromStorage = localStorage.getItem("tenant-slug")?.trim().toLowerCase() ?? "";
+
+    setFormData((prev) => ({
+      ...prev,
+      tenantSlug: tenantFromQuery || tenantFromStorage || prev.tenantSlug,
+    }));
+
     if (error) {
       const msg = ERROR_MESSAGES[error] || `Error de autenticación: ${error}`;
       toast.error(msg);
-      // Clean URL
-      window.history.replaceState({}, "", "/login");
+
+      const cleanUrl = tenantFromQuery
+        ? `/login?tenant=${encodeURIComponent(tenantFromQuery)}`
+        : "/login";
+      window.history.replaceState({}, "", cleanUrl);
     }
   }, []);
 
@@ -74,13 +84,21 @@ export default function Login() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
     const email = formData.email.trim();
+    const tenantSlug = formData.tenantSlug.trim().toLowerCase();
+
+    if (!tenantSlug) {
+      toast.error("Ingresá la organización");
+      return;
+    }
+
     if (!email || !formData.password) {
       toast.error("Ingresá email y contraseña");
       return;
     }
 
-    login.mutate({ email, password: formData.password, ...(formData.tenantSlug.trim() ? { tenantSlug: formData.tenantSlug.trim() } : {}) });
+    login.mutate({ email, password: formData.password, tenantSlug });
   };
 
   const handleOAuthLogin = (provider: 'google' | 'microsoft' | 'facebook') => {
@@ -261,7 +279,7 @@ export default function Login() {
               {/* Email Form */}
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="tenantSlug">Organización <span className="text-xs text-muted-foreground">(opcional)</span></Label>
+                  <Label htmlFor="tenantSlug">Organización</Label>
                   <div className="relative">
                     <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
@@ -293,7 +311,14 @@ export default function Login() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label htmlFor="password">Contraseña</Label>
-                    <a href="/forgot-password" className="text-xs text-primary hover:underline">
+                    <a
+                      href={
+                        formData.tenantSlug.trim()
+                          ? `/forgot-password?tenant=${encodeURIComponent(formData.tenantSlug.trim().toLowerCase())}`
+                          : "/forgot-password"
+                      }
+                      className="text-xs text-primary hover:underline"
+                    >
                       ¿Olvidaste tu contraseña?
                     </a>
                   </div>

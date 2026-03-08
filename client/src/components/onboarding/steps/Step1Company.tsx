@@ -60,12 +60,13 @@ export default function Step1Company() {
         }
     }, [settingsQuery.data, form]);
 
-    const onSubmit = (values: z.infer<typeof schema>) => {
-        // Fire backend save as best-effort, don't block UI
-        updateCompanyMutation.mutate(values, {
-            onError: () => {}
-        });
-        nextStep(values);
+    const onSubmit = async (values: z.infer<typeof schema>) => {
+        try {
+            await updateCompanyMutation.mutateAsync(values);
+            nextStep(values);
+        } catch {
+            // mutation error handling via trpc global or toast
+        }
     };
 
     return (
