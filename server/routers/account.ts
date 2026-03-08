@@ -189,7 +189,7 @@ export const accountRouter = router({
                 .where(eq(users.id, user.id));
 
             const appUrl = process.env.APP_URL || process.env.CLIENT_URL || "https://crm-imagine-crm.yk50nb.easypanel.host";
-            const resetUrl = `${appUrl}/reset-password?token=${resetToken}`;
+            const resetUrl = `${appUrl}/reset-password?token=${resetToken}&tenant=${encodeURIComponent(normalizedSlug)}`;
 
             const emailResult = await sendEmail({
                 tenantId: user.tenantId,

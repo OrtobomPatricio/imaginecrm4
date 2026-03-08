@@ -102,20 +102,27 @@ export default function Login() {
   };
 
   const handleOAuthLogin = (provider: 'google' | 'microsoft' | 'facebook') => {
+    const tenantSlug = formData.tenantSlug.trim().toLowerCase();
+    if (!tenantSlug) {
+      toast.error("Ingresá la organización antes de continuar con OAuth");
+      return;
+    }
+
     const width = 500;
     const height = 600;
     const left = Math.round(window.screenX + (window.outerWidth - width) / 2);
     const top = Math.round(window.screenY + (window.outerHeight - height) / 2);
 
+    const oauthUrl = `/api/auth/${provider}?tenant=${encodeURIComponent(tenantSlug)}`;
     const popup = window.open(
-      `/api/auth/${provider}`,
+      oauthUrl,
       'oauth-popup',
       `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
     );
 
     if (!popup || popup.closed) {
       // Popup blocked — fallback to redirect
-      window.location.href = `/api/auth/${provider}`;
+      window.location.href = oauthUrl;
     }
   };
 

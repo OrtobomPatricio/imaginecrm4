@@ -18,6 +18,10 @@ export default function ResetPassword() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const t = params.get("token");
+    const tenant = params.get("tenant");
+    if (tenant) {
+      localStorage.setItem("tenant-slug", tenant);
+    }
     if (t) {
       setToken(t);
     } else {
@@ -52,7 +56,10 @@ export default function ResetPassword() {
           <CardContent className="flex flex-col items-center gap-4 py-8">
             <XCircle className="h-12 w-12 text-red-500" />
             <p className="text-center text-red-600">Enlace de recuperación inválido.</p>
-            <Button variant="outline" onClick={() => window.location.href = "/forgot-password"}>
+            <Button variant="outline" onClick={() => {
+              const tenant = localStorage.getItem("tenant-slug");
+              window.location.href = tenant ? `/forgot-password?tenant=${encodeURIComponent(tenant)}` : "/forgot-password";
+            }}>
               Solicitar nuevo enlace
             </Button>
           </CardContent>
@@ -68,7 +75,10 @@ export default function ResetPassword() {
           <CardContent className="flex flex-col items-center gap-4 py-8">
             <CheckCircle2 className="h-12 w-12 text-green-500" />
             <p className="text-center font-medium">Contraseña actualizada exitosamente.</p>
-            <Button onClick={() => window.location.href = "/login"} className="mt-4">
+            <Button onClick={() => {
+              const tenant = localStorage.getItem("tenant-slug");
+              window.location.href = tenant ? `/login?tenant=${encodeURIComponent(tenant)}` : "/login";
+            }} className="mt-4">
               Iniciar Sesión
             </Button>
           </CardContent>

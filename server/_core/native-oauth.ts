@@ -144,15 +144,25 @@ export function registerNativeOAuth(app: Express) {
         app.get(
             '/api/auth/google',
             (req: Request, res: Response, next) => {
-                passport.authenticate('google', {
-                    scope: ['profile', 'email'],
-                    state: true,
-                } as any)(req, res, (err: any) => {
-                    if (err) {
-                        logger.error({ err }, '[OAuth] Google login authenticate error');
-                        return res.redirect('/login?error=google_auth_failed');
+                // Store tenant slug in session so callback can scope user resolution
+                const tenant = typeof req.query.tenant === 'string' ? req.query.tenant.trim().toLowerCase().slice(0, 50) : '';
+                if (tenant) {
+                    (req.session as any).oauthTenantSlug = tenant;
+                }
+                req.session.save((saveErr) => {
+                    if (saveErr) {
+                        logger.error({ err: saveErr }, '[OAuth] Failed to save session before Google login redirect');
                     }
-                    next();
+                    passport.authenticate('google', {
+                        scope: ['profile', 'email'],
+                        state: true,
+                    } as any)(req, res, (err: any) => {
+                        if (err) {
+                            logger.error({ err }, '[OAuth] Google login authenticate error');
+                            return res.redirect('/login?error=google_auth_failed');
+                        }
+                        next();
+                    });
                 });
             }
         );
@@ -169,9 +179,12 @@ export function registerNativeOAuth(app: Express) {
                         return res.redirect('/login?error=no_user_data');
                     }
 
+                    const oauthTenantSlug = (req.session as any)?.oauthTenantSlug || null;
+                    if (oauthTenantSlug) delete (req.session as any).oauthTenantSlug;
+
                     let provisionedUser;
                     try {
-                        provisionedUser = await db.resolveProvisionedOAuthUser(user.openId, user.email || null);
+                        provisionedUser = await db.resolveProvisionedOAuthUser(user.openId, user.email || null, oauthTenantSlug);
                     } catch (error: any) {
                         if (error?.code === "AMBIGUOUS_TENANT") {
                             return res.redirect('/login?error=ambiguous_tenant');
@@ -179,7 +192,7 @@ export function registerNativeOAuth(app: Express) {
                         throw error;
                     }
 
-                    logger.info({ found: !!provisionedUser, openId: provisionedUser?.openId }, '[OAuth] Google - resolveProvisionedOAuthUser result');
+                    logger.info({ found: !!provisionedUser, openId: provisionedUser?.openId, tenantSlug: oauthTenantSlug }, '[OAuth] Google - resolveProvisionedOAuthUser result');
 
                     if (!provisionedUser) {
                         const pendingSignup = (req.session as any)?.pendingSignup;
@@ -319,15 +332,25 @@ export function registerNativeOAuth(app: Express) {
         app.get(
             '/api/auth/facebook',
             (req: Request, res: Response, next) => {
-                passport.authenticate('facebook', {
-                    scope: ['email'],
-                    state: true,
-                } as any)(req, res, (err: any) => {
-                    if (err) {
-                        logger.error({ err }, '[OAuth] Facebook login authenticate error');
-                        return res.redirect('/login?error=facebook_auth_failed');
+                // Store tenant slug in session so callback can scope user resolution
+                const tenant = typeof req.query.tenant === 'string' ? req.query.tenant.trim().toLowerCase().slice(0, 50) : '';
+                if (tenant) {
+                    (req.session as any).oauthTenantSlug = tenant;
+                }
+                req.session.save((saveErr) => {
+                    if (saveErr) {
+                        logger.error({ err: saveErr }, '[OAuth] Failed to save session before Facebook login redirect');
                     }
-                    next();
+                    passport.authenticate('facebook', {
+                        scope: ['email'],
+                        state: true,
+                    } as any)(req, res, (err: any) => {
+                        if (err) {
+                            logger.error({ err }, '[OAuth] Facebook login authenticate error');
+                            return res.redirect('/login?error=facebook_auth_failed');
+                        }
+                        next();
+                    });
                 });
             }
         );
@@ -344,9 +367,12 @@ export function registerNativeOAuth(app: Express) {
                         return res.redirect('/login?error=no_user_data');
                     }
 
+                    const oauthTenantSlug = (req.session as any)?.oauthTenantSlug || null;
+                    if (oauthTenantSlug) delete (req.session as any).oauthTenantSlug;
+
                     let provisionedUser;
                     try {
-                        provisionedUser = await db.resolveProvisionedOAuthUser(user.openId, user.email || null);
+                        provisionedUser = await db.resolveProvisionedOAuthUser(user.openId, user.email || null, oauthTenantSlug);
                     } catch (error: any) {
                         if (error?.code === 'AMBIGUOUS_TENANT') {
                             return res.redirect('/login?error=ambiguous_tenant');
@@ -354,7 +380,7 @@ export function registerNativeOAuth(app: Express) {
                         throw error;
                     }
 
-                    logger.info({ found: !!provisionedUser, openId: provisionedUser?.openId }, '[OAuth] Facebook - resolveProvisionedOAuthUser result');
+                    logger.info({ found: !!provisionedUser, openId: provisionedUser?.openId, tenantSlug: oauthTenantSlug }, '[OAuth] Facebook - resolveProvisionedOAuthUser result');
 
                     if (!provisionedUser) {
                         const pendingSignup = (req.session as any)?.pendingSignup;
@@ -482,9 +508,21 @@ export function registerNativeOAuth(app: Express) {
         // Microsoft Login Route
         app.get(
             '/api/auth/microsoft',
-            passport.authenticate('azuread-openidconnect', {
-                failureRedirect: '/login?error=microsoft_init_failed',
-            })
+            (req: Request, res: Response, next) => {
+                // Store tenant slug in session so callback can scope user resolution
+                const tenant = typeof req.query.tenant === 'string' ? req.query.tenant.trim().toLowerCase().slice(0, 50) : '';
+                if (tenant) {
+                    (req.session as any).oauthTenantSlug = tenant;
+                }
+                req.session.save((saveErr) => {
+                    if (saveErr) {
+                        logger.error({ err: saveErr }, '[OAuth] Failed to save session before Microsoft login redirect');
+                    }
+                    passport.authenticate('azuread-openidconnect', {
+                        failureRedirect: '/login?error=microsoft_init_failed',
+                    })(req, res, next);
+                });
+            }
         );
 
         // Microsoft Callback Route
@@ -502,9 +540,12 @@ export function registerNativeOAuth(app: Express) {
                         return res.redirect('/login?error=no_user_data');
                     }
 
+                    const oauthTenantSlug = (req.session as any)?.oauthTenantSlug || null;
+                    if (oauthTenantSlug) delete (req.session as any).oauthTenantSlug;
+
                     let provisionedUser;
                     try {
-                        provisionedUser = await db.resolveProvisionedOAuthUser(user.openId, user.email || null);
+                        provisionedUser = await db.resolveProvisionedOAuthUser(user.openId, user.email || null, oauthTenantSlug);
                     } catch (error: any) {
                         if (error?.code === "AMBIGUOUS_TENANT") {
                             return res.redirect('/login?error=ambiguous_tenant');

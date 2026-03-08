@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import mysql from "mysql2/promise";
 import { nanoid } from "nanoid";
@@ -170,11 +170,36 @@ export async function getUsersByEmail(email: string) {
   return database.select().from(users).where(eq(users.email, email)).limit(10);
 }
 
-export async function resolveProvisionedOAuthUser(openId: string, email?: string | null) {
+export async function resolveProvisionedOAuthUser(openId: string, email?: string | null, tenantSlug?: string | null) {
   const userByOpenId = await getUserByOpenId(openId);
   if (userByOpenId) return userByOpenId;
 
   if (!email) return null;
+
+  // When tenantSlug is provided, scope the lookup to that tenant (avoids AMBIGUOUS_TENANT)
+  if (tenantSlug) {
+    const database = await getDb();
+    if (!database) return null;
+    const [tenant] = await database.select({ id: tenants.id }).from(tenants).where(eq(tenants.slug, tenantSlug)).limit(1);
+    if (!tenant) return null;
+    const [matched] = await database.select().from(users).where(and(eq(users.email, email), eq(users.tenantId, tenant.id))).limit(1);
+    if (!matched) return null;
+    // Link the OAuth provider's openId so future logins are direct
+    const existingOwner = await getUserByOpenId(openId);
+    if (existingOwner && existingOwner.id !== matched.id) {
+      logger.warn({ openId, matchedUserId: matched.id, existingOwnerId: existingOwner.id },
+        "[OAuth] openId already belongs to another user — skipping link");
+      return null;
+    }
+    if (!existingOwner) {
+      await database.update(users)
+        .set({ openId })
+        .where(eq(users.id, matched.id));
+      matched.openId = openId;
+    }
+    return matched;
+  }
+
   const usersByEmail = await getUsersByEmail(email);
   if (usersByEmail.length === 1) {
     const matched = usersByEmail[0];
