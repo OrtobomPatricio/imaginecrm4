@@ -130,7 +130,7 @@ export const accountRouter = router({
      * Always returns success to prevent email enumeration.
      */
     requestPasswordReset: publicProcedure
-        .input(z.object({ email: z.string().email() }))
+        .input(z.object({ email: z.string().email(), tenantSlug: z.string().optional() }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -146,12 +146,48 @@ export const accountRouter = router({
                 return { success: true, message: "Si el email existe, recibirás un enlace de recuperación." };
             }
 
-            // Find ALL users with this email across tenants, but only process the first match.
-            // This prevents cross-tenant enumeration while still allowing password reset.
-            const [user] = await db.select()
-                .from(users)
-                .where(eq(users.email, input.email))
-                .limit(1);
+            // Multi-tenant fix: scope to specific tenant when slug is provided
+            let matchedUsers: (typeof users.$inferSelect)[] | undefined;
+            if (input.tenantSlug) {
+                const { tenants } = await import("../../drizzle/schema");
+                const [tenant] = await db.select({ id: tenants.id })
+                    .from(tenants)
+                    .where(eq(tenants.slug, input.tenantSlug.trim().toLowerCase()))
+                    .limit(1);
+                if (tenant) {
+                    matchedUsers = await db.select()
+                        .from(users)
+                        .where(and(eq(users.email, input.email), eq(users.tenantId, tenant.id)))
+                        .limit(1);
+                } else {
+                    matchedUsers = [];
+                }
+            } else {
+                // Fallback: try x-tenant-slug header for tenant context
+                const headerSlug = ctx.req.headers?.["x-tenant-slug"];
+                if (headerSlug && typeof headerSlug === "string") {
+                    const { tenants } = await import("../../drizzle/schema");
+                    const [tenant] = await db.select({ id: tenants.id })
+                        .from(tenants)
+                        .where(eq(tenants.slug, headerSlug.trim().toLowerCase()))
+                        .limit(1);
+                    if (tenant) {
+                        matchedUsers = await db.select()
+                            .from(users)
+                            .where(and(eq(users.email, input.email), eq(users.tenantId, tenant.id)))
+                            .limit(1);
+                    }
+                }
+                // No tenant context at all: find first match (single-tenant backward compat)
+                if (!matchedUsers) {
+                    matchedUsers = await db.select()
+                        .from(users)
+                        .where(eq(users.email, input.email))
+                        .limit(1);
+                }
+            }
+
+            const user = matchedUsers[0];
 
             // Always return success (prevent email enumeration)
             if (!user) {

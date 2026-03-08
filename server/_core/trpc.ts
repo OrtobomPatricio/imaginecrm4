@@ -33,7 +33,7 @@ export const router = t.router;
 export const publicProcedure = t.procedure;
 
 const requireUser = t.middleware(async opts => {
-  const { ctx, next, path } = opts;
+  const { ctx, next } = opts;
 
   if (!ctx.user) {
     throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
@@ -42,75 +42,6 @@ const requireUser = t.middleware(async opts => {
   // If user is disabled, treat as logged out
   if (ctx.user.isActive === false) {
     throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
-  }
-
-  // BILLING LOCK: Query tenant status and trial expiry to enforce suspension
-  try {
-    const db = await getDb();
-    if (db && ctx.user.tenantId !== 1) { // Skip platform tenant
-      const { tenants } = await import("../../drizzle/schema");
-      const tenantRows = await db.select({
-        status: tenants.status,
-        plan: tenants.plan,
-        trialEndsAt: tenants.trialEndsAt,
-      }).from(tenants).where(eq(tenants.id, ctx.user.tenantId)).limit(1);
-
-      const tenant = tenantRows[0];
-      if (tenant) {
-        // Check if tenant is suspended or canceled
-        if (tenant.status === "suspended" || tenant.status === "canceled") {
-          const isAllowed = path.startsWith("auth.") || path.startsWith("billing.") || path.startsWith("settings.getBilling") || path.startsWith("trial.");
-          if (!isAllowed) {
-            throw new TRPCError({
-              code: "FORBIDDEN",
-              message: "PAYMENT_REQUIRED: Su cuenta se encuentra suspendida. Por favor, actualice su método de pago."
-            });
-          }
-        }
-
-        // Check if trial has expired (auto-downgrade to free)
-        const trialEnd = tenant.trialEndsAt as Date | null;
-        if (trialEnd && new Date() > trialEnd && tenant.plan !== "free") {
-          // Auto-downgrade: set plan to free and clear trial
-          await db.update(tenants).set({
-            plan: "free",
-            trialEndsAt: null,
-          }).where(eq(tenants.id, ctx.user.tenantId));
-
-          // Sync license table if it exists
-          try {
-            const { license } = await import("../../drizzle/schema");
-            const [lic] = await db.select({ id: license.id }).from(license)
-              .where(eq(license.tenantId, ctx.user.tenantId)).limit(1);
-            if (lic) {
-              const freeLimits = getPlanDefinition("free");
-              await db.update(license).set({
-                plan: "free",
-                status: "active",
-                maxUsers: freeLimits.maxUsers,
-                maxWhatsappNumbers: freeLimits.maxWhatsappNumbers,
-                maxMessagesPerMonth: freeLimits.maxMessagesPerMonth,
-                updatedAt: new Date(),
-              }).where(eq(license.id, lic.id));
-            }
-          } catch { /* license table may not exist yet */ }
-
-          // Deactivate excess users after trial downgrade
-          try {
-            const { enforceDowngradeLimits } = await import("../services/plan-limits");
-            await enforceDowngradeLimits(ctx.user.tenantId, "free");
-          } catch { /* best-effort */ }
-        }
-      }
-    }
-  } catch (err: any) {
-    // Re-throw FORBIDDEN (billing lock) — it's intentional
-    if (err instanceof TRPCError) throw err;
-    logger.error({ err: safeError(err), tenantId: ctx.user?.tenantId, path }, "billing lock check failed");
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "No se pudo validar el estado de facturacion. Intente nuevamente en unos minutos.",
-    });
   }
 
   return next({
@@ -122,7 +53,88 @@ const requireUser = t.middleware(async opts => {
   });
 });
 
-export const protectedProcedure = t.procedure.use(requireUser);
+/**
+ * Billing guard middleware — separated from auth to keep concerns clean.
+ * Checks tenant suspension status and auto-downgrades expired trials.
+ * Applied after requireUser so ctx.user is guaranteed to exist.
+ */
+const requireActiveBilling = t.middleware(async opts => {
+  const { ctx, next, path } = opts;
+
+  // Only enforce billing for non-platform tenants with an authenticated user
+  if (!ctx.user || ctx.user.tenantId === 1) return next({ ctx });
+
+  try {
+    const db = await getDb();
+    if (!db) return next({ ctx });
+
+    const { tenants } = await import("../../drizzle/schema");
+    const tenantRows = await db.select({
+      status: tenants.status,
+      plan: tenants.plan,
+      trialEndsAt: tenants.trialEndsAt,
+    }).from(tenants).where(eq(tenants.id, ctx.user.tenantId)).limit(1);
+
+    const tenant = tenantRows[0];
+    if (!tenant) return next({ ctx });
+
+    // Check if tenant is suspended or canceled
+    if (tenant.status === "suspended" || tenant.status === "canceled") {
+      const isAllowed = path.startsWith("auth.") || path.startsWith("billing.") || path.startsWith("settings.getBilling") || path.startsWith("trial.");
+      if (!isAllowed) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "PAYMENT_REQUIRED: Su cuenta se encuentra suspendida. Por favor, actualice su método de pago."
+        });
+      }
+    }
+
+    // Check if trial has expired (auto-downgrade to free)
+    const trialEnd = tenant.trialEndsAt as Date | null;
+    if (trialEnd && new Date() > trialEnd && tenant.plan !== "free") {
+      await db.update(tenants).set({
+        plan: "free",
+        trialEndsAt: null,
+      }).where(eq(tenants.id, ctx.user.tenantId));
+
+      // Sync license table if it exists
+      try {
+        const { license } = await import("../../drizzle/schema");
+        const [lic] = await db.select({ id: license.id }).from(license)
+          .where(eq(license.tenantId, ctx.user.tenantId)).limit(1);
+        if (lic) {
+          const freeLimits = getPlanDefinition("free");
+          await db.update(license).set({
+            plan: "free",
+            status: "active",
+            maxUsers: freeLimits.maxUsers,
+            maxWhatsappNumbers: freeLimits.maxWhatsappNumbers,
+            maxMessagesPerMonth: freeLimits.maxMessagesPerMonth,
+            updatedAt: new Date(),
+          }).where(eq(license.id, lic.id));
+        }
+      } catch { /* license table may not exist yet */ }
+
+      // Deactivate excess users after trial downgrade
+      try {
+        const { enforceDowngradeLimits } = await import("../services/plan-limits");
+        await enforceDowngradeLimits(ctx.user.tenantId, "free");
+      } catch { /* best-effort */ }
+    }
+  } catch (err: any) {
+    // Re-throw FORBIDDEN (billing lock) — it's intentional
+    if (err instanceof TRPCError) throw err;
+    logger.error({ err: safeError(err), tenantId: ctx.user?.tenantId, path }, "billing lock check failed");
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "No se pudo validar el estado de facturacion. Intente nuevamente en unos minutos.",
+    });
+  }
+
+  return next({ ctx });
+});
+
+export const protectedProcedure = t.procedure.use(requireUser).use(requireActiveBilling);
 
 // --- Pro RBAC / Permissions ---
 

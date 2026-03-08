@@ -1,20 +1,14 @@
 import { useMemo } from "react";
 import { Check, X } from "lucide-react";
-
-const PASSWORD_RULES = [
-    { test: (p: string) => p.length >= 8, label: "Mínimo 8 caracteres" },
-    { test: (p: string) => /[A-Z]/.test(p), label: "Una letra mayúscula" },
-    { test: (p: string) => /[a-z]/.test(p), label: "Una letra minúscula" },
-    { test: (p: string) => /[0-9]/.test(p), label: "Un número" },
-];
+import { PASSWORD_RULES, validatePassword as sharedValidatePassword } from "@shared/password-policy";
 
 export function validatePassword(password: string): boolean {
-    return PASSWORD_RULES.every(r => r.test(password));
+    return sharedValidatePassword(password).valid;
 }
 
 export default function PasswordStrengthMeter({ password }: { password: string }) {
     const results = useMemo(
-        () => PASSWORD_RULES.map(r => ({ ...r, passed: r.test(password) })),
+        () => PASSWORD_RULES.map(r => ({ label: r.label, passed: r.regex.test(password) })),
         [password],
     );
     const passed = results.filter(r => r.passed).length;

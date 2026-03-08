@@ -129,6 +129,10 @@ const trpcClient = trpc.createClient({
     httpBatchLink({
       url: "/api/trpc",
       transformer: superjson as any,
+      headers() {
+        const slug = localStorage.getItem("tenant-slug");
+        return slug ? { "x-tenant-slug": slug } : {};
+      },
       fetch(input, init) {
         return globalThis.fetch(input, {
           ...(init ?? {}),

@@ -39,7 +39,7 @@ export const securityRouter = router({
                 expiresAt: s.expiresAt,
                 userAgent: (s as any).userAgent ?? "Unknown",
                 ipAddress: (s as any).ipAddress ?? "Unknown",
-                isCurrent: String(s.id) === ctx.sessionJti,
+                isCurrent: ctx.sessionJti ? (s as any).sessionToken === ctx.sessionJti : false,
             }));
         }),
 
@@ -51,7 +51,12 @@ export const securityRouter = router({
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
             // Prevent revoking your own current session
-            if (String(input.sessionId) === ctx.sessionJti) {
+            // Look up the session to compare by sessionToken (not row id)
+            const [targetSession] = await db.select({ sessionToken: sessions.sessionToken })
+                .from(sessions)
+                .where(and(eq(sessions.id, input.sessionId), eq(sessions.userId, ctx.user!.id), eq(sessions.tenantId, ctx.tenantId)))
+                .limit(1);
+            if (targetSession && ctx.sessionJti && targetSession.sessionToken === ctx.sessionJti) {
                 throw new TRPCError({
                     code: "BAD_REQUEST",
                     message: "No puedes cerrar la sesión actual. Usa Cerrar Sesión en su lugar.",
@@ -76,13 +81,21 @@ export const securityRouter = router({
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-            const result = await db.delete(sessions).where(
-                and(
-                    eq(sessions.userId, ctx.user!.id),
-                    eq(sessions.tenantId, ctx.tenantId),
-                    ne(sessions.id, Number(ctx.sessionJti) || 0)
+            // Use sessionToken (not row id) to identify current session
+            const result = ctx.sessionJti
+                ? await db.delete(sessions).where(
+                    and(
+                        eq(sessions.userId, ctx.user!.id),
+                        eq(sessions.tenantId, ctx.tenantId),
+                        ne(sessions.sessionToken, ctx.sessionJti)
+                    )
                 )
-            );
+                : await db.delete(sessions).where(
+                    and(
+                        eq(sessions.userId, ctx.user!.id),
+                        eq(sessions.tenantId, ctx.tenantId)
+                    )
+                );
 
             logger.info({ userId: ctx.user!.id }, "[Security] All other sessions revoked");
             return { success: true };

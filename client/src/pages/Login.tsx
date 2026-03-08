@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useTheme } from "@/contexts/ThemeContext";
-import { MessageCircle, Moon, Sun, Mail, Lock, ArrowRight, Loader2 } from "lucide-react";
+import { MessageCircle, Moon, Sun, Mail, Lock, ArrowRight, Loader2, Building2 } from "lucide-react";
 import { useState, useEffect } from "react";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -26,6 +26,7 @@ export default function Login() {
   const [formData, setFormData] = useState({
     email: "",
     password: "",
+    tenantSlug: "",
   });
   const [enabledProviders, setEnabledProviders] = useState<string[]>([]);
 
@@ -50,6 +51,9 @@ export default function Login() {
   const login = trpc.auth.loginWithCredentials.useMutation({
     onSuccess: (data) => {
       if (data?.success) {
+        if (formData.tenantSlug.trim()) {
+          localStorage.setItem("tenant-slug", formData.tenantSlug.trim().toLowerCase());
+        }
         window.location.href = "/";
         return;
       }
@@ -76,7 +80,7 @@ export default function Login() {
       return;
     }
 
-    login.mutate({ email, password: formData.password });
+    login.mutate({ email, password: formData.password, ...(formData.tenantSlug.trim() ? { tenantSlug: formData.tenantSlug.trim() } : {}) });
   };
 
   const handleOAuthLogin = (provider: 'google' | 'microsoft' | 'facebook') => {
@@ -256,6 +260,21 @@ export default function Login() {
 
               {/* Email Form */}
               <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="tenantSlug">Organización <span className="text-xs text-muted-foreground">(opcional)</span></Label>
+                  <div className="relative">
+                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      id="tenantSlug"
+                      type="text"
+                      placeholder="mi-empresa"
+                      className="pl-10 bg-card/50 border-border/50 focus:border-primary"
+                      value={formData.tenantSlug}
+                      onChange={(e) => setFormData({ ...formData, tenantSlug: e.target.value })}
+                    />
+                  </div>
+                </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="email">Email</Label>
                   <div className="relative">

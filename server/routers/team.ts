@@ -186,10 +186,10 @@ export const teamRouter = router({
                 name: input.name,
                 email: input.email,
                 role: input.role,
-                isActive: true,
+                isActive: false,
                 invitationToken: token,
                 invitationExpires: expiresAt,
-                loginMethod: "credentials",
+                loginMethod: null,
             });
 
             const baseUrl = process.env.APP_URL || process.env.VITE_API_URL || "http://localhost:3000";

@@ -118,7 +118,7 @@ export const authRouter = router({
     }),
 
     loginWithCredentials: publicProcedure
-        .input(z.object({ email: z.string().email().max(254), password: z.string().max(128) }))
+        .input(z.object({ email: z.string().email().max(254), password: z.string().max(128), tenantSlug: z.string().max(100).optional() }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
             if (!db) return { success: false, error: "Database not available" };
@@ -135,15 +135,26 @@ export const authRouter = router({
                 throw e; // Re-throw TRPCError (TOO_MANY_REQUESTS) so HTTP 429 is returned
             }
 
-            // SECURITY FIX (MT-01): Resolve tenantId from request context
-            // to prevent cross-tenant user enumeration and login attacks.
+            // SECURITY FIX (MT-01): Resolve tenantId from explicit slug first,
+            // then fall back to request context (header/subdomain).
             let tenantId: number | null = null;
-            try {
-                tenantId = await resolveTenantFromRequest(ctx.req);
-            } catch (e) {
-                logger.error({ err: e, email: normalizedEmail, ip }, "[Auth] Tenant resolution failed");
-                // Fail-closed: don't fall back to platform tenant on error
-                return { success: false, error: "No se pudo determinar el contexto del tenant. Intente de nuevo." };
+            if (input.tenantSlug) {
+                const slug = input.tenantSlug.trim().toLowerCase();
+                const tenant = await db.select({ id: tenants.id })
+                    .from(tenants)
+                    .where(eq(tenants.slug, slug))
+                    .limit(1);
+                tenantId = tenant[0]?.id ?? null;
+                if (!tenantId) {
+                    return { success: false, error: "Organización no encontrada." };
+                }
+            } else {
+                try {
+                    tenantId = await resolveTenantFromRequest(ctx.req);
+                } catch (e) {
+                    logger.error({ err: e, email: normalizedEmail, ip }, "[Auth] Tenant resolution failed");
+                    return { success: false, error: "No se pudo determinar el contexto del tenant. Intente de nuevo." };
+                }
             }
 
             let user;
@@ -232,8 +243,8 @@ export const authRouter = router({
                 throw new Error("Account has been disabled by an administrator");
             }
 
-            // Block replay: If user already has a password or is already active with login method set, the invitation was already accepted
-            if (user[0].password || (user[0].isActive && user[0].loginMethod)) {
+            // Block replay: If user already has a password set, the invitation was already accepted
+            if (user[0].password) {
                 throw new Error("La invitación ya fue aceptada. Inicia sesión con tu contraseña.");
             }
 
