@@ -77,7 +77,7 @@ export function OnboardingWizard() {
 
             <div className="mt-8 text-center">
                 <p className="text-xs text-slate-400">
-                    ¿Necesitas ayuda? Contacta a soporte@imaginecrm.com
+                    ¿Necesitas ayuda? Contacta al administrador de tu organización
                 </p>
             </div>
         </div>

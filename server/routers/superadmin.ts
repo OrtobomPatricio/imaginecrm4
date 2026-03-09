@@ -1399,13 +1399,6 @@ export const superadminRouter = router({
                 .limit(1);
             if (existingSlug) throw new TRPCError({ code: "CONFLICT", message: `El slug "${input.slug}" ya existe.` });
 
-            // Check email not already taken BEFORE transaction
-            const [emailExists] = await db.select({ id: users.id })
-                .from(users).where(eq(users.email, input.ownerEmail.trim().toLowerCase())).limit(1);
-            if (emailExists) {
-                throw new TRPCError({ code: "CONFLICT", message: `El email "${input.ownerEmail}" ya está en uso. No se creó el tenant.` });
-            }
-
             // All-or-nothing: tenant + appSettings + owner in one transaction
             const { nanoid } = await import("nanoid");
             const crypto = await import("crypto");
@@ -1415,6 +1408,13 @@ export const superadminRouter = router({
             let newId: number;
             try {
                 await db.transaction(async (tx) => {
+                    // Check email inside tx to prevent TOCTOU race between concurrent requests
+                    const [emailExists] = await tx.select({ id: users.id })
+                        .from(users).where(eq(users.email, input.ownerEmail.trim().toLowerCase())).limit(1);
+                    if (emailExists) {
+                        throw new TRPCError({ code: "CONFLICT", message: `El email "${input.ownerEmail}" ya está en uso. No se creó el tenant.` });
+                    }
+
                     const [result] = await tx.insert(tenants).values({
                         name: input.name,
                         slug: input.slug,
@@ -1465,7 +1465,7 @@ export const superadminRouter = router({
         .input(z.object({
             tenantId: z.number(),
             name: z.string().min(1).max(200).optional(),
-            slug: z.string().min(1).max(100).regex(/^[a-z0-9\-]+$/).optional(),
+            slug: z.string().min(1).max(100).regex(/^[a-z0-9][a-z0-9-]{0,98}[a-z0-9]$/).optional(),
             paypalSubscriptionId: z.string().max(255).nullable().optional(),
             trialEndsAt: z.string().nullable().optional(),
         }))

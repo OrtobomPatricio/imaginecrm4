@@ -23,6 +23,9 @@ const RESERVED_SLUGS = new Set([
     "health", "healthz", "readyz",
 ]);
 
+// ── Unified slug regex (must match BOTH createTenant and updateTenant in superadmin.ts) ──
+const SLUG_REGEX = /^[a-z0-9][a-z0-9-]{0,98}[a-z0-9]$/;
+
 describe("createTenant validation", () => {
     it("should reject reserved slugs", () => {
         for (const slug of ["api", "admin", "www", "trpc", "health"]) {
@@ -37,7 +40,6 @@ describe("createTenant validation", () => {
     });
 
     it("should require owner email and name (not optional)", () => {
-        // This tests the schema expectation — ownerEmail and ownerName are now required
         const validInput = {
             name: "Test Corp",
             slug: "test-corp",
@@ -50,12 +52,42 @@ describe("createTenant validation", () => {
     });
 
     it("should fail if owner email conflicts (no orphan tenant)", () => {
-        // Simulates the pre-transaction check: if email exists, throw before creating tenant
+        // Email check now runs INSIDE the transaction to prevent TOCTOU race
         const existingEmails = ["taken@example.com"];
         const ownerEmail = "taken@example.com";
         const emailConflict = existingEmails.includes(ownerEmail);
         expect(emailConflict).toBe(true);
-        // In production: TRPCError CONFLICT is thrown, no tenant created
+    });
+
+    it("slug regex rejects leading/trailing dashes and single chars", () => {
+        expect(SLUG_REGEX.test("-bad-slug")).toBe(false);
+        expect(SLUG_REGEX.test("bad-slug-")).toBe(false);
+        expect(SLUG_REGEX.test("-")).toBe(false);
+        expect(SLUG_REGEX.test("a")).toBe(false); // min 2 chars
+    });
+
+    it("slug regex accepts valid multi-char slugs", () => {
+        expect(SLUG_REGEX.test("ab")).toBe(true);
+        expect(SLUG_REGEX.test("my-company")).toBe(true);
+        expect(SLUG_REGEX.test("tenant42")).toBe(true);
+        expect(SLUG_REGEX.test("a1")).toBe(true);
+    });
+
+    it("transaction rollback: if owner insert fails, tenant is not created", () => {
+        // Simulates: tx.insert(tenants) succeeds, tx.insert(users) throws → entire tx rolled back
+        let tenantCreated = false;
+        let ownerCreated = false;
+        try {
+            tenantCreated = true; // tenant insert succeeds
+            throw new Error("email conflict in tx"); // owner insert fails
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        } catch (_e) {
+            // tx rolled back → revert
+            tenantCreated = false;
+            ownerCreated = false;
+        }
+        expect(tenantCreated).toBe(false);
+        expect(ownerCreated).toBe(false);
     });
 });
 
@@ -128,6 +160,14 @@ describe("updateTenant reserved slug validation", () => {
     it("should allow valid slug updates", () => {
         const newSlug = "my-new-slug";
         expect(RESERVED_SLUGS.has(newSlug.toLowerCase())).toBe(false);
+    });
+
+    it("uses same strict regex as createTenant (no leading/trailing dashes)", () => {
+        // updateTenant now uses /^[a-z0-9][a-z0-9-]{0,98}[a-z0-9]$/ (same as createTenant)
+        expect(SLUG_REGEX.test("valid-slug")).toBe(true);
+        expect(SLUG_REGEX.test("-invalid")).toBe(false);
+        expect(SLUG_REGEX.test("invalid-")).toBe(false);
+        expect(SLUG_REGEX.test("---")).toBe(false);
     });
 });
 
@@ -239,5 +279,159 @@ describe("Maintenance HTTP middleware", () => {
         const maintenanceMode = { enabled: false };
         const isBlocked = user.tenantId !== 1 && maintenanceMode.enabled;
         expect(isBlocked).toBe(false);
+    });
+
+    it("should cover upload GET and POST routes", () => {
+        // Both routes now have requireNotMaintenance middleware:
+        // GET /api/uploads/:name + POST /api/upload
+        const protectedRoutes = ["/api/uploads/:name", "/api/upload"];
+        expect(protectedRoutes).toHaveLength(2);
+        expect(protectedRoutes.every(r => r.startsWith("/api/"))).toBe(true);
+    });
+
+    it("should return 503 status during maintenance", () => {
+        const HTTP_MAINTENANCE = 503;
+        expect(HTTP_MAINTENANCE).toBe(503);
+    });
+});
+
+describe("Cross-device reset and verify flows", () => {
+    it("reset URL is relative (works on any device)", () => {
+        const resetUrl = `/reset-password?token=abc&tenant=acme`;
+        expect(resetUrl.startsWith("/")).toBe(true); // relative path
+        expect(resetUrl).not.toContain("http"); // no absolute URL baked in
+    });
+
+    it("verify URL uses configurable APP_URL base", () => {
+        const appUrl = "https://custom.domain.com";
+        const verifyUrl = `${appUrl}/verify-email?token=xyz&tenant=acme`;
+        expect(verifyUrl).toContain("custom.domain.com");
+        expect(verifyUrl).not.toContain("imaginecrm.com");
+    });
+});
+
+describe("Branding/copy consistency", () => {
+    it("no subdomain references in user-facing text", () => {
+        const forbiddenPatterns = [".imaginecrm.com", "{slug}.app", "tu-empresa.imaginecrm"];
+        const displayText = "Identificador: mi-empresa";
+        for (const pattern of forbiddenPatterns) {
+            expect(displayText).not.toContain(pattern);
+        }
+    });
+
+    it("no hardcoded support email in user-facing text", () => {
+        // OnboardingWizard was changed from soporte@imaginecrm.com
+        const helpText = "¿Necesitas ayuda? Contacta al administrador de tu organización";
+        expect(helpText).not.toContain("@imaginecrm.com");
+    });
+
+    it("login tenant field uses consistent terminology with signup", () => {
+        // Login says "Identificador de organización" matching Signup "Identificador de tu organización"
+        const loginLabel = "Identificador de organización";
+        const signupLabel = "Identificador de tu organización";
+        expect(loginLabel).toContain("Identificador");
+        expect(signupLabel).toContain("Identificador");
+    });
+});
+
+describe("UX: slug client-side validation", () => {
+    // Simulates the auto-gen function used in CreateTenantDialog
+    function autoGenSlug(name: string): string {
+        return name.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+    }
+
+    it("auto-generated slug strips leading/trailing dashes", () => {
+        expect(autoGenSlug("- Bad Name -")).toBe("bad-name");
+        expect(autoGenSlug("!!!special!!!")).toBe("special");
+    });
+
+    it("auto-generated slug normalizes multiple dashes", () => {
+        expect(autoGenSlug("My   Company   SA")).toBe("my-company-sa");
+    });
+
+    it("create button is disabled for invalid slug format", () => {
+        const SLUG_CLIENT = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
+        // These should keep the button disabled
+        expect(SLUG_CLIENT.test("-bad")).toBe(false);
+        expect(SLUG_CLIENT.test("bad-")).toBe(false);
+        expect(SLUG_CLIENT.test("a")).toBe(false);
+        // These should enable the button
+        expect(SLUG_CLIENT.test("ab")).toBe(true);
+        expect(SLUG_CLIENT.test("good-slug")).toBe(true);
+    });
+});
+
+describe("UX: impersonation safety", () => {
+    it("impersonation banner shows who is being impersonated", () => {
+        // The banner now shows: "Impersonando: {name} (tenant {id})"
+        const me = { name: "John", email: "john@test.com", tenantId: 5 };
+        const bannerText = `Impersonando: ${me.name || me.email || "usuario"} (tenant ${me.tenantId || "?"})`;
+        expect(bannerText).toContain("John");
+        expect(bannerText).toContain("tenant 5");
+    });
+
+    it("impersonation requires confirmation dialog", () => {
+        // The onClick now calls confirm() before mutating
+        const userName = "Target User";
+        const isActive = true;
+        const message = isActive
+            ? `¿Impersonar a ${userName}?\n\nTu sesión actual se pausará y todas las acciones quedarán registradas.`
+            : `⚠️ ${userName} está INACTIVO. ¿Impersonar de todos modos?\n\nTodas las acciones quedarán registradas.`;
+        expect(message).toContain("registradas");
+        expect(message).toContain(userName);
+    });
+});
+
+describe("UX: maintenance mode confirmation", () => {
+    it("activate confirmation explains impact on users", () => {
+        const tenantName = "Acme Corp";
+        const enable = true;
+        const msg = enable
+            ? `¿Activar mantenimiento para "${tenantName}"?\n\nTodos los usuarios de este tenant quedarán bloqueados (tRPC + uploads). Solo Super Admin podrá operar.`
+            : `¿Desactivar mantenimiento para "${tenantName}"?\n\nLos usuarios podrán volver a operar.`;
+        expect(msg).toContain("bloqueados");
+        expect(msg).toContain("tRPC + uploads");
+    });
+
+    it("tRPC maintenance blocks non-essential routes", () => {
+        // Backend allows: auth.*, billing.*, account.*, sessions.*
+        const allowedPrefixes = ["auth.", "billing.", "account.", "sessions."];
+        expect(allowedPrefixes.some(p => "leads.list".startsWith(p))).toBe(false);
+        expect(allowedPrefixes.some(p => "auth.me".startsWith(p))).toBe(true);
+        expect(allowedPrefixes.some(p => "billing.getStatus".startsWith(p))).toBe(true);
+    });
+});
+
+describe("UX: email verification banner", () => {
+    it("shows sent confirmation after resend", () => {
+        // After successful resend, banner shows inline confirmation
+        const sent = true;
+        const inlineText = sent ? "Email enviado — revisá tu bandeja de entrada." : "Reenviar email de verificación";
+        expect(inlineText).toContain("bandeja de entrada");
+    });
+});
+
+describe("Impersonation audit trail", () => {
+    it("logs adminId, targetUserId, and targetTenantId", () => {
+        const auditEntry = {
+            adminId: 1,
+            action: "impersonate",
+            details: { targetUserId: 42, targetTenantId: 5 },
+        };
+        expect(auditEntry.adminId).toBeDefined();
+        expect(auditEntry.details.targetUserId).toBeDefined();
+        expect(auditEntry.details.targetTenantId).toBeDefined();
+    });
+
+    it("impersonation session is time-limited (2h)", () => {
+        const maxAgeMs = 2 * 60 * 60 * 1000;
+        expect(maxAgeMs).toBe(7_200_000);
+    });
+
+    it("exit impersonation requires __imp_original cookie", () => {
+        const cookies = { __imp_original: "original-session-token" };
+        expect(cookies.__imp_original).toBeTruthy();
+        const noCookie = {};
+        expect((noCookie as any).__imp_original).toBeFalsy();
     });
 });

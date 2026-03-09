@@ -74,6 +74,7 @@ import { useOfflineQueue } from "@/hooks/useOfflineQueue";
 /* ─── Impersonation Banner ─── */
 function ImpersonationBanner() {
   const isImpersonating = document.cookie.includes("__imp_original=");
+  const { data: me } = trpc.auth.me.useQuery(undefined, { enabled: isImpersonating });
   const exitMutation = trpc.superadmin.exitImpersonation.useMutation({
     onSuccess: () => { window.location.href = "/super-admin"; },
     onError: () => { /* cookie may have expired — just reload */ window.location.href = "/"; },
@@ -85,7 +86,7 @@ function ImpersonationBanner() {
     <div className="flex items-center gap-2 px-4 py-2 rounded mb-2 bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700">
       <Shield className="w-4 h-4 shrink-0" />
       <span className="flex-1 text-sm font-medium">
-        Sesión de impersonación activa — estás viendo como otro usuario.
+        Impersonando: {me ? `${(me as any).name || (me as any).email || "usuario"} (tenant ${(me as any).tenantId || "?"})` : "cargando…"}
       </span>
       <Button
         variant="outline"

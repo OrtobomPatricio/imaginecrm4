@@ -328,7 +328,7 @@ export default function Login() {
 
                 <div className="space-y-2">
                   <Label htmlFor="tenantSlug" className="text-muted-foreground text-xs">
-                    Organización <span className="opacity-60">(opcional)</span>
+                    Identificador de organización <span className="opacity-60">(solo si tenés varias)</span>
                   </Label>
                   <div className="relative">
                     <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />

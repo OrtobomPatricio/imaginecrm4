@@ -508,12 +508,17 @@ function ImpersonateDialog({
                   variant="ghost"
                   size="sm"
                   className="h-7 text-xs gap-1 shrink-0"
-                  onClick={() =>
-                    impersonate.mutate({
-                      targetUserId: u.id,
-                      targetTenantId: tenant.id,
-                    })
-                  }
+                  onClick={() => {
+                    const warning = !u.isActive
+                      ? `⚠️ ${u.name || u.email} está INACTIVO. ¿Impersonar de todos modos?\n\nTodas las acciones quedarán registradas.`
+                      : `¿Impersonar a ${u.name || u.email}?\n\nTu sesión actual se pausará y todas las acciones quedarán registradas.`;
+                    if (confirm(warning)) {
+                      impersonate.mutate({
+                        targetUserId: u.id,
+                        targetTenantId: tenant.id,
+                      });
+                    }
+                  }}
                   disabled={impersonate.isPending}
                 >
                   {impersonate.isPending ? (
@@ -890,8 +895,11 @@ function TenantRow({
                     onClick={(e) => {
                       e.stopPropagation();
                       const enable = !tenant.maintenanceMode;
-                      if (confirm(`¿${enable ? "Activar" : "Desactivar"} mantenimiento para "${tenant.name}"?`)) {
-                        setTenantMaint.mutate({ tenantId: tenant.id, enabled: enable, message: enable ? "Tenant en mantenimiento" : "" });
+                      const msg = enable
+                        ? `¿Activar mantenimiento para "${tenant.name}"?\n\nTodos los usuarios de este tenant quedarán bloqueados (tRPC + uploads). Solo Super Admin podrá operar.`
+                        : `¿Desactivar mantenimiento para "${tenant.name}"?\n\nLos usuarios podrán volver a operar.`;
+                      if (confirm(msg)) {
+                        setTenantMaint.mutate({ tenantId: tenant.id, enabled: enable, message: enable ? "Tenant en mantenimiento. Volvemos pronto." : "" });
                       }
                     }}
                     disabled={setTenantMaint.isPending}
@@ -2120,8 +2128,14 @@ function CreateTenantDialog({ onSuccess }: { onSuccess: () => void }) {
         ) : (
           <>
             <div className="space-y-3">
-              <Input placeholder="Nombre de empresa" value={name} onChange={(e) => { setName(e.target.value); if (!slug) setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-")); }} className="h-9 text-sm" />
-              <Input placeholder="slug (solo letras, números, guiones)" value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9\-]/g, ""))} className="h-9 text-sm" />
+              <Input placeholder="Nombre de empresa" value={name} onChange={(e) => { setName(e.target.value); if (!slug) setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "")); }} className="h-9 text-sm" />
+              <Input placeholder="slug (letras, números, guiones — sin guión al inicio/final)" value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))} className="h-9 text-sm" />
+              {slug && !/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(slug) && slug.length >= 2 && (
+                <p className="text-xs text-amber-600">El identificador no puede empezar ni terminar con guión.</p>
+              )}
+              {slug && slug.length === 1 && (
+                <p className="text-xs text-amber-600">El identificador debe tener al menos 2 caracteres.</p>
+              )}
               <Select value={plan} onValueChange={setPlan}>
                 <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -2143,7 +2157,7 @@ function CreateTenantDialog({ onSuccess }: { onSuccess: () => void }) {
             </div>
             <DialogFooter>
               <DialogClose asChild><Button variant="ghost">Cancelar</Button></DialogClose>
-              <Button onClick={() => create.mutate({ name, slug, plan: plan as any, trialEndsAt: trialDate || undefined, ownerEmail, ownerName })} disabled={!name || !slug || !ownerEmail || !ownerName || create.isPending}>
+              <Button onClick={() => create.mutate({ name, slug, plan: plan as any, trialEndsAt: trialDate || undefined, ownerEmail, ownerName })} disabled={!name || !slug || slug.length < 2 || !/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(slug) || !ownerEmail || !ownerName || create.isPending}>
                 {create.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null} Crear
               </Button>
             </DialogFooter>
