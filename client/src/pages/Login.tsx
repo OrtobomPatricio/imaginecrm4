@@ -335,7 +335,7 @@ export default function Login() {
                     <Input
                       id="tenantSlug"
                       type="text"
-                      placeholder="solo si tenés varias organizaciones"
+                      placeholder="el identificador que elegiste al registrar tu empresa"
                       className="pl-10 bg-card/50 border-border/50 focus:border-primary text-sm"
                       value={formData.tenantSlug}
                       onChange={(e) => setFormData({ ...formData, tenantSlug: e.target.value })}

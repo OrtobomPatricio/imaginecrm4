@@ -43,9 +43,10 @@ export default function Signup() {
         currency: "PYG",
     });
 
-    // Auto-generate slug from company name
+    // Auto-generate slug from company name (paused if user edits slug manually)
+    const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
     useEffect(() => {
-        if (step === "company") {
+        if (step === "company" && !slugManuallyEdited) {
             const generated = form.companyName
                 .toLowerCase()
                 .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
@@ -54,7 +55,7 @@ export default function Signup() {
                 .slice(0, 50);
             setForm(prev => ({ ...prev, slug: generated }));
         }
-    }, [form.companyName, step]);
+    }, [form.companyName, step, slugManuallyEdited]);
 
     // Slug availability check (debounced)
     const [slugToCheck, setSlugToCheck] = useState("");
@@ -459,7 +460,7 @@ export default function Signup() {
                                             placeholder="mi-empresa"
                                             className="pl-10 bg-card/50 border-border/50 focus:border-primary"
                                             value={form.slug}
-                                            onChange={(e) => updateField("slug", e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                                            onChange={(e) => { setSlugManuallyEdited(true); updateField("slug", e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "")); }}
                                         />
                                     </div>
                                     <div className="flex items-center gap-2 text-xs">

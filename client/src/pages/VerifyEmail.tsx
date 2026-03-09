@@ -26,15 +26,18 @@ export default function VerifyEmail() {
     },
   });
 
+  const [verified, setVerified] = useState(false);
   useEffect(() => {
+    if (verified) return;
     const token = params.get("token");
     if (token) {
+      setVerified(true);
       verifyMutation.mutate({ token });
     } else {
       setStatus("error");
       setMessage("No se proporcionó un token de verificación.");
     }
-  }, []);
+  }, [verified]);
 
   const loginUrl = tenantSlug
     ? `/login?tenant=${encodeURIComponent(tenantSlug)}`

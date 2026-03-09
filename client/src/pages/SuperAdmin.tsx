@@ -2302,8 +2302,13 @@ function AllUsersPanel() {
     },
   });
 
+  const [revealedAllResetUrl, setRevealedAllResetUrl] = useState<string | null>(null);
   const resetPw = trpc.superadmin.forcePasswordReset.useMutation({
-    onSuccess: (d) => { navigator.clipboard.writeText(`${window.location.origin}${d.resetUrl}`).catch(() => {}); toast({ title: "Enlace de reset copiado al portapapeles", duration: 5000 }); },
+    onSuccess: (d) => {
+      const fullUrl = `${window.location.origin}${d.resetUrl}`;
+      setRevealedAllResetUrl(fullUrl);
+      toast({ title: "Sesiones invalidadas", description: "Copiá el enlace de reset y compartilo de forma segura.", duration: 5000 });
+    },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
@@ -2384,6 +2389,18 @@ function AllUsersPanel() {
           <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}><ChevronLeft className="w-4 h-4" /></Button>
           <span className="text-xs text-muted-foreground">Página {page + 1} de {Math.ceil(total / limit)}</span>
           <Button variant="outline" size="sm" disabled={(page + 1) * limit >= total} onClick={() => setPage(p => p + 1)}><ChevronRight className="w-4 h-4" /></Button>
+        </div>
+      )}
+
+      {revealedAllResetUrl && (
+        <div className="mt-2 flex items-center gap-2 p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-md">
+          <code className="text-xs font-mono flex-1 select-all break-all">{revealedAllResetUrl}</code>
+          <Button variant="ghost" size="sm" className="h-6 text-xs shrink-0" onClick={() => { navigator.clipboard.writeText(revealedAllResetUrl); toast({ title: "Enlace copiado" }); }}>
+            Copiar
+          </Button>
+          <Button variant="ghost" size="sm" className="h-6 text-xs shrink-0" onClick={() => setRevealedAllResetUrl(null)}>
+            ✕
+          </Button>
         </div>
       )}
     </div>

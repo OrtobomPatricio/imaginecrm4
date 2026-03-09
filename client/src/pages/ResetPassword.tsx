@@ -29,11 +29,19 @@ export default function ResetPassword() {
     }
   }, []);
 
+  const [expired, setExpired] = useState(false);
   const resetMutation = trpc.account.resetPassword.useMutation({
     onSuccess: () => {
       setDone(true);
     },
-    onError: (err) => toast.error(err.message || "Error al restablecer la contraseña"),
+    onError: (err) => {
+      const msg = err.message || "";
+      if (msg.toLowerCase().includes("expirado") || msg.toLowerCase().includes("expired")) {
+        setExpired(true);
+      } else {
+        toast.error(msg || "Error al restablecer la contraseña");
+      }
+    },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -49,17 +57,24 @@ export default function ResetPassword() {
     resetMutation.mutate({ token, newPassword: password });
   };
 
-  if (invalidToken) {
+  const forgotUrl = (() => {
+    const tenant = localStorage.getItem("tenant-slug");
+    return tenant ? `/forgot-password?tenant=${encodeURIComponent(tenant)}` : "/forgot-password";
+  })();
+
+  if (invalidToken || expired) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
         <Card className="w-full max-w-md">
           <CardContent className="flex flex-col items-center gap-4 py-8">
             <XCircle className="h-12 w-12 text-red-500" />
-            <p className="text-center text-red-600">Enlace de recuperación inválido.</p>
-            <Button variant="outline" onClick={() => {
-              const tenant = localStorage.getItem("tenant-slug");
-              window.location.href = tenant ? `/forgot-password?tenant=${encodeURIComponent(tenant)}` : "/forgot-password";
-            }}>
+            <p className="text-center text-red-600">
+              {expired ? "Tu enlace de recuperación ha expirado." : "Enlace de recuperación inválido."}
+            </p>
+            <p className="text-center text-sm text-muted-foreground">
+              {expired ? "Por seguridad, los enlaces expiran después de un tiempo. Solicitá uno nuevo." : "Es posible que el enlace ya fue usado o que la URL esté incompleta."}
+            </p>
+            <Button variant="outline" onClick={() => { window.location.href = forgotUrl; }}>
               Solicitar nuevo enlace
             </Button>
           </CardContent>
