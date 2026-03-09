@@ -10,6 +10,7 @@ import { logger, safeError } from "./_core/logger";
 import { getOrCreateAppSettings } from "./services/app-settings";
 import { sdk } from "./_core/sdk";
 import { logAccess, getClientIp } from "./services/security";
+import { isMaintenanceActive } from "./_core/middleware/maintenance";
 import Redis from "ioredis";
 
 const META_API_VERSION = "v19.0";
@@ -106,6 +107,9 @@ export function registerMetaRoutes(app: Express) {
         try {
             const auth = await requireAdminAuth(req, res);
             if (!auth) return; // Response already sent
+
+            const maint = await isMaintenanceActive(auth.tenantId);
+            if (maint) return res.status(503).json({ error: "Maintenance", message: maint.message || "Sistema en mantenimiento." });
 
             const database = await db.getDb();
             const tenantId = auth.tenantId;

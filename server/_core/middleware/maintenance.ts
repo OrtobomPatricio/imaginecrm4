@@ -9,6 +9,28 @@ import { logger } from "../logger";
  * Must run AFTER requireAuthMiddleware so that req.user is populated.
  * Exempt: tenant 1 (platform admin) is never blocked.
  */
+/**
+ * Standalone check: returns the active maintenance config if tenant is in maintenance, null otherwise.
+ * Exempt: tenantId 1 (platform admin) is never blocked.
+ * Usable from route handlers that don't use Express middleware chains (meta-routes, embedded-signup).
+ */
+export async function isMaintenanceActive(tenantId: number): Promise<{ message?: string } | null> {
+    if (tenantId === 1) return null;
+    try {
+        const db = await getDb();
+        if (!db) return null;
+        const [settings] = await db.select({ maintenanceMode: appSettings.maintenanceMode })
+            .from(appSettings).where(eq(appSettings.tenantId, tenantId)).limit(1);
+        const [platformSettings] = await db.select({ maintenanceMode: appSettings.maintenanceMode })
+            .from(appSettings).where(eq(appSettings.tenantId, 1)).limit(1);
+        const tenantMaint = (settings?.maintenanceMode as any);
+        const platformMaint = (platformSettings?.maintenanceMode as any);
+        return tenantMaint?.enabled ? tenantMaint : (platformMaint?.enabled ? platformMaint : null);
+    } catch {
+        return null;
+    }
+}
+
 export const requireNotMaintenance = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const user = (req as any).user;

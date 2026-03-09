@@ -54,14 +54,18 @@ export function serveStatic(app: Express) {
             logger.warn("⚠️  Assets folder missing in resolved root!");
         }
 
+        // PWA-critical files that must NOT be cached aggressively
+        const PWA_NO_CACHE_RE = /(?:^|[\/\\])(?:sw\.js|manifest\.webmanifest|manifest\.json|registerSW\.js|workbox-[\w.-]+\.js)$/;
+
         app.use(
             express.static(root, {
                 index: false,
                 maxAge: "1y",
                 immutable: true,
                 setHeaders(res, filePath) {
-                    if (filePath.endsWith(".html")) {
-                        res.setHeader("Cache-Control", "no-store");
+                    if (filePath.endsWith(".html") || PWA_NO_CACHE_RE.test(filePath)) {
+                        // HTML and PWA-critical files: always revalidate
+                        res.setHeader("Cache-Control", "no-cache");
                     }
                 },
             })

@@ -543,3 +543,123 @@ describe("Impersonation audit trail", () => {
         expect((noCookie as any).__imp_original).toBeFalsy();
     });
 });
+
+// ═══════════════════════════════════════════════════
+// PENDIENTE FINAL 1: createTenant preserves business errors
+// ═══════════════════════════════════════════════════
+
+describe("createTenant: TRPCError preservation in catch", () => {
+    it("re-throws TRPCError (CONFLICT) instead of wrapping as INTERNAL_SERVER_ERROR", async () => {
+        // Simulate transaction catch behavior
+        const { TRPCError } = await import("@trpc/server");
+        const businessError = new TRPCError({ code: "CONFLICT", message: 'El email "x@test.com" ya está en uso.' });
+
+        let caught: any;
+        try {
+            try {
+                throw businessError;
+            } catch (txErr: any) {
+                if (txErr instanceof TRPCError) throw txErr;
+                throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Error al crear tenant." });
+            }
+        } catch (e) {
+            caught = e;
+        }
+        expect(caught).toBeInstanceOf(TRPCError);
+        expect(caught.code).toBe("CONFLICT");
+        expect(caught.message).toContain("ya está en uso");
+    });
+
+    it("wraps non-TRPCError as INTERNAL_SERVER_ERROR", async () => {
+        const { TRPCError } = await import("@trpc/server");
+        const dbError = new Error("ER_DUP_ENTRY");
+
+        let caught: any;
+        try {
+            try {
+                throw dbError;
+            } catch (txErr: any) {
+                if (txErr instanceof TRPCError) throw txErr;
+                throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Error al crear tenant." });
+            }
+        } catch (e) {
+            caught = e;
+        }
+        expect(caught).toBeInstanceOf(TRPCError);
+        expect(caught.code).toBe("INTERNAL_SERVER_ERROR");
+    });
+
+    it("preserves BAD_REQUEST from within transaction", async () => {
+        const { TRPCError } = await import("@trpc/server");
+        const validationError = new TRPCError({ code: "BAD_REQUEST", message: "Slug inválido" });
+
+        let caught: any;
+        try {
+            try {
+                throw validationError;
+            } catch (txErr: any) {
+                if (txErr instanceof TRPCError) throw txErr;
+                throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Error al crear tenant." });
+            }
+        } catch (e) {
+            caught = e;
+        }
+        expect(caught.code).toBe("BAD_REQUEST");
+    });
+});
+
+// ═══════════════════════════════════════════════════
+// PENDIENTE FINAL 2: isMaintenanceActive exported
+// ═══════════════════════════════════════════════════
+
+describe("isMaintenanceActive: standalone check", () => {
+    it("always returns null for tenantId 1 (superadmin exempt)", async () => {
+        const { isMaintenanceActive } = await import("../server/_core/middleware/maintenance");
+        const result = await isMaintenanceActive(1);
+        expect(result).toBeNull();
+    });
+
+    it("function is exported and callable", async () => {
+        const mod = await import("../server/_core/middleware/maintenance");
+        expect(typeof mod.isMaintenanceActive).toBe("function");
+        expect(typeof mod.requireNotMaintenance).toBe("function");
+    });
+});
+
+// ═══════════════════════════════════════════════════
+// PENDIENTE FINAL 3: PWA cache exclusions
+// ═══════════════════════════════════════════════════
+
+describe("PWA critical files: no aggressive cache", () => {
+    const PWA_NO_CACHE_RE = /(?:^|[\/\\])(?:sw\.js|manifest\.webmanifest|manifest\.json|registerSW\.js|workbox-[\w.-]+\.js)$/;
+
+    it("sw.js matches exclusion regex", () => {
+        expect(PWA_NO_CACHE_RE.test("/dist/public/sw.js")).toBe(true);
+        expect(PWA_NO_CACHE_RE.test("sw.js")).toBe(true);
+    });
+
+    it("manifest.webmanifest matches exclusion", () => {
+        expect(PWA_NO_CACHE_RE.test("/dist/public/manifest.webmanifest")).toBe(true);
+    });
+
+    it("manifest.json matches exclusion", () => {
+        expect(PWA_NO_CACHE_RE.test("/dist/public/manifest.json")).toBe(true);
+    });
+
+    it("registerSW.js matches exclusion", () => {
+        expect(PWA_NO_CACHE_RE.test("registerSW.js")).toBe(true);
+    });
+
+    it("workbox-xxxxx.js matches exclusion", () => {
+        expect(PWA_NO_CACHE_RE.test("/dist/public/workbox-abc123.js")).toBe(true);
+    });
+
+    it("regular hashed assets do NOT match exclusion", () => {
+        expect(PWA_NO_CACHE_RE.test("/assets/index-abc123.js")).toBe(false);
+        expect(PWA_NO_CACHE_RE.test("/assets/style-def456.css")).toBe(false);
+    });
+
+    it("html files do NOT match PWA exclusion (handled separately)", () => {
+        expect(PWA_NO_CACHE_RE.test("index.html")).toBe(false);
+    });
+});

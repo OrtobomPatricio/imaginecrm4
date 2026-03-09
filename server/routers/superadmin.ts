@@ -1444,6 +1444,8 @@ export const superadminRouter = router({
                 });
             } catch (txErr: any) {
                 logger.error({ err: txErr }, "[Superadmin] createTenant transaction failed");
+                // Preserve business errors (CONFLICT, BAD_REQUEST, etc.) thrown inside tx
+                if (txErr instanceof TRPCError) throw txErr;
                 throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Error al crear tenant. No se creó nada." });
             }
 

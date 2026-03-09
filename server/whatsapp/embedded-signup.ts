@@ -36,6 +36,7 @@ import { logger, safeError } from "../_core/logger";
 import { getOrCreateAppSettings, getPlatformMetaConfig } from "../services/app-settings";
 import { sdk } from "../_core/sdk";
 import { logAccess, getClientIp } from "../services/security";
+import { isMaintenanceActive } from "../_core/middleware/maintenance";
 
 const GRAPH_VERSION = "v21.0";
 const GRAPH_BASE = "https://graph.facebook.com";
@@ -144,6 +145,9 @@ export function registerEmbeddedSignupRoutes(app: Express) {
       const auth = await requireAdminAuth(req, res);
       if (!auth) return;
 
+      const maint = await isMaintenanceActive(auth.tenantId);
+      if (maint) return res.status(503).json({ error: "Maintenance", message: maint.message || "Sistema en mantenimiento." });
+
       const database = await db.getDb();
       const settings = await getOrCreateAppSettings(database, auth.tenantId);
       // Fallback chain: tenant config → platform config (tenant 1) → env vars
@@ -187,6 +191,9 @@ export function registerEmbeddedSignupRoutes(app: Express) {
     try {
       const auth = await requireAdminAuth(req, res);
       if (!auth) return;
+
+      const maint = await isMaintenanceActive(auth.tenantId);
+      if (maint) return res.status(503).json({ error: "Maintenance", message: maint.message || "Sistema en mantenimiento." });
 
       // Validate input
       const parseResult = completeSignupSchema.safeParse(req.body);
@@ -417,6 +424,9 @@ export function registerEmbeddedSignupRoutes(app: Express) {
     try {
       const auth = await requireAdminAuth(req, res);
       if (!auth) return;
+
+      const maint = await isMaintenanceActive(auth.tenantId);
+      if (maint) return res.status(503).json({ error: "Maintenance", message: maint.message || "Sistema en mantenimiento." });
 
       const parseResult = disconnectSchema.safeParse(req.body);
       if (!parseResult.success) {
