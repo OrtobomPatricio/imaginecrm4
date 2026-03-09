@@ -998,4 +998,16 @@ describe("11. Error handling — no false Acceso Denegado", () => {
     it("usePermissions exposes error state", () => {
         expect(usePermSrc).toContain("error: query.error");
     });
+
+    it("myPermissions uses authOnlyProcedure (skips billing guard)", () => {
+        const settingsRouterSrc = fs.readFileSync(
+            path.resolve(__dirname, "../server/routers/settings.ts"), "utf-8"
+        );
+        expect(settingsRouterSrc).toContain("myPermissions: authOnlyProcedure");
+    });
+
+    it("authOnlyProcedure is exported from trpc.ts (requireUser only)", () => {
+        expect(trpcSrc).toContain("authOnlyProcedure");
+        expect(trpcSrc).toMatch(/authOnlyProcedure.*=.*procedure\.use\(requireUser\)/s);
+    });
 });

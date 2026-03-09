@@ -158,6 +158,11 @@ const requireActiveBilling = t.middleware(async opts => {
   return next({ ctx });
 });
 
+/** Auth-only: requires authenticated user but skips billing guard.
+ * Use for fundamental endpoints that must work even when billing is locked
+ * (e.g. myPermissions, account settings). */
+export const authOnlyProcedure = t.procedure.use(requireUser);
+
 export const protectedProcedure = t.procedure.use(requireUser).use(requireActiveBilling);
 
 // --- Pro RBAC / Permissions ---

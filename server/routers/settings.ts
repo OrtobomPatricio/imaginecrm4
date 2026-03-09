@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { appSettings } from "../../drizzle/schema";
 import { getDb } from "../db";
-import { permissionProcedure, adminProcedure, router, protectedProcedure } from "../_core/trpc";
+import { permissionProcedure, adminProcedure, router, protectedProcedure, authOnlyProcedure } from "../_core/trpc";
 import { sanitizeAppSettings } from "../_core/security-helpers";
 import { getOrCreateAppSettings, updateAppSettings } from "../services/app-settings";
 import { encryptSecret } from "../_core/crypto";
@@ -280,7 +280,7 @@ export const settingsRouter = router({
             return { success: true };
         }),
 
-    myPermissions: protectedProcedure.query(async ({ ctx }) => {
+    myPermissions: authOnlyProcedure.query(async ({ ctx }) => {
         const db = await getDb();
         // Ensure we don't break if no db or user
         if (!db || !ctx.user) return { role: ctx.user?.role ?? "agent", baseRole: ctx.user?.role ?? "agent", permissions: [] };
