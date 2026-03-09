@@ -225,7 +225,8 @@ export function registerNativeOAuth(app: Express) {
                     }
 
                     const ownerEmail = process.env.OWNER_EMAIL;
-                    const isOwner = ownerEmail && user.email && user.email.toLowerCase() === ownerEmail.toLowerCase() && provisionedUser.tenantId === 1;
+                    const ownerEmailValid = ownerEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail);
+                    const isOwner = ownerEmailValid && user.email && user.email.toLowerCase() === ownerEmail!.toLowerCase() && provisionedUser.tenantId === 1;
 
                     // Only update loginMethod and lastSignedIn on returning logins.
                     // Name/email only filled if the DB record is empty (avoid overwriting admin edits).
@@ -415,7 +416,8 @@ export function registerNativeOAuth(app: Express) {
                     }
 
                     const ownerEmail = process.env.OWNER_EMAIL;
-                    const isOwner = ownerEmail && user.email && user.email.toLowerCase() === ownerEmail.toLowerCase() && provisionedUser.tenantId === 1;
+                    const ownerEmailValid = ownerEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail);
+                    const isOwner = ownerEmailValid && user.email && user.email.toLowerCase() === ownerEmail!.toLowerCase() && provisionedUser.tenantId === 1;
 
                     const upsertData: Parameters<typeof db.upsertUser>[0] = {
                         tenantId: provisionedUser.tenantId,
@@ -588,7 +590,8 @@ export function registerNativeOAuth(app: Express) {
                     }
 
                     const ownerEmail = process.env.OWNER_EMAIL;
-                    const isOwner = ownerEmail && user.email && user.email.toLowerCase() === ownerEmail.toLowerCase() && provisionedUser.tenantId === 1;
+                    const ownerEmailValid = ownerEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail);
+                    const isOwner = ownerEmailValid && user.email && user.email.toLowerCase() === ownerEmail!.toLowerCase() && provisionedUser.tenantId === 1;
 
                     const upsertData: Parameters<typeof db.upsertUser>[0] = {
                         tenantId: provisionedUser.tenantId,

@@ -11,8 +11,8 @@ function parseKey(key: string): Buffer {
     throw new Error("DATA_ENCRYPTION_KEY is required for encrypting secrets");
   }
 
-  // base64
-  if (/^[A-Za-z0-9+/=]+$/.test(trimmed) && trimmed.length >= 43) {
+  // base64 — require valid padding (length multiple of 4) and minimum 43 chars for 32 bytes
+  if (/^[A-Za-z0-9+/]+={0,2}$/.test(trimmed) && trimmed.length >= 43 && trimmed.length % 4 === 0) {
     try {
       const b = Buffer.from(trimmed, "base64");
       if (b.length === 32) return b;

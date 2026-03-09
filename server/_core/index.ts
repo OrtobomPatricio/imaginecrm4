@@ -203,13 +203,14 @@ export async function createApp() {
 
   // Body Parsing
   // Keep raw body for WhatsApp signature verification
+  const bodyLimit = process.env.BODY_LIMIT || "50kb";
   app.use(express.json({
-    limit: "50kb",
+    limit: bodyLimit,
     verify: (req: any, _res, buf) => {
       req.rawBody = buf;
     },
   }));
-  app.use(express.urlencoded({ limit: "50kb", extended: true }));
+  app.use(express.urlencoded({ limit: bodyLimit, extended: true }));
 
   // Routes
   app.get("/api/health", (_req, res) => res.json({ status: "ok", timestamp: new Date().toISOString() }));

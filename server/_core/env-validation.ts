@@ -104,6 +104,19 @@ export function validateEnvironment(): void {
         }
     }
 
+    // Validate OAuth secrets: if client ID is set, secret must also be set
+    if (process.env.GOOGLE_CLIENT_ID && !process.env.GOOGLE_CLIENT_SECRET) {
+        errors.push("GOOGLE_CLIENT_SECRET is required when GOOGLE_CLIENT_ID is set");
+    }
+    if (process.env.FACEBOOK_APP_ID && !process.env.FACEBOOK_APP_SECRET) {
+        errors.push("FACEBOOK_APP_SECRET is required when FACEBOOK_APP_ID is set");
+    }
+
+    // Validate OWNER_EMAIL format if set
+    if (process.env.OWNER_EMAIL && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(process.env.OWNER_EMAIL)) {
+        errors.push("OWNER_EMAIL has an invalid email format");
+    }
+
     // Log warnings
     for (const warning of warnings) {
         logger.warn(`[EnvValidation] WARNING: ${warning}`);
