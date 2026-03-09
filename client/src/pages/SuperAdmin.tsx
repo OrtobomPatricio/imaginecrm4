@@ -545,11 +545,12 @@ function TenantUsersPanel({ tenantId }: { tenantId: number }) {
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  const [revealedPassword, setRevealedPassword] = useState<string | null>(null);
+  const [revealedResetUrl, setRevealedResetUrl] = useState<string | null>(null);
   const resetPassword = trpc.superadmin.forcePasswordReset.useMutation({
     onSuccess: (data) => {
-      setRevealedPassword(data.tempPassword);
-      toast({ title: "Contraseña reseteada", description: "Copia la contraseña del campo seguro.", duration: 5000 });
+      const fullUrl = `${window.location.origin}${data.resetUrl}`;
+      setRevealedResetUrl(fullUrl);
+      toast({ title: "Sesiones invalidadas", description: "Copiá el enlace de reset y compartilo de forma segura.", duration: 5000 });
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -619,13 +620,13 @@ function TenantUsersPanel({ tenantId }: { tenantId: number }) {
           </div>
         ))}
       </div>
-      {revealedPassword && (
+      {revealedResetUrl && (
         <div className="mt-2 flex items-center gap-2 p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-md">
-          <code className="text-xs font-mono flex-1 select-all break-all">{revealedPassword}</code>
-          <Button variant="ghost" size="sm" className="h-6 text-xs shrink-0" onClick={() => { navigator.clipboard.writeText(revealedPassword); toast({ title: "Copiada" }); }}>
+          <code className="text-xs font-mono flex-1 select-all break-all">{revealedResetUrl}</code>
+          <Button variant="ghost" size="sm" className="h-6 text-xs shrink-0" onClick={() => { navigator.clipboard.writeText(revealedResetUrl); toast({ title: "Enlace copiado" }); }}>
             Copiar
           </Button>
-          <Button variant="ghost" size="sm" className="h-6 text-xs shrink-0" onClick={() => setRevealedPassword(null)}>
+          <Button variant="ghost" size="sm" className="h-6 text-xs shrink-0" onClick={() => setRevealedResetUrl(null)}>
             ✕
           </Button>
         </div>
@@ -2077,13 +2078,15 @@ function CreateTenantDialog({ onSuccess }: { onSuccess: () => void }) {
   const [slug, setSlug] = useState("");
   const [plan, setPlan] = useState<string>("free");
   const [trialDate, setTrialDate] = useState("");
+  const [ownerEmail, setOwnerEmail] = useState("");
+  const [ownerName, setOwnerName] = useState("");
   const { toast } = useToast();
 
   const create = trpc.superadmin.createTenant.useMutation({
     onSuccess: (d) => {
       toast({ title: d.message });
       setOpen(false);
-      setName(""); setSlug(""); setPlan("free"); setTrialDate("");
+      setName(""); setSlug(""); setPlan("free"); setTrialDate(""); setOwnerEmail(""); setOwnerName("");
       onSuccess();
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
@@ -2099,7 +2102,7 @@ function CreateTenantDialog({ onSuccess }: { onSuccess: () => void }) {
       <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle>Crear Tenant</DialogTitle>
-          <DialogDescription>Crea una nueva organización en la plataforma.</DialogDescription>
+          <DialogDescription>Crea una nueva organización con su owner inicial.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <Input placeholder="Nombre de empresa" value={name} onChange={(e) => { setName(e.target.value); if (!slug) setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-")); }} className="h-9 text-sm" />
@@ -2117,10 +2120,15 @@ function CreateTenantDialog({ onSuccess }: { onSuccess: () => void }) {
             <Label className="text-xs text-muted-foreground">Trial hasta (opcional)</Label>
             <Input type="date" value={trialDate} onChange={(e) => setTrialDate(e.target.value)} className="h-9 text-sm" />
           </div>
+          <div className="border-t pt-3 space-y-2">
+            <Label className="text-xs font-medium">Owner inicial (recomendado)</Label>
+            <Input placeholder="Email del owner" type="email" value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} className="h-9 text-sm" />
+            <Input placeholder="Nombre del owner" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} className="h-9 text-sm" />
+          </div>
         </div>
         <DialogFooter>
           <DialogClose asChild><Button variant="ghost">Cancelar</Button></DialogClose>
-          <Button onClick={() => create.mutate({ name, slug, plan: plan as any, trialEndsAt: trialDate || undefined })} disabled={!name || !slug || create.isPending}>
+          <Button onClick={() => create.mutate({ name, slug, plan: plan as any, trialEndsAt: trialDate || undefined, ownerEmail: ownerEmail || undefined, ownerName: ownerName || undefined })} disabled={!name || !slug || create.isPending}>
             {create.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null} Crear
           </Button>
         </DialogFooter>
@@ -2264,7 +2272,7 @@ function AllUsersPanel() {
   });
 
   const resetPw = trpc.superadmin.forcePasswordReset.useMutation({
-    onSuccess: (d) => { navigator.clipboard.writeText(d.tempPassword).catch(() => {}); toast({ title: "Contraseña reseteada y copiada al portapapeles", duration: 5000 }); },
+    onSuccess: (d) => { navigator.clipboard.writeText(`${window.location.origin}${d.resetUrl}`).catch(() => {}); toast({ title: "Enlace de reset copiado al portapapeles", duration: 5000 }); },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 

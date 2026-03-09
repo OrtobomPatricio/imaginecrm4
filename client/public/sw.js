@@ -8,6 +8,15 @@ const STATIC_ASSETS = [
     '/favicon.ico',
 ];
 
+// Network-only: always go to network, never cache (for authenticated API calls)
+const networkOnly = async (request) => {
+    try {
+        return await fetch(request);
+    } catch (error) {
+        return Response.error();
+    }
+};
+
 // Caching strategies
 const networkFirst = async (request) => {
     const cache = await caches.open(CACHE_NAME);
@@ -58,16 +67,15 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
 
-    // TRPC API: Network First
-    if (url.pathname.startsWith('/api/trpc')) {
-        event.respondWith(networkFirst(event.request));
+    // API calls: Network Only (never cache authenticated data)
+    if (url.pathname.startsWith('/api/')) {
+        event.respondWith(networkOnly(event.request));
         return;
     }
 
-    // Static Assets & Images: Cache First
+    // Static Assets: Cache First
     if (
         url.pathname.startsWith('/assets') ||
-        url.pathname.startsWith('/api/uploads') ||
         STATIC_ASSETS.includes(url.pathname)
     ) {
         event.respondWith(cacheFirst(event.request));

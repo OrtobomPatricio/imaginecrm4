@@ -174,6 +174,12 @@ export const appSettings = mysqlTable("app_settings", {
   }>(),
   lastAssignedAgentId: int("lastAssignedAgentId"),
 
+  // Maintenance Mode
+  maintenanceMode: json("maintenanceMode").$type<{
+    enabled: boolean;
+    message?: string;
+  }>(),
+
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (t) => ({

@@ -1,13 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
-import { Shield } from "lucide-react";
-import { useState, useEffect } from "react";
-import { toast } from "sonner";
-import { Textarea } from "@/components/ui/textarea";
+import { Shield, Info } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ActiveSessionsWidget } from "./ActiveSessionsWidget";
-import { trpc } from "@/lib/trpc";
 
 interface SecurityConfigEditorProps {
     query: any;
@@ -15,45 +9,6 @@ interface SecurityConfigEditorProps {
 }
 
 export function SecurityConfigEditor({ query }: SecurityConfigEditorProps) {
-    const utils = trpc.useUtils();
-    const updateSecurity = trpc.settings.updateSecurityConfig.useMutation({
-        onSuccess: () => {
-            toast.success("Configuración de seguridad guardada");
-            utils.settings.get.invalidate();
-        },
-        onError: (e: any) => toast.error(`Error: ${e.message}`),
-    });
-    const [form, setForm] = useState({
-        allowedIps: "",
-        maxLoginAttempts: 5,
-        sessionTimeoutMinutes: 60,
-    });
-
-    useEffect(() => {
-        if (query.data?.securityConfig) {
-            setForm({
-                allowedIps: query.data.securityConfig.allowedIps?.join(", ") || "",
-                maxLoginAttempts: query.data.securityConfig.maxLoginAttempts || 5,
-                sessionTimeoutMinutes: query.data.securityConfig.sessionTimeoutMinutes || 60,
-            });
-        }
-    }, [query.data]);
-
-    const handleSave = () => {
-        const allowedIpsArray = form.allowedIps
-            .split(",")
-            .map(ip => ip.trim())
-            .filter(ip => ip.length > 0);
-
-        updateSecurity.mutate({
-            securityConfig: {
-                allowedIps: allowedIpsArray,
-                maxLoginAttempts: form.maxLoginAttempts,
-                sessionTimeoutMinutes: form.sessionTimeoutMinutes,
-            },
-        });
-    };
-
     return (
         <div className="space-y-6">
             <Card>
@@ -63,59 +18,19 @@ export function SecurityConfigEditor({ query }: SecurityConfigEditorProps) {
                         Configuración de Seguridad Avanzada
                     </CardTitle>
                     <CardDescription>
-                        Ajustes de control de acceso y restricciones de seguridad
+                        Control de acceso y restricciones de seguridad
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                    <div className="grid gap-2">
-                        <Label htmlFor="allowedIps">IPs Permitidas (separadas por coma)</Label>
-                        <Textarea
-                            id="allowedIps"
-                            placeholder="192.168.1.100, 10.0.0.50 (dejar vacío para permitir todas)"
-                            value={form.allowedIps}
-                            onChange={(e) => setForm(p => ({ ...p, allowedIps: e.target.value }))}
-                            rows={3}
-                        />
-                        <p className="text-xs text-muted-foreground">
-                            Si configuras IPs, solo esas direcciones podrán acceder al CRM
-                        </p>
-                    </div>
-
-                    <div className="grid gap-2">
-                        <Label htmlFor="maxAttempts">Máximo de Intentos de Login</Label>
-                        <Input
-                            id="maxAttempts"
-                            type="number"
-                            min={1}
-                            max={20}
-                            value={form.maxLoginAttempts}
-                            onChange={(e) => setForm(p => ({ ...p, maxLoginAttempts: parseInt(e.target.value) || 5 }))}
-                        />
-                        <p className="text-xs text-muted-foreground">
-                            Bloquea temporalmente al usuario tras N intentos fallidos
-                        </p>
-                    </div>
-
-                    <div className="grid gap-2">
-                        <Label htmlFor="sessionTimeout">Timeout de Sesión (minutos)</Label>
-                        <Input
-                            id="sessionTimeout"
-                            type="number"
-                            min={5}
-                            max={1440}
-                            value={form.sessionTimeoutMinutes}
-                            onChange={(e) => setForm(p => ({ ...p, sessionTimeoutMinutes: parseInt(e.target.value) || 60 }))}
-                        />
-                        <p className="text-xs text-muted-foreground">
-                            Cierra la sesión automáticamente tras este tiempo de inactividad
-                        </p>
-                    </div>
-
-                    <div className="flex justify-end">
-                        <Button onClick={handleSave} disabled={updateSecurity.isPending}>
-                            {updateSecurity.isPending ? "Guardando..." : "Guardar Configuración"}
-                        </Button>
-                    </div>
+                    <Alert>
+                        <Info className="h-4 w-4" />
+                        <AlertDescription>
+                            Las funciones avanzadas de seguridad (restricción por IP, límite de intentos de login,
+                            timeout de sesión configurable) estarán disponibles en una próxima versión.
+                            Actualmente la plataforma cuenta con rate limiting global, cookies HttpOnly/SameSite
+                            y protección CSRF activos por defecto.
+                        </AlertDescription>
+                    </Alert>
                 </CardContent>
             </Card>
 

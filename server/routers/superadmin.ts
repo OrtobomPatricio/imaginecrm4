@@ -174,7 +174,7 @@ export const superadminRouter = router({
 
     // ── Impersonate ──
 
-    /** Generate an impersonation token for another user */
+    /** Generate an impersonation token for another user, saving original admin session for return */
     impersonateUser: superadminGuard
         .input(z.object({
             targetUserId: z.number(),
@@ -206,6 +206,13 @@ export const superadminRouter = router({
                 throw new TRPCError({ code: "BAD_REQUEST", message: "El usuario no tiene openId. No se puede impersonar." });
             }
 
+            // P2: Save the admin's current session cookie for "exit impersonation"
+            const originalToken = ctx.req.cookies?.[COOKIE_NAME];
+            if (originalToken) {
+                const cookieOptions = getSessionCookieOptions(ctx.req);
+                ctx.res.cookie("__imp_original", originalToken, { ...cookieOptions, maxAge: 2 * 60 * 60 * 1000 });
+            }
+
             const sessionToken = await sdk.createSessionToken(openId, {
                 name: (targetUser as any).name || "",
                 expiresInMs: 2 * 60 * 60 * 1000, // 2 hours only for impersonation
@@ -226,8 +233,27 @@ export const superadminRouter = router({
                     tenantId: targetUser.tenantId,
                     role: targetUser.role,
                 },
-                note: "Sesión de impersonación activa (2h). Recarga la página para ver el cambio.",
+                note: "Sesión de impersonación activa (2h). Usá 'Volver a Super Admin' para salir.",
             };
+        }),
+
+    /** Exit impersonation — restore original admin session */
+    exitImpersonation: protectedProcedure
+        .mutation(async ({ ctx }) => {
+            const originalToken = ctx.req.cookies?.["__imp_original"];
+            if (!originalToken) {
+                throw new TRPCError({ code: "BAD_REQUEST", message: "No hay sesión de impersonación activa. Iniciá sesión manualmente." });
+            }
+
+            // Restore the original admin session
+            const cookieOptions = getSessionCookieOptions(ctx.req);
+            ctx.res.cookie(COOKIE_NAME, originalToken, { ...cookieOptions, maxAge: 365 * 24 * 60 * 60 * 1000 });
+            // Clear the impersonation backup cookie
+            ctx.res.clearCookie("__imp_original", { path: "/" });
+
+            logger.info({ userId: ctx.user?.id }, "[Superadmin] IMPERSONATION exited — restored admin session");
+
+            return { success: true, message: "Sesión de admin restaurada. Recargá la página." };
         }),
 
     // ── Tenant Lifecycle Management ──
@@ -729,6 +755,25 @@ export const superadminRouter = router({
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
+            // P0: Block self-deactivation
+            if (input.userId === ctx.user!.id && !input.isActive) {
+                throw new TRPCError({ code: "BAD_REQUEST", message: "No podés desactivarte a vos mismo." });
+            }
+
+            // P0: Protect tenant 1 last active owner
+            if (!input.isActive) {
+                const [targetUser] = await db.select({ tenantId: users.tenantId, role: users.role })
+                    .from(users).where(eq(users.id, input.userId)).limit(1);
+                if (targetUser && targetUser.role === "owner" && targetUser.tenantId === 1) {
+                    const ownerCount = await db.select({ cnt: count() })
+                        .from(users)
+                        .where(and(eq(users.tenantId, 1), eq(users.role, "owner"), eq(users.isActive, true)));
+                    if (Number(ownerCount[0]?.cnt ?? 0) <= 1) {
+                        throw new TRPCError({ code: "BAD_REQUEST", message: "No se puede desactivar al último owner activo del tenant de plataforma." });
+                    }
+                }
+            }
+
             await db.update(users)
                 .set({ isActive: input.isActive })
                 .where(eq(users.id, input.userId));
@@ -855,7 +900,7 @@ export const superadminRouter = router({
             } catch (e) { logger.warn({ err: e }, "[Superadmin] Query failed"); return []; }
         }),
 
-    /** Force password reset — sets a random password */
+    /** Force password reset — generates a reset token and invalidates sessions */
     forcePasswordReset: superadminGuard
         .input(z.object({ userId: z.number() }))
         .mutation(async ({ input, ctx }) => {
@@ -863,24 +908,36 @@ export const superadminRouter = router({
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
             const crypto = await import("crypto");
-            const bcrypt = await import("bcryptjs");
-            const tempPassword = crypto.randomBytes(8).toString("hex"); // 16 chars
-            const hashed = await bcrypt.hash(tempPassword, 12);
+
+            // Generate a standard reset token (same flow as user-initiated reset)
+            const resetToken = crypto.randomBytes(32).toString("hex");
+            const expires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
 
             await db.update(users)
-                .set({ password: hashed } as any)
+                .set({ passwordResetToken: resetToken, passwordResetExpires: expires } as any)
                 .where(eq(users.id, input.userId));
+
+            // Invalidate all existing sessions for this user
+            await db.delete(sessions).where(eq(sessions.userId, input.userId));
 
             logger.warn(
                 { adminId: ctx.user!.id, targetUserId: input.userId },
-                "[Superadmin] Force password reset"
+                "[Superadmin] Force password reset — sessions invalidated, reset token set"
             );
             await logSuperadminAction(ctx.user!.id, "forcePasswordReset", { userId: input.userId });
 
+            // Look up user email and tenant for reset link
+            const [targetUser] = await db.select({ email: users.email, tenantId: users.tenantId })
+                .from(users).where(eq(users.id, input.userId)).limit(1);
+            const [tenant] = targetUser
+                ? await db.select({ slug: tenants.slug }).from(tenants).where(eq(tenants.id, targetUser.tenantId)).limit(1)
+                : [null];
+
             return {
                 success: true,
-                tempPassword,
-                message: "Contraseña reseteada. Comparte la contraseña temporal de forma segura.",
+                resetToken,
+                resetUrl: `/reset-password?token=${resetToken}${tenant?.slug ? `&org=${tenant.slug}` : ""}`,
+                message: "Sesiones invalidadas. Compartí el enlace de reset al usuario de forma segura.",
             };
         }),
 
@@ -1307,13 +1364,28 @@ export const superadminRouter = router({
     createTenant: superadminGuard
         .input(z.object({
             name: z.string().min(1).max(200),
-            slug: z.string().min(1).max(100).regex(/^[a-z0-9\-]+$/),
+            slug: z.string().min(1).max(100).regex(/^[a-z0-9][a-z0-9-]{0,98}[a-z0-9]$/),
             plan: z.enum(["free", "starter", "pro", "enterprise"]).default("free"),
             trialEndsAt: z.string().optional(),
+            ownerEmail: z.string().email().optional(),
+            ownerName: z.string().max(200).optional(),
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+            // P1: Validate reserved slugs (same list as signup)
+            const RESERVED_SLUGS = new Set([
+                "www", "app", "api", "admin", "superadmin", "platform", "system",
+                "support", "help", "billing", "mail", "ftp", "ssh", "test",
+                "staging", "dev", "demo", "status", "docs", "blog", "cdn",
+                "auth", "login", "signup", "webhook", "webhooks", "trpc",
+                "oauth", "meta", "paypal", "whatsapp", "uploads", "metrics",
+                "health", "healthz", "readyz",
+            ]);
+            if (RESERVED_SLUGS.has(input.slug.toLowerCase())) {
+                throw new TRPCError({ code: "BAD_REQUEST", message: `El slug "${input.slug}" está reservado.` });
+            }
 
             // Check slug uniqueness
             const [existing] = await db.select({ id: tenants.id })
@@ -1338,6 +1410,29 @@ export const superadminRouter = router({
                     companyName: input.name,
                 });
             } catch { /* may already exist */ }
+
+            // P1: Create owner user if email provided (prevent orphan tenants)
+            if (input.ownerEmail) {
+                // Check email not already taken in another tenant
+                const [emailExists] = await db.select({ id: users.id })
+                    .from(users).where(eq(users.email, input.ownerEmail)).limit(1);
+                if (emailExists) {
+                    // Tenant created but owner not — warn, don't fail
+                    logger.warn({ email: input.ownerEmail, tenantId: newId }, "[Superadmin] Owner email already exists — tenant created without owner");
+                } else {
+                    const { nanoid } = await import("nanoid");
+                    await db.insert(users).values({
+                        tenantId: newId,
+                        openId: `local_${nanoid(16)}`,
+                        name: input.ownerName || "Owner",
+                        email: input.ownerEmail,
+                        role: "owner",
+                        loginMethod: "credentials",
+                        isActive: true,
+                        hasSeenTour: false,
+                    });
+                }
+            }
 
             await logSuperadminAction(ctx.user!.id, "createTenant", { tenantId: newId, name: input.name, slug: input.slug, plan: input.plan });
             logger.info({ adminId: ctx.user!.id, tenantId: newId }, "[Superadmin] Tenant created");
@@ -1622,7 +1717,12 @@ export const superadminRouter = router({
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-            // Don't allow demoting the only owner of a tenant (unless force)
+            // P0: Block self-demotion
+            if (input.userId === ctx.user!.id && input.role !== "owner") {
+                throw new TRPCError({ code: "BAD_REQUEST", message: "No podés cambiar tu propio rol. Pedí a otro owner que lo haga." });
+            }
+
+            // Don't allow demoting the only owner of a tenant
             if (input.role !== "owner") {
                 const [targetUser] = await db.select({ tenantId: users.tenantId, role: users.role })
                     .from(users).where(eq(users.id, input.userId)).limit(1);
@@ -1631,6 +1731,10 @@ export const superadminRouter = router({
                         .from(users)
                         .where(and(eq(users.tenantId, targetUser.tenantId), eq(users.role, "owner"), eq(users.isActive, true)));
                     if (Number(ownerCount[0]?.cnt ?? 0) <= 1) {
+                        // P0: Absolutely block if it's tenant 1 (platform)
+                        if (targetUser.tenantId === 1) {
+                            throw new TRPCError({ code: "BAD_REQUEST", message: "No se puede demotar al último owner del tenant de plataforma." });
+                        }
                         if (!input.force) {
                             throw new TRPCError({ code: "BAD_REQUEST", message: "Es el único owner del tenant. Usa 'forzar' para continuar (el tenant quedará sin owner)." });
                         }
@@ -1651,6 +1755,11 @@ export const superadminRouter = router({
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
+            // P0: Block self-deletion
+            if (input.userId === ctx.user!.id) {
+                throw new TRPCError({ code: "BAD_REQUEST", message: "No podés eliminarte a vos mismo." });
+            }
+
             // Don't allow deleting the only owner (unless force)
             const [targetUser] = await db.select({ tenantId: users.tenantId, role: users.role })
                 .from(users).where(eq(users.id, input.userId)).limit(1);
@@ -1662,6 +1771,10 @@ export const superadminRouter = router({
                     .from(users)
                     .where(and(eq(users.tenantId, targetUser.tenantId), eq(users.role, "owner"), eq(users.isActive, true)));
                 if (Number(ownerCount[0]?.cnt ?? 0) <= 1) {
+                    // P0: Absolutely block deletion of last owner of tenant 1
+                    if (targetUser.tenantId === 1) {
+                        throw new TRPCError({ code: "BAD_REQUEST", message: "No se puede eliminar al último owner del tenant de plataforma. Asigná otro owner primero." });
+                    }
                     if (!input.force) {
                         throw new TRPCError({ code: "BAD_REQUEST", message: "Es el único owner del tenant. Usa 'forzar' para eliminar (el tenant será suspendido automáticamente)." });
                     }
@@ -2480,14 +2593,10 @@ export const superadminRouter = router({
             const db = await getDb();
             if (!db) return { platformMaintenance: false, message: "" };
             try {
-                const [rows] = await db.execute(sql`
-                    SELECT value FROM app_settings WHERE tenantId = 1 AND \`key\` = 'maintenance_mode' LIMIT 1
-                `) as any;
-                if (rows?.[0]?.value) {
-                    const val = typeof rows[0].value === "string" ? JSON.parse(rows[0].value) : rows[0].value;
-                    return { platformMaintenance: val.enabled ?? false, message: val.message ?? "" };
-                }
-                return { platformMaintenance: false, message: "" };
+                const [row] = await db.select({ maintenanceMode: appSettings.maintenanceMode })
+                    .from(appSettings).where(eq(appSettings.tenantId, 1)).limit(1);
+                const val = row?.maintenanceMode;
+                return { platformMaintenance: val?.enabled ?? false, message: val?.message ?? "" };
             } catch { return { platformMaintenance: false, message: "" }; }
         }),
 
@@ -2496,12 +2605,10 @@ export const superadminRouter = router({
         .mutation(async ({ ctx, input }) => {
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-            const val = JSON.stringify({ enabled: input.enabled, message: input.message });
-            await db.execute(sql`
-                INSERT INTO app_settings (tenantId, \`key\`, value)
-                VALUES (1, 'maintenance_mode', ${val})
-                ON DUPLICATE KEY UPDATE value = ${val}
-            `);
+            const val = { enabled: input.enabled, message: input.message };
+            await db.update(appSettings)
+                .set({ maintenanceMode: val })
+                .where(eq(appSettings.tenantId, 1));
             await logSuperadminAction(ctx.user!.id, "setMaintenanceMode", { enabled: input.enabled });
             return { ok: true, message: input.enabled ? "Modo mantenimiento ACTIVADO" : "Modo mantenimiento DESACTIVADO" };
         }),
@@ -2511,12 +2618,10 @@ export const superadminRouter = router({
         .mutation(async ({ ctx, input }) => {
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-            const val = JSON.stringify({ enabled: input.enabled, message: input.message });
-            await db.execute(sql`
-                INSERT INTO app_settings (tenantId, \`key\`, value)
-                VALUES (${input.tenantId}, 'maintenance_mode', ${val})
-                ON DUPLICATE KEY UPDATE value = ${val}
-            `);
+            const val = { enabled: input.enabled, message: input.message };
+            await db.update(appSettings)
+                .set({ maintenanceMode: val })
+                .where(eq(appSettings.tenantId, input.tenantId));
             await logSuperadminAction(ctx.user!.id, "setTenantMaintenanceMode", { tenantId: input.tenantId, enabled: input.enabled }, input.tenantId);
             return { ok: true, message: `Mantenimiento ${input.enabled ? "activado" : "desactivado"} para tenant ${input.tenantId}` };
         }),

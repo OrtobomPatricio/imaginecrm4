@@ -73,8 +73,10 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   }
 
   // Forced Onboarding Redirect (skip in dev mode since MockDB can't persist progress)
+  // P1: Also skip for platform tenant (tenantId=1) — super admin doesn't need tenant onboarding
   const isDev = import.meta.env.DEV;
-  const isOnboardingDone = onboarding?.completedAt || isDev;
+  const isPlatformTenant = (user as any)?.tenantId === 1;
+  const isOnboardingDone = onboarding?.completedAt || isDev || isPlatformTenant;
   if (!isOnboardingDone && location !== '/onboarding') {
     return <Redirect to="/onboarding" />;
   }

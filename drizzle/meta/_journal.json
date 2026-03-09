@@ -141,6 +141,13 @@
       "when": 1741046400000,
       "tag": "0037_add_auto_reply_config",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "5",
+      "when": 1741132800000,
+      "tag": "0038_add_maintenance_mode",
+      "breakpoints": true
     }
   ]
 }

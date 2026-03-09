@@ -55,7 +55,7 @@ const requireUser = t.middleware(async opts => {
 
 /**
  * Billing guard middleware — separated from auth to keep concerns clean.
- * Checks tenant suspension status and auto-downgrades expired trials.
+ * Checks tenant suspension status, maintenance mode, and auto-downgrades expired trials.
  * Applied after requireUser so ctx.user is guaranteed to exist.
  */
 const requireActiveBilling = t.middleware(async opts => {
@@ -77,6 +77,29 @@ const requireActiveBilling = t.middleware(async opts => {
 
     const tenant = tenantRows[0];
     if (!tenant) return next({ ctx });
+
+    // P0: Check maintenance mode for this tenant
+    const settingsRows = await db.select({ maintenanceMode: appSettings.maintenanceMode, tenantId: appSettings.tenantId })
+      .from(appSettings).where(
+        eq(appSettings.tenantId, ctx.user.tenantId)
+      ).limit(1);
+    // Also check platform-wide maintenance (tenant 1)
+    const [platformSettings] = ctx.user.tenantId !== 1
+      ? await db.select({ maintenanceMode: appSettings.maintenanceMode })
+          .from(appSettings).where(eq(appSettings.tenantId, 1)).limit(1)
+      : [null];
+    const tenantMaintenance = settingsRows[0]?.maintenanceMode;
+    const platformMaintenance = platformSettings?.maintenanceMode;
+    const activeMaintenance = tenantMaintenance?.enabled ? tenantMaintenance : (platformMaintenance?.enabled ? platformMaintenance : null);
+    if (activeMaintenance) {
+      const isAllowed = path.startsWith("auth.") || path.startsWith("billing.") || path.startsWith("account.") || path.startsWith("sessions.");
+      if (!isAllowed) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: `MAINTENANCE: ${activeMaintenance.message || "Sistema en mantenimiento. Volvemos pronto."}`,
+        });
+      }
+    }
 
     // Check if tenant is suspended or canceled
     if (tenant.status === "suspended" || tenant.status === "canceled") {

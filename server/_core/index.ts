@@ -137,11 +137,14 @@ export async function createApp() {
   }));
 
   // CSRF Protection (Same-Site Guard)
-  const allowedSet = new Set([
-    process.env.CLIENT_URL,
-    process.env.VITE_API_URL,
-    process.env.VITE_OAUTH_PORTAL_URL,
-  ].filter(Boolean) as string[]);
+  const csrfNormalize = (url: string) => url ? url.replace(/\/$/, "") : "";
+  const allowedSet = new Set(
+    [
+      process.env.CLIENT_URL,
+      process.env.VITE_API_URL,
+      process.env.VITE_OAUTH_PORTAL_URL,
+    ].filter(Boolean).map(u => csrfNormalize(u!)),
+  );
 
   app.use((req, res, next) => {
     const isSignedWebhookPath =
@@ -156,7 +159,7 @@ export async function createApp() {
     if (process.env.NODE_ENV !== "production") return next();
 
     const origin = req.headers.origin;
-    if (!origin || !allowedSet.has(origin)) {
+    if (!origin || !allowedSet.has(csrfNormalize(origin))) {
       logger.warn({ origin }, "csrf blocked");
       return res.status(403).json({ error: "CSRF blocked" });
     }
@@ -508,7 +511,7 @@ async function bootstrapAdmin() {
         .where(eq(users.id, existing[0].id));
       logger.info({ email, tenantId }, "startup: admin user password/role updated to owner");
     } else {
-      // Check if user exists in ANY tenant (e.g. created via signup on tenant 2)
+      // Check if user exists in ANY tenant (refuse cross-tenant hijacking)
       const existingGlobal = await db
         .select({ id: users.id, tenantId: users.tenantId })
         .from(users)
@@ -516,11 +519,9 @@ async function bootstrapAdmin() {
         .limit(1);
 
       if (existingGlobal.length > 0 && existingGlobal[0].tenantId !== tenantId) {
-        // Move user to platform tenant and promote to owner
-        logger.warn({ email, oldTenantId: existingGlobal[0].tenantId, newTenantId: tenantId }, "startup: admin user found in wrong tenant — reassigning to platform tenant");
-        await db.update(users)
-          .set({ tenantId, password: hashed, role: "owner", loginMethod: "credentials", isActive: true, updatedAt: new Date() } as any)
-          .where(eq(users.id, existingGlobal[0].id));
+        // SECURITY: Never move a user from one tenant to another
+        logger.error({ email, existingTenantId: existingGlobal[0].tenantId, targetTenantId: tenantId }, "startup: BOOTSTRAP_ADMIN_EMAIL exists in a different tenant — refusing to reassign. Create a new email or remove the existing user first.");
+        return;
       } else if (existingGlobal.length === 0) {
         await db.insert(users).values({
           tenantId,

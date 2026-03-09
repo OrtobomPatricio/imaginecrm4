@@ -71,6 +71,35 @@ import { MobileBottomNav } from "./MobileBottomNav";
 import { HelpCenter } from "@/components/help-center";
 import { useOfflineQueue } from "@/hooks/useOfflineQueue";
 
+/* ─── Impersonation Banner ─── */
+function ImpersonationBanner() {
+  const isImpersonating = document.cookie.includes("__imp_original=");
+  const exitMutation = trpc.superadmin.exitImpersonation.useMutation({
+    onSuccess: () => { window.location.href = "/super-admin"; },
+    onError: () => { /* cookie may have expired — just reload */ window.location.href = "/"; },
+  });
+
+  if (!isImpersonating) return null;
+
+  return (
+    <div className="flex items-center gap-2 px-4 py-2 rounded mb-2 bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700">
+      <Shield className="w-4 h-4 shrink-0" />
+      <span className="flex-1 text-sm font-medium">
+        Sesión de impersonación activa — estás viendo como otro usuario.
+      </span>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 text-xs border-amber-400 hover:bg-amber-200 dark:hover:bg-amber-800"
+        onClick={() => exitMutation.mutate()}
+        disabled={exitMutation.isPending}
+      >
+        {exitMutation.isPending ? "Volviendo…" : "Volver a Super Admin"}
+      </Button>
+    </div>
+  );
+}
+
 /* ─── Platform Announcement Banner ─── */
 function AnnouncementBanner() {
   const announcements = (trpc as any).superadmin?.getActiveAnnouncements?.useQuery?.(undefined, {
@@ -491,6 +520,7 @@ function DashboardLayoutContent({
         </div>
 
         <main className="flex-1 p-4 md:p-6 overflow-x-hidden">
+          <ImpersonationBanner />
           <EmailVerificationBanner />
           <AnnouncementBanner />
           {children}
