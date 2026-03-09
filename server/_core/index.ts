@@ -19,7 +19,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic } from "./serve-static";
 import { getDb } from "../db";
-import { sql } from "drizzle-orm";
+import { sql, eq } from "drizzle-orm";
 import { appSettings } from "../../drizzle/schema";
 import { initReminderScheduler } from "../reminderScheduler";
 import { startCampaignWorker } from "../services/campaign-worker";
@@ -131,7 +131,7 @@ export async function createApp() {
         callback(null, true);
       } else {
         logger.warn({ origin, allowedOrigins }, "cors blocked - origin mismatch");
-        callback(new Error(`Not allowed by CORS. Origin: ${origin}. Allowed: ${allowedOrigins.join(", ")}`));
+        callback(new Error("Not allowed by CORS"));
       }
     },
     credentials: true,
@@ -643,7 +643,7 @@ async function ensureAppSettings() {
   if (!db) return;
 
   try {
-    const rows = await db.select().from(appSettings).limit(1);
+    const rows = await db.select().from(appSettings).where(eq(appSettings.tenantId, 1)).limit(1);
     if (rows.length === 0) {
       logger.info("seed: appSettings empty, creating defaults");
       await db.insert(appSettings).values({

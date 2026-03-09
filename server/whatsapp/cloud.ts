@@ -1,6 +1,7 @@
 import { ENV } from "../_core/env";
 
 import { logger } from "../_core/logger";
+import { acquireSendToken } from "./rate-limiter";
 
 export type CloudSendPayload =
   | { type: "text"; body: string }
@@ -66,6 +67,9 @@ export async function sendCloudMessage(opts: {
       break;
   }
 
+  // Rate limit per phone number to avoid Meta API bans
+  await acquireSendToken(opts.phoneNumberId);
+
   const res = await fetch(endpoint, {
     method: "POST",
     headers: {
@@ -111,6 +115,8 @@ export async function sendCloudTemplate(opts: {
       components: opts.components || [],
     },
   };
+
+  await acquireSendToken(opts.phoneNumberId);
 
   const res = await fetch(endpoint, {
     method: "POST",

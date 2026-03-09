@@ -47,7 +47,14 @@ export async function runMigrations() {
         await migrate(db, {
             migrationsFolder: path.resolve(process.cwd(), "drizzle")
         });
-        await ensureCompatibilitySchema(connection);
+        // ensureCompatibilitySchema applies legacy ALTER TABLEs outside the migration system.
+        // It is non-fatal: if it fails, Drizzle migrations are still the source of truth.
+        try {
+            logger.warn("[Migration] Running legacy ensureCompatibilitySchema — this is deprecated and will be removed in a future version. Prefer Drizzle migrations.");
+            await ensureCompatibilitySchema(connection);
+        } catch (compatErr) {
+            logger.error({ err: compatErr }, "[Migration] ensureCompatibilitySchema failed (non-fatal) — please convert remaining ALTERs to proper Drizzle migrations");
+        }
         logger.info("[Migration] Success! Database is up to date.");
     } catch (error) {
         logger.error({ err: safeError(error) }, "[Migration] Failed");

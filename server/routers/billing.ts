@@ -262,6 +262,18 @@ export const billingRouter = router({
                 });
             }
 
+            // Guard: check for existing active subscription to prevent duplicates
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+            const [currentTenant] = await db.select().from(tenants)
+                .where(eq(tenants.id, ctx.tenantId)).limit(1);
+            if ((currentTenant as any)?.paypalSubscriptionId) {
+                throw new TRPCError({
+                    code: "CONFLICT",
+                    message: "Ya existe una suscripción activa. Cancela la actual antes de crear una nueva.",
+                });
+            }
+
             try {
                 const token = await getPayPalAccessToken();
                 const baseUrl = getPayPalBaseUrl();
@@ -479,6 +491,20 @@ export const billingRouter = router({
             plan: z.enum(["starter", "pro", "enterprise"]),
         }))
         .mutation(async ({ input, ctx }) => {
+            // Guard: prevent confirming if tenant already has a different active subscription
+            const db0 = await getDb();
+            if (db0) {
+                const [currentTenant] = await db0.select().from(tenants)
+                    .where(eq(tenants.id, ctx.tenantId)).limit(1);
+                const existingSub = (currentTenant as any)?.paypalSubscriptionId;
+                if (existingSub && existingSub !== input.subscriptionId) {
+                    throw new TRPCError({
+                        code: "CONFLICT",
+                        message: "Ya existe una suscripción activa diferente. Cancela la actual antes de confirmar otra.",
+                    });
+                }
+            }
+
             try {
                 const token = await getPayPalAccessToken();
                 const baseUrl = getPayPalBaseUrl();

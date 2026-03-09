@@ -50,7 +50,7 @@ export const aiRouter = router({
                 logger.error({ err: error }, "[AI] suggestReplies failed");
                 throw new TRPCError({
                     code: "PRECONDITION_FAILED",
-                    message: error.message || "Error al generar sugerencias",
+                    message: "Error al generar sugerencias de IA",
                 });
             }
         }),
@@ -96,7 +96,7 @@ export const aiRouter = router({
                 logger.error({ err: error }, "[AI] summarize failed");
                 throw new TRPCError({
                     code: "PRECONDITION_FAILED",
-                    message: error.message || "Error al generar resumen",
+                    message: "Error al generar resumen de conversación",
                 });
             }
         }),

@@ -182,45 +182,48 @@ export async function resolveProvisionedOAuthUser(openId: string, email?: string
     if (!database) return null;
     const [tenant] = await database.select({ id: tenants.id }).from(tenants).where(eq(tenants.slug, tenantSlug)).limit(1);
     if (!tenant) return null;
-    const [matched] = await database.select().from(users).where(and(eq(users.email, email), eq(users.tenantId, tenant.id))).limit(1);
-    if (!matched) return null;
-    // Link the OAuth provider's openId so future logins are direct
-    const existingOwner = await getUserByOpenId(openId);
-    if (existingOwner && existingOwner.id !== matched.id) {
-      logger.warn({ openId, matchedUserId: matched.id, existingOwnerId: existingOwner.id },
-        "[OAuth] openId already belongs to another user — skipping link");
-      return null;
-    }
-    if (!existingOwner) {
-      await database.update(users)
-        .set({ openId })
-        .where(eq(users.id, matched.id));
-      matched.openId = openId;
-    }
-    return matched;
+    // Use transaction to prevent race condition when linking openId
+    return await database.transaction(async (tx) => {
+      const [matched] = await tx.select().from(users).where(and(eq(users.email, email), eq(users.tenantId, tenant.id))).limit(1);
+      if (!matched) return null;
+      // Check ownership inside transaction to avoid TOCTOU race
+      const [existingOwner] = await tx.select().from(users).where(eq(users.openId, openId)).limit(1);
+      if (existingOwner && existingOwner.id !== matched.id) {
+        logger.warn({ openId, matchedUserId: matched.id, existingOwnerId: existingOwner.id },
+          "[OAuth] openId already belongs to another user — skipping link");
+        return null;
+      }
+      if (!existingOwner) {
+        await tx.update(users)
+          .set({ openId })
+          .where(eq(users.id, matched.id));
+        matched.openId = openId;
+      }
+      return matched;
+    });
   }
 
   const usersByEmail = await getUsersByEmail(email);
   if (usersByEmail.length === 1) {
     const matched = usersByEmail[0];
-    // Only link the new openId if no other user already owns it (prevent identity collision)
-    const existingOwner = await getUserByOpenId(openId);
-    if (existingOwner && existingOwner.id !== matched.id) {
-      logger.warn({ openId, matchedUserId: matched.id, existingOwnerId: existingOwner.id },
-        "[OAuth] openId already belongs to another user — skipping link");
-      return null;
-    }
-    // Link the OAuth provider's openId so future logins are direct (no email fallback)
-    if (!existingOwner) {
-      const database = await getDb();
-      if (database) {
-        await database.update(users)
+    const database = await getDb();
+    if (!database) return matched;
+    // Use transaction to prevent race condition when linking openId
+    return await database.transaction(async (tx) => {
+      const [existingOwner] = await tx.select().from(users).where(eq(users.openId, openId)).limit(1);
+      if (existingOwner && existingOwner.id !== matched.id) {
+        logger.warn({ openId, matchedUserId: matched.id, existingOwnerId: existingOwner.id },
+          "[OAuth] openId already belongs to another user — skipping link");
+        return null;
+      }
+      if (!existingOwner) {
+        await tx.update(users)
           .set({ openId })
           .where(eq(users.id, matched.id));
         matched.openId = openId;
       }
-    }
-    return matched;
+      return matched;
+    });
   }
   if (usersByEmail.length > 1) {
     const err = new Error("OAuth user is ambiguous across tenants");
