@@ -4,6 +4,7 @@ import { license, usageTracking, users, whatsappNumbers, chatMessages, tenants }
 import { getDb } from "../db";
 import { permissionProcedure, router, protectedProcedure } from "../_core/trpc";
 import { logger, safeError } from "../_core/logger";
+import { TRPCError } from "@trpc/server";
 
 export const licensingRouter = router({
     /**
@@ -130,7 +131,7 @@ export const licensingRouter = router({
                     })
                     .where(and(eq(license.tenantId, ctx.tenantId), eq(license.id, existing.id)));
             } else {
-                if (!input.key) throw new Error("License key is required");
+                if (!input.key) throw new TRPCError({ code: "BAD_REQUEST", message: "Se requiere una clave de licencia" });
                 const { getPlanLimits } = await import("../services/plan-limits");
                 const limits = await getPlanLimits(ctx.tenantId);
                 await db.insert(license).values({
@@ -285,7 +286,7 @@ export function requireLicense(limitType: 'users' | 'whatsappNumbers' | 'message
 
         const check = await checkLicenseLimit(limitType, currentCount, ctx.tenantId);
         if (!check.allowed) {
-            throw new Error(check.reason);
+            throw new TRPCError({ code: "FORBIDDEN", message: check.reason || "Límite de licencia alcanzado" });
         }
 
         return next();

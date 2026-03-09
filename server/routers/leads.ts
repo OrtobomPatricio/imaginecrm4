@@ -3,6 +3,7 @@ import { eq, desc, asc, and, sql, inArray } from "drizzle-orm";
 import { leads, pipelines, pipelineStages, whatsappNumbers, users } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { permissionProcedure, router } from "../_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { dispatchIntegrationEvent } from "../_core/integrationDispatch";
 import { leadsToCSV, parseCSV, importLeadsFromCSV } from "../services/backup";
 import { COMMISSION_RATES } from "../../shared/const";
@@ -246,7 +247,7 @@ export const leadsRouter = router({
 
                     const hasAssign = role === "owner" || role === "admin" || (matrix[role] && (matrix[role].includes("*") || matrix[role].includes("leads.*") || matrix[role].includes("leads.assign")));
 
-                    if (!hasAssign) throw new Error("No tienes permisos para reasignar leads (leads.assign)");
+                    if (!hasAssign) throw new TRPCError({ code: "FORBIDDEN", message: "No tienes permisos para reasignar leads" });
                 }
 
                 const { id, ...data } = input;
@@ -339,7 +340,7 @@ export const leadsRouter = router({
                 // CRITICAL MULTI-TENANT VERIFICATION: Ensure all IDs actually belong to the tenant before doing bulk updates.
                 const validRows = await tx.select({ id: leads.id }).from(leads).where(and(eq(leads.tenantId, ctx.tenantId), inArray(leads.id, ids), sql`${leads.deletedAt} IS NULL`));
                 if (validRows.length !== ids.length) {
-                    throw new Error("HTTP 403: Intent to update leads from another tenant detected. Action blocked.");
+                    throw new TRPCError({ code: "FORBIDDEN", message: "No tienes permiso para actualizar estos leads." });
                 }
 
                 const caseExpr = sql`CASE ${leads.id} ${sql.join(ids.map((id, idx) => sql`WHEN ${id} THEN ${idx + 1}`), sql` `)} END`;
@@ -385,7 +386,7 @@ export const leadsRouter = router({
                     .where(and(eq(leads.tenantId, ctx.tenantId), inArray(leads.id, input.ids), sql`${leads.deletedAt} IS NULL`));
 
                 if (validRows.length !== input.ids.length) {
-                    throw new Error("Algunos leads no pertenecen a tu empresa o ya fueron eliminados.");
+                    throw new TRPCError({ code: "BAD_REQUEST", message: "Algunos leads no pertenecen a tu empresa o ya fueron eliminados." });
                 }
 
                 await tx.update(leads)

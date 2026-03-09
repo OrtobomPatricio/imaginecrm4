@@ -3,6 +3,7 @@ import { eq, and } from "drizzle-orm";
 import { whatsappConnections, whatsappNumbers } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { permissionProcedure, router } from "../_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { maskSecret, encryptSecret } from "../_core/crypto";
 import { enforceWhatsappLimit } from "../services/plan-limits";
 
@@ -72,14 +73,14 @@ export const whatsappConnectionsRouter = router({
                 .limit(1);
 
             if (!waNumber[0]) {
-                throw new Error("Número no encontrado");
+                throw new TRPCError({ code: "NOT_FOUND", message: "Número no encontrado" });
             }
 
             let encryptedToken: string;
             try {
                 encryptedToken = encryptSecret(input.accessToken);
             } catch {
-                throw new Error("Falta DATA_ENCRYPTION_KEY para encriptar el accessToken");
+                throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falta DATA_ENCRYPTION_KEY para encriptar el accessToken" });
             }
 
             // Check if connection exists

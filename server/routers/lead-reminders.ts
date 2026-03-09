@@ -3,6 +3,7 @@ import { eq, desc, and, gte, lte, inArray } from "drizzle-orm";
 import { leadReminders } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { permissionProcedure, router } from "../_core/trpc";
+import { TRPCError } from "@trpc/server";
 
 // Button schema
 const buttonSchema = z.object({
@@ -66,12 +67,12 @@ export const leadRemindersRouter = router({
 
             // Validate scheduled date is in the future
             if (scheduledDate <= new Date()) {
-                throw new Error("La fecha de recordatorio debe ser en el futuro");
+                throw new TRPCError({ code: "BAD_REQUEST", message: "La fecha de recordatorio debe ser en el futuro" });
             }
 
             // Validate recurring settings
             if (input.isRecurring && !input.recurrencePattern) {
-                throw new Error("Debe especificar el patrón de recurrencia");
+                throw new TRPCError({ code: "BAD_REQUEST", message: "Debe especificar el patrón de recurrencia" });
             }
 
             const result = await db.insert(leadReminders).values({
@@ -126,11 +127,11 @@ export const leadRemindersRouter = router({
                 .limit(1);
 
             if (!existing[0]) {
-                throw new Error("Recordatorio no encontrado");
+                throw new TRPCError({ code: "NOT_FOUND", message: "Recordatorio no encontrado" });
             }
 
             if (existing[0].status !== "scheduled") {
-                throw new Error("No se puede editar un recordatorio que ya fue enviado o cancelado");
+                throw new TRPCError({ code: "BAD_REQUEST", message: "No se puede editar un recordatorio que ya fue enviado o cancelado" });
             }
 
             const updates: any = {};
@@ -164,11 +165,11 @@ export const leadRemindersRouter = router({
                 .limit(1);
 
             if (!existing[0]) {
-                throw new Error("Recordatorio no encontrado");
+                throw new TRPCError({ code: "NOT_FOUND", message: "Recordatorio no encontrado" });
             }
 
             if (existing[0].status === "sent") {
-                throw new Error("No se puede cancelar un recordatorio que ya fue enviado");
+                throw new TRPCError({ code: "BAD_REQUEST", message: "No se puede cancelar un recordatorio que ya fue enviado" });
             }
 
             await db

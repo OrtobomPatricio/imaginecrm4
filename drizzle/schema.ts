@@ -765,6 +765,8 @@ export const whatsappConnections = mysqlTable("whatsapp_connections", {
   wabaId: varchar("wabaId", { length: 50 }),
   /** How this connection was created: 'manual' | 'oauth' | 'embedded_signup' */
   setupSource: varchar("setupSource", { length: 30 }).default("manual"),
+  /** When the long-lived access token expires (Meta tokens last ~60 days) */
+  tokenExpiresAt: timestamp("tokenExpiresAt"),
   qrCode: text("qrCode"),
   qrExpiresAt: timestamp("qrExpiresAt"),
   sessionData: text("sessionData"),

@@ -4,6 +4,7 @@ import { campaigns, leads, campaignRecipients } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { permissionProcedure, router } from "../_core/trpc";
 import { logger } from "../_core/logger";
+import { TRPCError } from "@trpc/server";
 
 export const campaignsRouter = router({
     list: permissionProcedure("campaigns.view").query(async ({ ctx }) => {
@@ -69,7 +70,7 @@ export const campaignsRouter = router({
                     .where(and(eq(campaigns.tenantId, ctx.tenantId), eq(campaigns.id, input.campaignId)))
                     .for("update")
                     .limit(1);
-                if (!campaign) throw new Error("Campaign not found");
+                if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campaña no encontrada" });
 
                 // Idempotency: already launched
                 if (campaign.status === "scheduled" || campaign.status === "running") {
@@ -81,7 +82,7 @@ export const campaignsRouter = router({
                 }
 
                 if (campaign.status !== "draft") {
-                    throw new Error(`Cannot launch campaign with status: ${campaign.status}`);
+                    throw new TRPCError({ code: "BAD_REQUEST", message: `No se puede lanzar una campaña con estado: ${campaign.status}` });
                 }
 
                 const config = campaign.audienceConfig as any;
@@ -95,7 +96,7 @@ export const campaignsRouter = router({
                 const audience = await tx.select().from(leads).where(whereClause).limit(10000);
 
                 if (audience.length === 0) {
-                    throw new Error("No recipients found for campaign");
+                    throw new TRPCError({ code: "BAD_REQUEST", message: "No se encontraron destinatarios para la campaña" });
                 }
 
                 // Batch insert recipients (chunks of 500 to avoid query size limits)
@@ -186,8 +187,8 @@ export const campaignsRouter = router({
                 .where(and(eq(campaigns.tenantId, ctx.tenantId), eq(campaigns.id, input.id)))
                 .limit(1);
 
-            if (!campaign) throw new Error("Campaign not found");
-            if (campaign.status !== "draft") throw new Error("Solo se pueden editar campañas en borrador");
+            if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campaña no encontrada" });
+            if (campaign.status !== "draft") throw new TRPCError({ code: "BAD_REQUEST", message: "Solo se pueden editar campañas en borrador" });
 
             const { id, ...updates } = input;
             await db.update(campaigns).set(updates)

@@ -3,6 +3,7 @@ import { eq, desc, and, count, inArray } from "drizzle-orm";
 import { appointments, appointmentReasons, reminderTemplates, appSettings } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { permissionProcedure, adminProcedure, protectedProcedure, router } from "../_core/trpc";
+import { TRPCError } from "@trpc/server";
 
 export const schedulingRouter = router({
     list: permissionProcedure("scheduling.view").query(async ({ ctx }) => {
@@ -64,9 +65,10 @@ export const schedulingRouter = router({
 
             const existingCount = existing[0]?.count ?? 0;
             if (existingCount >= maxPerSlot) {
-                throw new Error(
-                    `Ese horario ya está completo (máximo ${maxPerSlot} personas). Elegí otro horario.`
-                );
+                throw new TRPCError({
+                    code: "CONFLICT",
+                    message: `Ese horario ya está completo (máximo ${maxPerSlot} personas). Elegí otro horario.`,
+                });
             }
 
             const result = await db.insert(appointments).values({

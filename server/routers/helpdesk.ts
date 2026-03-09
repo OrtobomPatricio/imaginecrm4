@@ -3,6 +3,7 @@ import { and, desc, eq, like, or, sql, type SQL } from "drizzle-orm";
 import { conversations, supportQueues, supportUserQueues, quickAnswers, users } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { permissionProcedure, router } from "../_core/trpc";
+import { TRPCError } from "@trpc/server";
 
 export const helpdeskRouter = router({
   // Queues
@@ -93,7 +94,7 @@ export const helpdeskRouter = router({
           .where(and(eq(users.tenantId, ctx.tenantId), sql`${users.id} IN (${sql.join(input.userIds.map(id => sql`${id}`), sql`, `)})`))
         const validIds = new Set(validUsers.map(u => u.id));
         const invalid = input.userIds.filter(id => !validIds.has(id));
-        if (invalid.length) throw new Error("Algunos usuarios no pertenecen a este tenant");
+        if (invalid.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Algunos usuarios no pertenecen a este tenant" });
       }
 
       // Replace membership atomically in a transaction
@@ -187,7 +188,7 @@ export const helpdeskRouter = router({
       if (input.assignedToId !== null) {
         const [targetUser] = await db.select({ id: users.id }).from(users)
           .where(and(eq(users.id, input.assignedToId), eq(users.tenantId, ctx.tenantId))).limit(1);
-        if (!targetUser) throw new Error("El usuario asignado no pertenece a este tenant");
+        if (!targetUser) throw new TRPCError({ code: "BAD_REQUEST", message: "El usuario asignado no pertenece a este tenant" });
       }
 
       await db.update(conversations)

@@ -4,6 +4,7 @@ import { integrations } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { permissionProcedure, router } from "../_core/trpc";
 import { assertSafeOutboundUrl } from "../_core/urlSafety";
+import { TRPCError } from "@trpc/server";
 
 export const integrationsRouter = router({
     list: permissionProcedure("integrations.view").query(async ({ ctx }) => {
@@ -118,7 +119,7 @@ export const integrationsRouter = router({
                 .where(and(eq(integrations.tenantId, ctx.tenantId), eq(integrations.id, input.id)))
                 .limit(1);
 
-            if (!integration[0]) throw new Error("Integration not found");
+            if (!integration[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Integración no encontrada" });
 
             await assertSafeOutboundUrl(integration[0].webhookUrl);
 

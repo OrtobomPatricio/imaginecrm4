@@ -13,6 +13,7 @@ import { sendEmail } from "../_core/email";
 import { getClientIp } from "../services/security";
 import { authRateLimit, clearRateLimit } from "../_core/trpc-rate-limit";
 import { logger } from "../_core/logger";
+import { TRPCError } from "@trpc/server";
 
 /**
  * Resolve tenantId from the request hostname or X-Tenant-Slug header.
@@ -233,20 +234,20 @@ export const authRouter = router({
             await authRateLimit(`invite:${ip}`);
 
             const user = await db.select().from(users).where(eq(users.invitationToken, input.token)).limit(1);
-            if (!user[0]) throw new Error("Invalid token");
+            if (!user[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "Token de invitación inválido" });
 
             if (user[0].invitationExpires && new Date() > user[0].invitationExpires) {
-                throw new Error("Token expired");
+                throw new TRPCError({ code: "BAD_REQUEST", message: "El token de invitación ha expirado" });
             }
 
             // Prevent reactivation of intentionally disabled accounts (no active invitation)
             if (user[0].isActive === false && !user[0].invitationToken) {
-                throw new Error("Account has been disabled by an administrator");
+                throw new TRPCError({ code: "FORBIDDEN", message: "La cuenta ha sido desactivada por un administrador" });
             }
 
             // Block replay: If user already has a password set, the invitation was already accepted
             if (user[0].password) {
-                throw new Error("La invitación ya fue aceptada. Inicia sesión con tu contraseña.");
+                throw new TRPCError({ code: "BAD_REQUEST", message: "La invitación ya fue aceptada. Inicia sesión con tu contraseña." });
             }
 
             const hashedPassword = await bcrypt.hash(input.password, 12);

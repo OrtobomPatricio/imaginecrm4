@@ -3,6 +3,7 @@ import { eq, and } from "drizzle-orm";
 import { whatsappConnections, whatsappNumbers } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { permissionProcedure, router } from "../_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { fetchCloudTemplates } from "../whatsapp/cloud";
 import { BaileysService } from "../services/baileys";
 import { encryptSecret, decryptSecret } from "../_core/crypto";
@@ -141,7 +142,7 @@ export const whatsappRouter = router({
                 .limit(1);
 
             if (connection.length === 0) {
-                throw new Error("Connection not found");
+                throw new TRPCError({ code: "NOT_FOUND", message: "Conexión no encontrada" });
             }
 
 

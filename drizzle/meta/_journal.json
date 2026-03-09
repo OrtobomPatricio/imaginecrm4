@@ -148,6 +148,27 @@
       "when": 1741132800000,
       "tag": "0038_add_maintenance_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "5",
+      "when": 1741219200000,
+      "tag": "0038_add_performance_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "5",
+      "when": 1741305600000,
+      "tag": "0039_template_meta_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "5",
+      "when": 1741392000000,
+      "tag": "0040_add_token_expires_at",
+      "breakpoints": true
     }
   ]
 }

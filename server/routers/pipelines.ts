@@ -3,6 +3,7 @@ import { eq, asc, and, sql, inArray } from "drizzle-orm";
 import { pipelines, pipelineStages } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { permissionProcedure, router } from "../_core/trpc";
+import { TRPCError } from "@trpc/server";
 
 export const pipelinesRouter = router({
     list: permissionProcedure("kanban.view").query(async ({ ctx }) => {
@@ -11,35 +12,39 @@ export const pipelinesRouter = router({
 
         let allPipelines = await db.select().from(pipelines).where(eq(pipelines.tenantId, ctx.tenantId));
 
-        // Auto-create default pipeline if none exists
+        // Auto-create default pipeline if none exists — use transaction to prevent race condition
         if (allPipelines.length === 0) {
-            const result = await db.insert(pipelines).values({
-                tenantId: ctx.tenantId,
-                name: "Pipeline por defecto",
-                isDefault: true,
-            });
-            const pipelineId = result[0].insertId;
+            await db.transaction(async (tx) => {
+                // Re-check inside transaction to avoid duplicates from concurrent requests
+                const check = await tx.select().from(pipelines).where(eq(pipelines.tenantId, ctx.tenantId)).for("update");
+                if (check.length > 0) return; // another request already created it
 
-            // Default stages mapping old statuses
-            const defaults = [
-                { name: "Nuevo", color: "#dbeafe", type: "open", order: 0 },       // blue-100
-                { name: "Contactado", color: "#fef9c3", type: "open", order: 1 },  // yellow-100
-                { name: "Calificado", color: "#f3e8ff", type: "open", order: 2 },  // purple-100
-                { name: "Negociación", color: "#e0e7ff", type: "open", order: 3 }, // indigo-100
-                { name: "Ganado", color: "#dcfce7", type: "won", order: 4 },       // green-100
-                { name: "Perdido", color: "#fee2e2", type: "lost", order: 5 },     // red-100
-            ];
+                const result = await tx.insert(pipelines).values({
+                    tenantId: ctx.tenantId,
+                    name: "Pipeline por defecto",
+                    isDefault: true,
+                });
+                const pipelineId = result[0].insertId;
 
-            for (const s of defaults) {
-                await db.insert(pipelineStages).values({
+                // Default stages — batch insert
+                const defaults = [
+                    { name: "Nuevo", color: "#dbeafe", type: "open" as const, order: 0 },
+                    { name: "Contactado", color: "#fef9c3", type: "open" as const, order: 1 },
+                    { name: "Calificado", color: "#f3e8ff", type: "open" as const, order: 2 },
+                    { name: "Negociación", color: "#e0e7ff", type: "open" as const, order: 3 },
+                    { name: "Ganado", color: "#dcfce7", type: "won" as const, order: 4 },
+                    { name: "Perdido", color: "#fee2e2", type: "lost" as const, order: 5 },
+                ];
+
+                await tx.insert(pipelineStages).values(defaults.map(s => ({
                     tenantId: ctx.tenantId,
                     pipelineId,
                     name: s.name,
                     color: s.color,
                     type: s.type as any,
                     order: s.order,
-                });
-            }
+                })));
+            });
 
             allPipelines = await db.select().from(pipelines).where(eq(pipelines.tenantId, ctx.tenantId));
         }
@@ -140,8 +145,8 @@ export const pipelinesRouter = router({
                 .where(and(eq(pipelines.tenantId, ctx.tenantId), eq(pipelines.id, input.id)))
                 .limit(1);
 
-            if (!pipeline) throw new Error("Pipeline no encontrado");
-            if (pipeline.isDefault) throw new Error("No se puede eliminar el pipeline por defecto");
+            if (!pipeline) throw new TRPCError({ code: "NOT_FOUND", message: "Pipeline no encontrado" });
+            if (pipeline.isDefault) throw new TRPCError({ code: "BAD_REQUEST", message: "No se puede eliminar el pipeline por defecto" });
 
             await db.transaction(async (tx) => {
                 await tx.delete(pipelineStages)

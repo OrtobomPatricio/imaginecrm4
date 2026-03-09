@@ -100,6 +100,9 @@ services:
       WHATSAPP_APP_SECRET: ${WHATSAPP_APP_SECRET:-}
       WHATSAPP_GRAPH_VERSION: ${WHATSAPP_GRAPH_VERSION:-v19.0}
       WHATSAPP_GRAPH_BASE_URL: ${WHATSAPP_GRAPH_BASE_URL:-https://graph.facebook.com}
+      TRUST_PROXY: "1"
+      CLIENT_URL: ${CLIENT_URL:-}
+      VITE_API_URL: ${VITE_API_URL:-}
       RUN_MIGRATIONS: "1"
     volumes:
       - uploads_data:/app/storage/uploads

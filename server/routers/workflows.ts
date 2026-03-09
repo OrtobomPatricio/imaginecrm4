@@ -3,6 +3,7 @@ import { eq, desc, and } from "drizzle-orm";
 import { workflows } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { permissionProcedure, router } from "../_core/trpc";
+import { TRPCError } from "@trpc/server";
 
 export const workflowsRouter = router({
     list: permissionProcedure("campaigns.view").query(async ({ ctx }) => {
@@ -22,7 +23,7 @@ export const workflowsRouter = router({
             if (!db) throw new Error("Database not available");
             try {
                 const result = await db.select().from(workflows).where(and(eq(workflows.tenantId, ctx.tenantId), eq(workflows.id, input.id))).limit(1);
-                if (!result[0]) throw new Error("Workflow not found");
+                if (!result[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Workflow no encontrado" });
                 return result[0];
             } catch (e: any) {
                 if (e?.message?.includes("doesn't exist")) {

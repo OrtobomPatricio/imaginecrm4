@@ -246,6 +246,7 @@ export function registerEmbeddedSignupRoutes(app: Express) {
 
       // ── Step 2: Exchange → long-lived token (60 days) ──
       let longToken: string;
+      let tokenExpiresAt: Date | null = null;
       try {
         const longRes = await graphGet<{ access_token: string; expires_in?: number }>("oauth/access_token", "", {
           grant_type: "fb_exchange_token",
@@ -254,6 +255,13 @@ export function registerEmbeddedSignupRoutes(app: Express) {
           fb_exchange_token: shortToken,
         });
         longToken = longRes.access_token;
+        // Meta returns expires_in in seconds (~60 days). Store expiry for auto-renewal.
+        if (longRes.expires_in) {
+          tokenExpiresAt = new Date(Date.now() + longRes.expires_in * 1000);
+        } else {
+          // Default: assume 60 days if not provided
+          tokenExpiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
+        }
       } catch (err) {
         logger.warn({ err: safeError(err) }, "[EmbeddedSignup] Long-lived token exchange failed, using short token");
         longToken = shortToken;
@@ -324,6 +332,7 @@ export function registerEmbeddedSignupRoutes(app: Express) {
           wabaId: waba_id,
           isConnected: true,
           setupSource: "embedded_signup",
+          tokenExpiresAt,
           lastPingAt: new Date(),
           updatedAt: new Date(),
         }).where(and(
@@ -375,6 +384,7 @@ export function registerEmbeddedSignupRoutes(app: Express) {
             accessToken: encryptedToken,
             isConnected: true,
             setupSource: "embedded_signup",
+            tokenExpiresAt,
             lastPingAt: new Date(),
           }).$returningId();
 

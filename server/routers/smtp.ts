@@ -5,6 +5,7 @@ import { permissionProcedure, router } from "../_core/trpc";
 import { verifySmtpConnection, sendEmail } from "../_core/email";
 import { eq, and } from "drizzle-orm";
 import { encryptSecret } from "../_core/crypto";
+import { TRPCError } from "@trpc/server";
 
 export const smtpRouter = router({
     list: permissionProcedure("settings.view")
@@ -71,7 +72,7 @@ export const smtpRouter = router({
                 .where(and(eq(smtpConnections.id, input.id), eq(smtpConnections.tenantId, ctx.tenantId)))
                 .limit(1);
 
-            if (!connection) throw new Error("Connection not found");
+            if (!connection) throw new TRPCError({ code: "NOT_FOUND", message: "Conexión SMTP no encontrada" });
 
             try {
                 let pass = connection.password || "";
@@ -102,7 +103,7 @@ export const smtpRouter = router({
                     .set({ testStatus: "failed", lastTested: new Date() })
                     .where(and(eq(smtpConnections.id, input.id), eq(smtpConnections.tenantId, ctx.tenantId)));
 
-                throw new Error(`Test failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+                throw new TRPCError({ code: "BAD_REQUEST", message: "La prueba de conexión SMTP falló. Verifica las credenciales." });
             }
         }),
 
@@ -135,7 +136,7 @@ export const smtpRouter = router({
                 subject: "Test SMTP Connection - Imagine CRM",
                 html: "<p>If you see this, your SMTP configuration is working correctly! 🚀</p>",
             });
-            if (!result.sent) throw new Error(result.reason === "NO_SMTP_CONFIG" ? "SMTP no está configurado. Ve a Configuración → Email para agregar tus credenciales SMTP." : "Error al enviar email. Revisa los logs del servidor.");
+            if (!result.sent) throw new TRPCError({ code: "BAD_REQUEST", message: result.reason === "NO_SMTP_CONFIG" ? "SMTP no está configurado. Ve a Configuración → Email para agregar tus credenciales SMTP." : "Error al enviar email. Revisa los logs del servidor." });
             return { success: true };
         }),
 });

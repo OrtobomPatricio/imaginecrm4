@@ -1,8 +1,8 @@
 import { z } from "zod";
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
-import { eq, and } from "drizzle-orm";
-import { users } from "../../drizzle/schema";
+import { eq, and, ne } from "drizzle-orm";
+import { users, sessions } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import { sendEmail } from "../_core/email";
@@ -371,6 +371,21 @@ export const accountRouter = router({
             await db.update(users)
                 .set({ password: hashedPassword })
                 .where(eq(users.id, user.id));
+
+            // Invalidate all other sessions for this user
+            try {
+                const currentJti = ctx.req ? (ctx.req as any).sessionJti : undefined;
+                if (currentJti) {
+                    await db.delete(sessions)
+                        .where(and(eq(sessions.userId, user.id), ne(sessions.sessionToken, currentJti)));
+                } else {
+                    await db.delete(sessions)
+                        .where(eq(sessions.userId, user.id));
+                }
+                logger.info({ userId: user.id }, "[Account] Other sessions invalidated after password change");
+            } catch (e) {
+                logger.warn({ err: e, userId: user.id }, "[Account] Failed to invalidate sessions (non-fatal)");
+            }
 
             logger.info({ userId: user.id }, "[Account] Password changed");
 

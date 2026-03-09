@@ -5,6 +5,7 @@ import { getDb } from "../db";
 import { permissionProcedure, router } from "../_core/trpc";
 import { randomBytes, createHmac } from "crypto";
 import { assertSafeOutboundUrl } from "../_core/urlSafety";
+import { TRPCError } from "@trpc/server";
 
 // Generate webhook secret
 function generateSecret(): string {
@@ -143,7 +144,7 @@ export const webhooksRouter = router({
                 .limit(1);
 
             if (!webhook[0]) {
-                throw new Error("Webhook not found");
+                throw new TRPCError({ code: "NOT_FOUND", message: "Webhook no encontrado" });
             }
 
             // SSRF protection: re-validate URL before fetch

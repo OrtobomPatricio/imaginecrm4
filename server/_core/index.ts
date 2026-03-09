@@ -257,7 +257,18 @@ export async function createApp() {
     next();
   });
 
-  app.get("/metrics", async (_req, res) => {
+  app.get("/metrics", async (req, res) => {
+    // Protect metrics endpoint: require METRICS_TOKEN bearer or block in production
+    const metricsToken = process.env.METRICS_TOKEN;
+    if (isProd) {
+      if (!metricsToken) {
+        return res.status(404).end();
+      }
+      const authHeader = req.headers.authorization;
+      if (!authHeader || authHeader !== `Bearer ${metricsToken}`) {
+        return res.status(401).end();
+      }
+    }
     try {
       res.set("Content-Type", metricsRegister.contentType);
       res.end(await metricsRegister.metrics());
@@ -444,6 +455,11 @@ async function startServer() {
     import("../services/wa-health-check").then(({ startWAHealthCheck }) => {
       startWAHealthCheck();
     }).catch(err => logger.error({ err: safeError(err) }, "[WAHealthCheck] startup failed"));
+
+    // WhatsApp/Meta token auto-renewal (every 24h, renews expiring tokens)
+    import("../services/token-renewal").then(({ startTokenRenewalScheduler }) => {
+      startTokenRenewalScheduler();
+    }).catch(err => logger.error({ err: safeError(err) }, "[TokenRenewal] startup failed"));
 
     // Application cache (Redis + in-memory fallback)
     import("../services/app-cache").then(({ initCacheRedis }) => {
