@@ -4,12 +4,13 @@ import crypto from "crypto";
 import { nanoid } from "nanoid";
 import { eq, desc, and } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { users, appSettings } from "../../drizzle/schema";
+import { users, appSettings, tenants } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { permissionProcedure, router } from "../_core/trpc";
 import { sendEmail } from "../_core/email";
 import { PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH, validatePassword as validateSharedPassword } from "../../shared/password-policy";
 import { logAccess } from "../services/security";
+import { logger } from "../_core/logger";
 
 export const teamRouter = router({
     listUsers: permissionProcedure("users.view").query(async ({ ctx }) => {
@@ -201,8 +202,14 @@ export const teamRouter = router({
                 loginMethod: null,
             });
 
-            const baseUrl = process.env.APP_URL || process.env.VITE_API_URL || "http://localhost:3000";
-            const inviteLink = `${baseUrl}/setup-account?token=${token}`;
+            const baseUrl = process.env.APP_URL || process.env.VITE_API_URL;
+            if (!baseUrl) {
+                logger.error("[Team] APP_URL/VITE_API_URL not configured — invite link will be relative");
+            }
+            // Resolve tenant slug for the invite URL
+            const [tenantRow] = await db.select({ slug: tenants.slug }).from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
+            const tenantParam = tenantRow?.slug ? `&tenant=${encodeURIComponent(tenantRow.slug)}` : "";
+            const inviteLink = `${baseUrl || ""}/setup-account?token=${token}${tenantParam}`;
 
             const emailResult = await sendEmail({
                 tenantId: ctx.tenantId,

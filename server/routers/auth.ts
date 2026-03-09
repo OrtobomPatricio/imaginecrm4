@@ -182,17 +182,17 @@ export const authRouter = router({
                 return { success: false, error: "Credenciales inválidas" };
             }
 
-            // Check if user account is active
-            if (!user[0].isActive) {
-                logger.warn({ email: normalizedEmail, userId: user[0].id, ip }, "[Auth] Login failed: account disabled");
-                return { success: false, error: "Cuenta desactivada. Contacte al administrador." };
-            }
-
-            // Compare password directly — no trimming to preserve full entropy
+            // Compare password FIRST — prevents account-state enumeration without valid credentials
             const valid = await bcrypt.compare(input.password, user[0].password);
             if (!valid) {
                 logger.warn({ email: normalizedEmail, userId: user[0].id, ip }, "[Auth] Login failed: invalid password");
                 return { success: false, error: "Credenciales inválidas" };
+            }
+
+            // Check active status only AFTER password is verified (anti-enumeration)
+            if (!user[0].isActive) {
+                logger.warn({ email: normalizedEmail, userId: user[0].id, ip }, "[Auth] Login failed: account disabled");
+                return { success: false, error: "Cuenta desactivada. Contacte al administrador." };
             }
 
             // Limpiar rate limit después de login exitoso

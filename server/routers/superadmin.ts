@@ -14,6 +14,7 @@ import { getOrCreateAppSettings, updateAppSettings, getPlatformMetaConfig } from
 import { encryptSecret } from "../_core/crypto";
 import { clearRateLimitByPrefix } from "../_core/trpc-rate-limit";
 import { clearAllExpressRateLimits } from "../_core/middleware/rate-limit";
+import { sendEmail } from "../_core/email";
 
 /**
  * Superadmin Router
@@ -940,17 +941,40 @@ export const superadminRouter = router({
             await logSuperadminAction(ctx.user!.id, "forcePasswordReset", { userId: input.userId });
 
             // Look up user email and tenant for reset link
-            const [targetUser] = await db.select({ email: users.email, tenantId: users.tenantId })
+            const [targetUser] = await db.select({ email: users.email, tenantId: users.tenantId, name: users.name })
                 .from(users).where(eq(users.id, input.userId)).limit(1);
             const [tenant] = targetUser
-                ? await db.select({ slug: tenants.slug }).from(tenants).where(eq(tenants.id, targetUser.tenantId)).limit(1)
+                ? await db.select({ slug: tenants.slug, name: tenants.name }).from(tenants).where(eq(tenants.id, targetUser.tenantId)).limit(1)
                 : [null];
+
+            const resetPath = `/reset-password?token=${resetToken}${tenant?.slug ? `&tenant=${encodeURIComponent(tenant.slug)}` : ""}`;
+
+            // Notify user via email (non-blocking — link is also returned to admin as fallback)
+            if (targetUser?.email) {
+                const appUrl = process.env.APP_URL || process.env.CLIENT_URL || "";
+                const fullResetUrl = `${appUrl}${resetPath}`;
+                sendEmail({
+                    tenantId: targetUser.tenantId,
+                    to: targetUser.email,
+                    subject: "Restablecimiento de contraseña requerido - Imagine CRM",
+                    html: `
+                        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                            <h2>Restablecimiento de contraseña</h2>
+                            <p>Hola ${targetUser.name || ""},</p>
+                            <p>Un administrador ha solicitado el restablecimiento de tu contraseña. Tus sesiones activas han sido cerradas.</p>
+                            <p>Hacé clic en el siguiente enlace para establecer una nueva contraseña:</p>
+                            <p><a href="${fullResetUrl}" style="display: inline-block; padding: 12px 24px; background: #6366f1; color: white; text-decoration: none; border-radius: 8px;">Restablecer Contraseña</a></p>
+                            <p style="color: #666; font-size: 12px;">Este enlace expira en 24 horas. Si no solicitaste esto, contactá al administrador de tu organización.</p>
+                        </div>
+                    `,
+                }).catch(err => logger.warn({ err, userId: input.userId }, "[Superadmin] Failed to send force-reset email"));
+            }
 
             return {
                 success: true,
                 resetToken,
-                resetUrl: `/reset-password?token=${resetToken}${tenant?.slug ? `&tenant=${encodeURIComponent(tenant.slug)}` : ""}`,
-                message: "Sesiones invalidadas. Compartí el enlace de reset al usuario de forma segura.",
+                resetUrl: resetPath,
+                message: "Sesiones invalidadas. Se envió un email al usuario con el enlace de reset.",
             };
         }),
 

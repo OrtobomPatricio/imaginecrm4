@@ -241,8 +241,11 @@ export const signupRouter = router({
                 ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
 
                 // Send verification email (non-blocking)
-                const appUrl = process.env.APP_URL || `${ctx.req.protocol}://${ctx.req.get('host')}`;
-                const verifyUrl = `${appUrl}/verify-email?token=${emailVerifyToken}&tenant=${encodeURIComponent(slug)}`;
+                const appUrl = process.env.APP_URL || process.env.CLIENT_URL;
+                if (!appUrl) {
+                    logger.error("[Signup] APP_URL/CLIENT_URL not configured — verification email link will be broken");
+                }
+                const verifyUrl = `${appUrl || ""}/verify-email?token=${emailVerifyToken}&tenant=${encodeURIComponent(slug)}`;
                 sendEmail({
                     tenantId,
                     to: input.email,
