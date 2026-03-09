@@ -556,8 +556,8 @@ export default function Signup() {
                                         <span className="font-medium">{form.companyName}</span>
                                     </div>
                                     <div className="flex justify-between">
-                                        <span className="text-muted-foreground">URL:</span>
-                                        <span className="font-medium">{form.slug}.imaginecrm.com</span>
+                                        <span className="text-muted-foreground">Identificador:</span>
+                                        <span className="font-medium">{form.slug}</span>
                                     </div>
                                     <div className="flex justify-between">
                                         <span className="text-muted-foreground">Administrador:</span>

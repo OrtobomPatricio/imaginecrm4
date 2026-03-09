@@ -64,6 +64,16 @@ async function logSuperadminAction(
     }
 }
 
+// ── Reserved slugs (shared between createTenant, updateTenant, and signup) ──
+const RESERVED_SLUGS = new Set([
+    "www", "app", "api", "admin", "superadmin", "platform", "system",
+    "support", "help", "billing", "mail", "ftp", "ssh", "test",
+    "staging", "dev", "demo", "status", "docs", "blog", "cdn",
+    "auth", "login", "signup", "webhook", "webhooks", "trpc",
+    "oauth", "meta", "paypal", "whatsapp", "uploads", "metrics",
+    "health", "healthz", "readyz",
+]);
+
 export const superadminRouter = router({
     /** Debug endpoint: returns current user role and tenantId */
     whoami: protectedProcedure.query(({ ctx }) => {
@@ -95,7 +105,7 @@ export const superadminRouter = router({
             if (!db) return [];
             try {
 
-            // First get base tenant data (always safe)
+            // First get base tenant data with maintenanceMode from appSettings
             const tenantList = await db
                 .select({
                     id: tenants.id,
@@ -107,8 +117,10 @@ export const superadminRouter = router({
                     trialEndsAt: tenants.trialEndsAt,
                     createdAt: tenants.createdAt,
                     updatedAt: tenants.updatedAt,
+                    maintenanceMode: appSettings.maintenanceMode,
                 })
                 .from(tenants)
+                .leftJoin(appSettings, eq(appSettings.tenantId, tenants.id))
                 .orderBy(desc(tenants.createdAt));
 
             // Enrich with counts (safe — tables may not exist)
@@ -133,6 +145,7 @@ export const superadminRouter = router({
 
             return tenantList.map(t => ({
                 ...t,
+                maintenanceMode: !!(t.maintenanceMode as any)?.enabled,
                 userCount: userCounts.get(t.id) ?? 0,
                 leadCount: leadCounts.get(t.id) ?? 0,
                 waNumberCount: waCounts.get(t.id) ?? 0,
@@ -184,14 +197,14 @@ export const superadminRouter = router({
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-            // Verify target user exists
+            // Verify target user exists AND belongs to the declared tenant
             const [targetUser] = await db.select()
                 .from(users)
-                .where(eq(users.id, input.targetUserId))
+                .where(and(eq(users.id, input.targetUserId), eq(users.tenantId, input.targetTenantId)))
                 .limit(1);
 
             if (!targetUser) {
-                throw new TRPCError({ code: "NOT_FOUND", message: "Usuario no encontrado" });
+                throw new TRPCError({ code: "NOT_FOUND", message: "Usuario no encontrado en ese tenant" });
             }
 
             logger.warn(
@@ -936,7 +949,7 @@ export const superadminRouter = router({
             return {
                 success: true,
                 resetToken,
-                resetUrl: `/reset-password?token=${resetToken}${tenant?.slug ? `&org=${tenant.slug}` : ""}`,
+                resetUrl: `/reset-password?token=${resetToken}${tenant?.slug ? `&tenant=${encodeURIComponent(tenant.slug)}` : ""}`,
                 message: "Sesiones invalidadas. Compartí el enlace de reset al usuario de forma segura.",
             };
         }),
@@ -1360,84 +1373,91 @@ export const superadminRouter = router({
     //  P2: FULL TENANT CRUD
     // ══════════════════════════════════════════════════════════════
 
-    /** Create a new tenant */
+    /** Create a new tenant — transactional, owner required */
     createTenant: superadminGuard
         .input(z.object({
             name: z.string().min(1).max(200),
             slug: z.string().min(1).max(100).regex(/^[a-z0-9][a-z0-9-]{0,98}[a-z0-9]$/),
             plan: z.enum(["free", "starter", "pro", "enterprise"]).default("free"),
             trialEndsAt: z.string().optional(),
-            ownerEmail: z.string().email().optional(),
-            ownerName: z.string().max(200).optional(),
+            ownerEmail: z.string().email(),
+            ownerName: z.string().min(1).max(200),
         }))
         .mutation(async ({ input, ctx }) => {
             const db = await getDb();
             if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-            // P1: Validate reserved slugs (same list as signup)
-            const RESERVED_SLUGS = new Set([
-                "www", "app", "api", "admin", "superadmin", "platform", "system",
-                "support", "help", "billing", "mail", "ftp", "ssh", "test",
-                "staging", "dev", "demo", "status", "docs", "blog", "cdn",
-                "auth", "login", "signup", "webhook", "webhooks", "trpc",
-                "oauth", "meta", "paypal", "whatsapp", "uploads", "metrics",
-                "health", "healthz", "readyz",
-            ]);
+            // Validate reserved slugs (same list as signup)
             if (RESERVED_SLUGS.has(input.slug.toLowerCase())) {
                 throw new TRPCError({ code: "BAD_REQUEST", message: `El slug "${input.slug}" está reservado.` });
             }
 
-            // Check slug uniqueness
-            const [existing] = await db.select({ id: tenants.id })
+            // Check slug uniqueness BEFORE transaction
+            const [existingSlug] = await db.select({ id: tenants.id })
                 .from(tenants)
                 .where(eq(tenants.slug, input.slug))
                 .limit(1);
-            if (existing) throw new TRPCError({ code: "CONFLICT", message: `El slug "${input.slug}" ya existe.` });
+            if (existingSlug) throw new TRPCError({ code: "CONFLICT", message: `El slug "${input.slug}" ya existe.` });
 
-            const [result] = await db.insert(tenants).values({
-                name: input.name,
-                slug: input.slug,
-                plan: input.plan,
-                trialEndsAt: input.trialEndsAt ? new Date(input.trialEndsAt) : null,
-            }).$returningId();
+            // Check email not already taken BEFORE transaction
+            const [emailExists] = await db.select({ id: users.id })
+                .from(users).where(eq(users.email, input.ownerEmail.trim().toLowerCase())).limit(1);
+            if (emailExists) {
+                throw new TRPCError({ code: "CONFLICT", message: `El email "${input.ownerEmail}" ya está en uso. No se creó el tenant.` });
+            }
 
-            const newId = (result as any)?.id ?? (result as any)?.insertId;
+            // All-or-nothing: tenant + appSettings + owner in one transaction
+            const { nanoid } = await import("nanoid");
+            const crypto = await import("crypto");
+            const resetToken = crypto.randomBytes(32).toString("hex");
+            const resetExpires = new Date(Date.now() + 72 * 60 * 60 * 1000); // 72h for initial setup
 
-            // Create default appSettings row
+            let newId: number;
             try {
-                await db.insert(appSettings).values({
-                    tenantId: newId,
-                    companyName: input.name,
-                });
-            } catch { /* may already exist */ }
+                await db.transaction(async (tx) => {
+                    const [result] = await tx.insert(tenants).values({
+                        name: input.name,
+                        slug: input.slug,
+                        plan: input.plan,
+                        trialEndsAt: input.trialEndsAt ? new Date(input.trialEndsAt) : null,
+                    }).$returningId();
 
-            // P1: Create owner user if email provided (prevent orphan tenants)
-            if (input.ownerEmail) {
-                // Check email not already taken in another tenant
-                const [emailExists] = await db.select({ id: users.id })
-                    .from(users).where(eq(users.email, input.ownerEmail)).limit(1);
-                if (emailExists) {
-                    // Tenant created but owner not — warn, don't fail
-                    logger.warn({ email: input.ownerEmail, tenantId: newId }, "[Superadmin] Owner email already exists — tenant created without owner");
-                } else {
-                    const { nanoid } = await import("nanoid");
-                    await db.insert(users).values({
-                        tenantId: newId,
+                    newId = (result as any)?.id ?? (result as any)?.insertId;
+
+                    await tx.insert(appSettings).values({
+                        tenantId: newId!,
+                        companyName: input.name,
+                    });
+
+                    await tx.insert(users).values({
+                        tenantId: newId!,
                         openId: `local_${nanoid(16)}`,
-                        name: input.ownerName || "Owner",
-                        email: input.ownerEmail,
+                        name: input.ownerName,
+                        email: input.ownerEmail.trim().toLowerCase(),
                         role: "owner",
                         loginMethod: "credentials",
                         isActive: true,
                         hasSeenTour: false,
-                    });
-                }
+                        passwordResetToken: resetToken,
+                        passwordResetExpires: resetExpires,
+                    } as any);
+                });
+            } catch (txErr: any) {
+                logger.error({ err: txErr }, "[Superadmin] createTenant transaction failed");
+                throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Error al crear tenant. No se creó nada." });
             }
 
-            await logSuperadminAction(ctx.user!.id, "createTenant", { tenantId: newId, name: input.name, slug: input.slug, plan: input.plan });
-            logger.info({ adminId: ctx.user!.id, tenantId: newId }, "[Superadmin] Tenant created");
+            await logSuperadminAction(ctx.user!.id, "createTenant", { tenantId: newId!, name: input.name, slug: input.slug, plan: input.plan });
+            logger.info({ adminId: ctx.user!.id, tenantId: newId! }, "[Superadmin] Tenant created with owner");
 
-            return { success: true, tenantId: newId, message: `Tenant "${input.name}" creado.` };
+            const resetUrl = `/reset-password?token=${resetToken}&tenant=${encodeURIComponent(input.slug)}`;
+
+            return {
+                success: true,
+                tenantId: newId!,
+                resetUrl,
+                message: `Tenant "${input.name}" creado. Compartí el enlace de activación al owner.`,
+            };
         }),
 
     /** Update tenant details */
@@ -1456,6 +1476,10 @@ export const superadminRouter = router({
             const updates: Record<string, any> = {};
             if (input.name !== undefined) updates.name = input.name;
             if (input.slug !== undefined) {
+                // Validate reserved slugs
+                if (RESERVED_SLUGS.has(input.slug.toLowerCase())) {
+                    throw new TRPCError({ code: "BAD_REQUEST", message: `El slug "${input.slug}" está reservado.` });
+                }
                 // Check slug uniqueness
                 const [existing] = await db.select({ id: tenants.id })
                     .from(tenants)

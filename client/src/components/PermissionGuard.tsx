@@ -26,9 +26,8 @@ export function PermissionGuard({ permission, roles, children }: PermissionGuard
     }
   }
 
-  // Permission gate (owner/admin always pass)
+  // Permission gate
   if (permission) {
-    if (role === "owner" || role === "admin") return <>{children}</>;
     if (!can(permission)) return <Forbidden />;
   }
 

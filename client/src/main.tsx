@@ -151,11 +151,5 @@ createRoot(document.getElementById("root")!).render(
   </trpc.Provider>
 );
 
-// Register Service Worker
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js')
-      .then(() => {})
-      .catch(() => {});
-  });
-}
+// Service Worker is managed by VitePWA plugin (vite.config.ts)
+// No manual registration needed

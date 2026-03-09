@@ -17,16 +17,8 @@ const plugins = [
       cleanupOutdatedCaches: true,
       runtimeCaching: [
         {
-          urlPattern: /^\/api\/trpc\//,
+          urlPattern: /^\/api\//,
           handler: "NetworkOnly",
-        },
-        {
-          urlPattern: /^\/api\/uploads\//,
-          handler: "CacheFirst",
-          options: {
-            cacheName: "uploads-cache",
-            expiration: { maxEntries: 100, maxAgeSeconds: 86400 },
-          },
         },
       ],
     },

@@ -2080,12 +2080,15 @@ function CreateTenantDialog({ onSuccess }: { onSuccess: () => void }) {
   const [trialDate, setTrialDate] = useState("");
   const [ownerEmail, setOwnerEmail] = useState("");
   const [ownerName, setOwnerName] = useState("");
+  const [resetUrl, setResetUrl] = useState("");
   const { toast } = useToast();
 
   const create = trpc.superadmin.createTenant.useMutation({
     onSuccess: (d) => {
+      if (d.resetUrl) {
+        setResetUrl(`${window.location.origin}${d.resetUrl}`);
+      }
       toast({ title: d.message });
-      setOpen(false);
       setName(""); setSlug(""); setPlan("free"); setTrialDate(""); setOwnerEmail(""); setOwnerName("");
       onSuccess();
     },
@@ -2093,7 +2096,7 @@ function CreateTenantDialog({ onSuccess }: { onSuccess: () => void }) {
   });
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setResetUrl(""); }}>
       <DialogTrigger asChild>
         <Button size="sm" className="h-8 text-xs gap-1">
           <Plus className="w-3 h-3" /> Nuevo Tenant
@@ -2104,34 +2107,48 @@ function CreateTenantDialog({ onSuccess }: { onSuccess: () => void }) {
           <DialogTitle>Crear Tenant</DialogTitle>
           <DialogDescription>Crea una nueva organización con su owner inicial.</DialogDescription>
         </DialogHeader>
-        <div className="space-y-3">
-          <Input placeholder="Nombre de empresa" value={name} onChange={(e) => { setName(e.target.value); if (!slug) setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-")); }} className="h-9 text-sm" />
-          <Input placeholder="slug (solo letras, números, guiones)" value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9\-]/g, ""))} className="h-9 text-sm" />
-          <Select value={plan} onValueChange={setPlan}>
-            <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="free">Free</SelectItem>
-              <SelectItem value="starter">Starter</SelectItem>
-              <SelectItem value="pro">Pro</SelectItem>
-              <SelectItem value="enterprise">Enterprise</SelectItem>
-            </SelectContent>
-          </Select>
-          <div>
-            <Label className="text-xs text-muted-foreground">Trial hasta (opcional)</Label>
-            <Input type="date" value={trialDate} onChange={(e) => setTrialDate(e.target.value)} className="h-9 text-sm" />
+
+        {resetUrl ? (
+          <div className="space-y-3">
+            <div className="bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-lg p-3">
+              <p className="text-sm font-medium text-green-800 dark:text-green-200 mb-2">Tenant creado. Enviá este enlace al owner para que configure su contraseña:</p>
+              <code className="text-xs break-all bg-white dark:bg-gray-900 p-2 rounded block">{resetUrl}</code>
+            </div>
+            <Button variant="outline" size="sm" className="w-full" onClick={() => { navigator.clipboard.writeText(resetUrl); toast({ title: "URL copiada" }); }}>Copiar enlace</Button>
+            <DialogClose asChild><Button variant="ghost" className="w-full">Cerrar</Button></DialogClose>
           </div>
-          <div className="border-t pt-3 space-y-2">
-            <Label className="text-xs font-medium">Owner inicial (recomendado)</Label>
-            <Input placeholder="Email del owner" type="email" value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} className="h-9 text-sm" />
-            <Input placeholder="Nombre del owner" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} className="h-9 text-sm" />
-          </div>
-        </div>
-        <DialogFooter>
-          <DialogClose asChild><Button variant="ghost">Cancelar</Button></DialogClose>
-          <Button onClick={() => create.mutate({ name, slug, plan: plan as any, trialEndsAt: trialDate || undefined, ownerEmail: ownerEmail || undefined, ownerName: ownerName || undefined })} disabled={!name || !slug || create.isPending}>
-            {create.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null} Crear
-          </Button>
-        </DialogFooter>
+        ) : (
+          <>
+            <div className="space-y-3">
+              <Input placeholder="Nombre de empresa" value={name} onChange={(e) => { setName(e.target.value); if (!slug) setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-")); }} className="h-9 text-sm" />
+              <Input placeholder="slug (solo letras, números, guiones)" value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9\-]/g, ""))} className="h-9 text-sm" />
+              <Select value={plan} onValueChange={setPlan}>
+                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="free">Free</SelectItem>
+                  <SelectItem value="starter">Starter</SelectItem>
+                  <SelectItem value="pro">Pro</SelectItem>
+                  <SelectItem value="enterprise">Enterprise</SelectItem>
+                </SelectContent>
+              </Select>
+              <div>
+                <Label className="text-xs text-muted-foreground">Trial hasta (opcional)</Label>
+                <Input type="date" value={trialDate} onChange={(e) => setTrialDate(e.target.value)} className="h-9 text-sm" />
+              </div>
+              <div className="border-t pt-3 space-y-2">
+                <Label className="text-xs font-medium">Owner inicial (obligatorio)</Label>
+                <Input placeholder="Email del owner *" type="email" value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} className="h-9 text-sm" required />
+                <Input placeholder="Nombre del owner *" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} className="h-9 text-sm" required />
+              </div>
+            </div>
+            <DialogFooter>
+              <DialogClose asChild><Button variant="ghost">Cancelar</Button></DialogClose>
+              <Button onClick={() => create.mutate({ name, slug, plan: plan as any, trialEndsAt: trialDate || undefined, ownerEmail, ownerName })} disabled={!name || !slug || !ownerEmail || !ownerName || create.isPending}>
+                {create.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null} Crear
+              </Button>
+            </DialogFooter>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   );

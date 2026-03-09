@@ -46,6 +46,7 @@ validateCriticalEnv();
 
 // Modular Imports
 import { requireAuthMiddleware } from "./middleware/auth";
+import { requireNotMaintenance } from "./middleware/maintenance";
 import { rateLimitMiddleware } from "./middleware/rate-limit";
 import { uploadMiddleware, handleUpload, serveUpload } from "../controllers/upload.controller";
 
@@ -279,10 +280,10 @@ export async function createApp() {
 
   // File Uploads (Modular)
   // Serve uploaded files securely
-  app.get("/api/uploads/:name", requireAuthMiddleware, serveUpload);
+  app.get("/api/uploads/:name", requireAuthMiddleware, requireNotMaintenance, serveUpload);
 
   // Handle new uploads
-  app.post('/api/upload', requireAuthMiddleware, uploadMiddleware.array('files'), handleUpload);
+  app.post('/api/upload', requireAuthMiddleware, requireNotMaintenance, uploadMiddleware.array('files'), handleUpload);
 
   // tRPC API
   app.use(

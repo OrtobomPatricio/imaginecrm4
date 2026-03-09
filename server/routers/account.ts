@@ -98,8 +98,20 @@ export const accountRouter = router({
                 .set({ emailVerifyToken: newToken })
                 .where(eq(users.id, user.id));
 
-            const appUrl = process.env.APP_URL || process.env.CLIENT_URL || "https://crm-imagine-crm.yk50nb.easypanel.host";
-            const verifyUrl = `${appUrl}/verify-email?token=${newToken}`;
+            const appUrl = process.env.APP_URL || process.env.CLIENT_URL;
+            if (!appUrl) {
+                logger.error("[Account] resendVerification: APP_URL/CLIENT_URL not configured");
+                return { success: false, message: "Error de configuración del servidor. Contacta al administrador." };
+            }
+
+            // Resolve tenant slug for the verify URL
+            let tenantSlugParam = "";
+            if (ctx.tenantId) {
+                const { tenants } = await import("../../drizzle/schema");
+                const [t] = await db.select({ slug: tenants.slug }).from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
+                if (t?.slug) tenantSlugParam = `&tenant=${encodeURIComponent(t.slug)}`;
+            }
+            const verifyUrl = `${appUrl}/verify-email?token=${newToken}${tenantSlugParam}`;
 
             const result = await sendEmail({
                 tenantId: ctx.tenantId,
@@ -209,7 +221,11 @@ export const accountRouter = router({
                 })
                 .where(eq(users.id, user.id));
 
-            const appUrl = process.env.APP_URL || process.env.CLIENT_URL || "https://crm-imagine-crm.yk50nb.easypanel.host";
+            const appUrl = process.env.APP_URL || process.env.CLIENT_URL;
+            if (!appUrl) {
+                logger.error("[Account] requestPasswordReset: APP_URL/CLIENT_URL not configured");
+                return { success: true, message: "Si el email existe, recibirás un enlace de recuperación." };
+            }
             const resetUrl = `${appUrl}/reset-password?token=${resetToken}&tenant=${encodeURIComponent(tenantSlugForUrl)}`;
 
             const emailResult = await sendEmail({
