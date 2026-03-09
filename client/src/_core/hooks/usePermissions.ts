@@ -23,5 +23,5 @@ export function usePermissions() {
     return false;
   };
 
-  return { role, permissions, can, isLoading: query.isLoading };
+  return { role, permissions, can, isLoading: query.isLoading, error: query.error };
 }

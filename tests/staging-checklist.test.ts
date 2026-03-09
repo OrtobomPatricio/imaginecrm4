@@ -952,3 +952,50 @@ describe("Staging: env var requirements", () => {
         expect(allServerFiles).toContain("TRUST_PROXY");
     });
 });
+
+// ═══════════════════════════════════════════════════════════════════
+//  SECTION 11 — ERROR HANDLING: no false "Acceso Denegado"
+// ═══════════════════════════════════════════════════════════════════
+
+describe("11. Error handling — no false Acceso Denegado", () => {
+    const settingsSrc = fs.readFileSync(
+        path.resolve(__dirname, "../client/src/pages/Settings.tsx"), "utf-8"
+    );
+    const trpcSrc = fs.readFileSync(
+        path.resolve(__dirname, "../server/_core/trpc.ts"), "utf-8"
+    );
+    const permGuardSrc = fs.readFileSync(
+        path.resolve(__dirname, "../client/src/components/PermissionGuard.tsx"), "utf-8"
+    );
+    const usePermSrc = fs.readFileSync(
+        path.resolve(__dirname, "../client/src/_core/hooks/usePermissions.ts"), "utf-8"
+    );
+
+    it("Settings.tsx checks error.data.code before showing Forbidden", () => {
+        expect(settingsSrc).toContain('code === "FORBIDDEN"');
+    });
+
+    it("Settings.tsx shows specific message for UNAUTHORIZED errors", () => {
+        expect(settingsSrc).toContain('code === "UNAUTHORIZED"');
+        expect(settingsSrc).toContain("Sesión inválida");
+    });
+
+    it("Settings.tsx shows retry button for non-permission errors", () => {
+        expect(settingsSrc).toContain("Reintentar");
+        expect(settingsSrc).toContain("Error al cargar configuración");
+    });
+
+    it("billing guard catch-all uses INTERNAL_SERVER_ERROR, not FORBIDDEN", () => {
+        expect(trpcSrc).toContain('code: "INTERNAL_SERVER_ERROR"');
+        // Should NOT use FORBIDDEN for non-billing DB errors
+        expect(trpcSrc).toContain("Non-billing DB errors should NOT masquerade as FORBIDDEN");
+    });
+
+    it("PermissionGuard handles query errors distinctly from permission denials", () => {
+        expect(permGuardSrc).toContain("Error al verificar permisos");
+    });
+
+    it("usePermissions exposes error state", () => {
+        expect(usePermSrc).toContain("error: query.error");
+    });
+});

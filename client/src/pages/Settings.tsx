@@ -298,9 +298,30 @@ function SettingsContent() {
     );
   }
 
-  // If not allowed, show friendly message
+  // If FORBIDDEN, show permission denied; otherwise show actionable error
   if (settingsQuery.error) {
-    return <Forbidden />;
+    const code = (settingsQuery.error as any)?.data?.code;
+    if (code === "FORBIDDEN") {
+      return <Forbidden />;
+    }
+    if (code === "UNAUTHORIZED") {
+      return <Forbidden title="Sesión inválida" description="Tu sesión expiró o no es válida. Intentá iniciar sesión de nuevo." />;
+    }
+    return (
+      <div className="flex items-center justify-center min-h-[50vh] p-4">
+        <div className="w-full max-w-md border border-destructive/20 rounded-lg shadow-lg p-6 text-center space-y-4">
+          <AlertCircle className="mx-auto h-10 w-10 text-destructive" />
+          <h2 className="text-xl font-semibold text-destructive">Error al cargar configuración</h2>
+          <p className="text-sm text-muted-foreground">{settingsQuery.error.message}</p>
+          <button
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm"
+            onClick={() => settingsQuery.refetch()}
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (

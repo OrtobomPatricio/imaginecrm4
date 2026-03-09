@@ -145,12 +145,13 @@ const requireActiveBilling = t.middleware(async opts => {
       } catch { /* best-effort */ }
     }
   } catch (err: any) {
-    // Re-throw FORBIDDEN (billing lock) — it's intentional
+    // Re-throw TRPCError (FORBIDDEN billing lock, maintenance, etc.) — it's intentional
     if (err instanceof TRPCError) throw err;
+    // Non-billing DB errors should NOT masquerade as FORBIDDEN
     logger.error({ err: safeError(err), tenantId: ctx.user?.tenantId, path }, "billing lock check failed");
     throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "No se pudo validar el estado de facturacion. Intente nuevamente en unos minutos.",
+      code: "INTERNAL_SERVER_ERROR",
+      message: "No se pudo validar el estado de facturación. Intente nuevamente en unos minutos.",
     });
   }
 
