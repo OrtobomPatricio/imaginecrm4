@@ -7,6 +7,7 @@ import { sanitizeAppSettings } from "../_core/security-helpers";
 import { getOrCreateAppSettings, updateAppSettings } from "../services/app-settings";
 import { encryptSecret } from "../_core/crypto";
 import { logAccess } from "../services/security";
+import { logger, safeError } from "../_core/logger";
 
 export const settingsRouter = router({
     get: permissionProcedure("settings.view").query(async ({ ctx }) => {
@@ -281,21 +282,28 @@ export const settingsRouter = router({
         }),
 
     myPermissions: authOnlyProcedure.query(async ({ ctx }) => {
-        const db = await getDb();
-        // Ensure we don't break if no db or user
-        if (!db || !ctx.user) return { role: ctx.user?.role ?? "agent", baseRole: ctx.user?.role ?? "agent", permissions: [] };
+        // This endpoint MUST never 500 — the entire UI depends on it.
+        // Fallback to user's DB role if anything goes wrong.
+        const fallbackRole = ctx.user?.role ?? "agent";
+        const fallback = { role: fallbackRole, baseRole: fallbackRole, permissions: fallbackRole === "owner" ? ["*"] as string[] : [] as string[] };
 
-        // Use context tenant if available, throw if missing for safety
-        if (!ctx.tenantId) throw new TRPCError({ code: "BAD_REQUEST", message: "Missing tenantId" });
-        const matrix = (await getOrCreateAppSettings(db, ctx.tenantId)).permissionsMatrix ?? {};
-        const baseRole = (ctx.user as any).role ?? "agent";
-        const customRole = (ctx.user as any).customRole as string | undefined;
+        try {
+            const db = await getDb();
+            if (!db || !ctx.user) return fallback;
+            if (!ctx.tenantId) return fallback;
 
-        // Compute effective role again just to be sure
-        // Note: we dynamically import to avoid circular dependency if rbac imports routers (unlikely but safe)
-        const { computeEffectiveRole } = await import("../_core/rbac");
-        const role = computeEffectiveRole({ baseRole, customRole, permissionsMatrix: matrix });
+            const settings = await getOrCreateAppSettings(db, ctx.tenantId);
+            const matrix = settings.permissionsMatrix ?? {};
+            const baseRole = (ctx.user as any).role ?? "agent";
+            const customRole = (ctx.user as any).customRole as string | undefined;
 
-        return { role, baseRole, permissions: role === "owner" ? ["*"] : (matrix[role] ?? []) };
+            const { computeEffectiveRole } = await import("../_core/rbac");
+            const role = computeEffectiveRole({ baseRole, customRole, permissionsMatrix: matrix });
+
+            return { role, baseRole, permissions: role === "owner" ? ["*"] : (matrix[role] ?? []) };
+        } catch (err) {
+            logger.error({ err: safeError(err), userId: ctx.user?.id, tenantId: ctx.tenantId }, "myPermissions failed — returning fallback");
+            return fallback;
+        }
     }),
 });
