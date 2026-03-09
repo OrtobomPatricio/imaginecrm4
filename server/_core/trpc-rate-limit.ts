@@ -24,6 +24,9 @@ interface RateLimitStore {
     get(key: string): Promise<RateLimitEntry | null>;
     set(key: string, entry: RateLimitEntry, ttlMs: number): Promise<void>;
     del(key: string): Promise<void>;
+    /** Atomically increment count and return updated entry. Implementations without
+     *  native atomicity fall back to get+set (acceptable for single-instance). */
+    incr(key: string, ttlMs: number, windowMs: number): Promise<RateLimitEntry>;
 }
 
 // In-memory fallback
@@ -44,12 +47,46 @@ class MemoryStore implements RateLimitStore {
     async get(key: string) { return this.map.get(key) ?? null; }
     async set(key: string, entry: RateLimitEntry) { this.map.set(key, entry); }
     async del(key: string) { this.map.delete(key); }
+    async incr(key: string, ttlMs: number, windowMs: number): Promise<RateLimitEntry> {
+        const now = Date.now();
+        const existing = this.map.get(key);
+        if (!existing || now > existing.resetAt) {
+            const entry: RateLimitEntry = { count: 1, resetAt: now + windowMs, blocked: false };
+            this.map.set(key, entry);
+            return entry;
+        }
+        existing.count++;
+        return existing;
+    }
 }
 
 // Redis-backed store (shared across instances, survives restarts)
 class RedisRateLimitStore implements RateLimitStore {
     private prefix = "trpc_rl:";
     constructor(private redis: Redis) {}
+
+    // Lua script: atomically increment counter, initialising if expired/missing
+    private static INCR_LUA = `
+        local key = KEYS[1]
+        local ttlSec = tonumber(ARGV[1])
+        local windowMs = tonumber(ARGV[2])
+        local now = tonumber(ARGV[3])
+        local raw = redis.call("GET", key)
+        if raw then
+            local entry = cjson.decode(raw)
+            if now > entry.resetAt then
+                entry = { count = 1, resetAt = now + windowMs, blocked = false }
+            else
+                entry.count = entry.count + 1
+            end
+            redis.call("SET", key, cjson.encode(entry), "EX", ttlSec)
+            return cjson.encode(entry)
+        else
+            local entry = { count = 1, resetAt = now + windowMs, blocked = false }
+            redis.call("SET", key, cjson.encode(entry), "EX", ttlSec)
+            return cjson.encode(entry)
+        end
+    `;
 
     async get(key: string): Promise<RateLimitEntry | null> {
         try {
@@ -69,6 +106,29 @@ class RedisRateLimitStore implements RateLimitStore {
 
     async del(key: string): Promise<void> {
         try { await this.redis.del(this.prefix + key); } catch { /* ignore */ }
+    }
+
+    async incr(key: string, ttlMs: number, windowMs: number): Promise<RateLimitEntry> {
+        const ttlSec = Math.max(Math.ceil(ttlMs / 1000), 1);
+        const now = Date.now();
+        try {
+            const raw = await this.redis.eval(
+                RedisRateLimitStore.INCR_LUA, 1,
+                this.prefix + key, ttlSec, windowMs, now,
+            ) as string;
+            return JSON.parse(raw);
+        } catch {
+            // Fallback: non-atomic get+set if Lua fails
+            const entry = await this.get(key);
+            if (!entry || now > entry.resetAt) {
+                const fresh: RateLimitEntry = { count: 1, resetAt: now + windowMs, blocked: false };
+                await this.set(key, fresh, ttlMs);
+                return fresh;
+            }
+            entry.count++;
+            await this.set(key, entry, entry.resetAt - now);
+            return entry;
+        }
     }
 }
 
@@ -116,31 +176,22 @@ export async function authRateLimit(identifier: string): Promise<void> {
     const key = `auth:${identifier}`;
     const now = Date.now();
 
-    const entry = await store.get(key);
-
-    if (!entry || now > entry.resetAt) {
-        await store.set(key, { count: 1, resetAt: now + AUTH_RATE_LIMIT.windowMs, blocked: false }, AUTH_RATE_LIMIT.windowMs);
-        return;
-    }
-
-    // Si está bloqueado
-    if (entry.blocked) {
-        const blockExpiry = entry.resetAt + AUTH_RATE_LIMIT.blockDurationMs;
+    // Check if currently blocked (read-only fast path)
+    const existing = await store.get(key);
+    if (existing?.blocked) {
+        const blockExpiry = existing.resetAt + AUTH_RATE_LIMIT.blockDurationMs;
         if (now < blockExpiry) {
             const minutesLeft = Math.ceil((blockExpiry - now) / 60000);
             throw new TRPCError({
                 code: "TOO_MANY_REQUESTS",
                 message: `Demasiados intentos fallidos. Cuenta bloqueada por ${minutesLeft} minutos.`,
             });
-        } else {
-            const newEntry: RateLimitEntry = { count: 1, resetAt: now + AUTH_RATE_LIMIT.windowMs, blocked: false };
-            await store.set(key, newEntry, AUTH_RATE_LIMIT.windowMs);
-            return;
         }
+        // Block expired — reset below via incr
     }
 
-    // Incrementar contador
-    entry.count++;
+    // Atomically increment counter (safe under concurrency)
+    const entry = await store.incr(key, AUTH_RATE_LIMIT.windowMs, AUTH_RATE_LIMIT.windowMs);
 
     if (entry.count > AUTH_RATE_LIMIT.maxAttempts) {
         entry.blocked = true;
@@ -151,8 +202,6 @@ export async function authRateLimit(identifier: string): Promise<void> {
             message: `Demasiados intentos fallidos. Cuenta bloqueada por ${AUTH_RATE_LIMIT.blockDurationMs / 60000} minutos.`,
         });
     }
-
-    await store.set(key, entry, entry.resetAt - now);
 }
 
 /**
@@ -160,16 +209,9 @@ export async function authRateLimit(identifier: string): Promise<void> {
  */
 export async function generalRateLimit(identifier: string): Promise<void> {
     const key = `general:${identifier}`;
-    const now = Date.now();
 
-    const entry = await store.get(key);
-
-    if (!entry || now > entry.resetAt) {
-        await store.set(key, { count: 1, resetAt: now + GENERAL_RATE_LIMIT.windowMs, blocked: false }, GENERAL_RATE_LIMIT.windowMs);
-        return;
-    }
-
-    entry.count++;
+    // Atomically increment counter (safe under concurrency)
+    const entry = await store.incr(key, GENERAL_RATE_LIMIT.windowMs, GENERAL_RATE_LIMIT.windowMs);
 
     if (entry.count > GENERAL_RATE_LIMIT.maxRequests) {
         throw new TRPCError({
@@ -177,8 +219,6 @@ export async function generalRateLimit(identifier: string): Promise<void> {
             message: "Demasiadas peticiones. Por favor intenta más tarde.",
         });
     }
-
-    await store.set(key, entry, entry.resetAt - now);
 }
 
 /**
