@@ -11,7 +11,8 @@ import { maskSecret } from "./crypto";
 
 export function sanitizeAppSettings(settings: any) {
     if (!settings) return null;
-    const s = { ...settings };
+    // Deep clone to prevent leaked references to sensitive nested objects
+    const s = JSON.parse(JSON.stringify(settings));
 
     if (s.smtpConfig) {
         const pass = s.smtpConfig.pass;

@@ -31,7 +31,8 @@ function parseKey(key: string): Buffer {
     }
   }
 
-  // utf8 -> sha256 to 32 bytes
+  // utf8 -> sha256 to 32 bytes (WEAK: prefer 32-byte base64 or hex key)
+  logger.warn("[Crypto] DATA_ENCRYPTION_KEY is not a valid 32-byte base64/hex key. Using SHA-256 derivation — this is less secure. Please provide a proper 32-byte key.");
   return crypto.createHash("sha256").update(trimmed, "utf8").digest();
 }
 

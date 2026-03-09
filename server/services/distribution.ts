@@ -74,14 +74,33 @@ export async function distributeConversation(conversationId: number): Promise<vo
     let nextAgent = eligibleAgents[0];
 
     if (config.mode === "round_robin") {
-        const lastId = settings.lastAssignedAgentId;
-        if (lastId) {
-            const lastIndex = eligibleAgents.findIndex((a: any) => a.id === lastId);
-            if (lastIndex !== -1 && lastIndex < eligibleAgents.length - 1) {
-                nextAgent = eligibleAgents[lastIndex + 1];
+        // Read lastAssignedAgentId and assign atomically inside transaction
+        // to prevent race conditions when concurrent conversations arrive
+        await db.transaction(async (tx) => {
+            const [freshSettings] = await tx.select({ id: appSettings.id, lastAssignedAgentId: appSettings.lastAssignedAgentId })
+                .from(appSettings)
+                .where(eq(appSettings.tenantId, tenantId))
+                .limit(1);
+
+            const lastId = freshSettings?.lastAssignedAgentId;
+            if (lastId) {
+                const lastIndex = eligibleAgents.findIndex((a: any) => a.id === lastId);
+                if (lastIndex !== -1 && lastIndex < eligibleAgents.length - 1) {
+                    nextAgent = eligibleAgents[lastIndex + 1];
+                }
+                // If last element, cycle back to index 0 (nextAgent already defaults to [0])
             }
-            // If last element, cycle back to index 0
-        }
+
+            await tx.update(conversations)
+                .set({ assignedToId: nextAgent.id })
+                .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
+
+            if (freshSettings) {
+                await tx.update(appSettings)
+                    .set({ lastAssignedAgentId: nextAgent.id })
+                    .where(eq(appSettings.id, freshSettings.id));
+            }
+        });
     } else if (config.mode === "least_active") {
         // Count active conversations per agent
         const allConvs = await db.select({
@@ -108,18 +127,29 @@ export async function distributeConversation(conversationId: number): Promise<vo
                 nextAgent = agent;
             }
         }
+
+        // Assign atomically
+        await db.transaction(async (tx) => {
+            await tx.update(conversations)
+                .set({ assignedToId: nextAgent.id })
+                .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
+
+            await tx.update(appSettings)
+                .set({ lastAssignedAgentId: nextAgent.id })
+                .where(eq(appSettings.id, settings.id));
+        });
+    } else {
+        // Unknown mode — assign first agent
+        await db.transaction(async (tx) => {
+            await tx.update(conversations)
+                .set({ assignedToId: nextAgent.id })
+                .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
+
+            await tx.update(appSettings)
+                .set({ lastAssignedAgentId: nextAgent.id })
+                .where(eq(appSettings.id, settings.id));
+        });
     }
-
-    // 4. Assign atomically
-    await db.transaction(async (tx) => {
-        await tx.update(conversations)
-            .set({ assignedToId: nextAgent.id })
-            .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
-
-        await tx.update(appSettings)
-            .set({ lastAssignedAgentId: nextAgent.id })
-            .where(eq(appSettings.id, settings.id));
-    });
 
     logger.info({
         conversationId,

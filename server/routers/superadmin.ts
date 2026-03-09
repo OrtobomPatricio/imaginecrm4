@@ -382,7 +382,8 @@ export const superadminRouter = router({
                     createdAt: users.createdAt,
                 }).from(users).where(eq(users.tenantId, input.tenantId));
                 return userList;
-            } catch {
+            } catch (e) {
+                logger.error({ err: (e as any)?.message, tenantId: input.tenantId }, "[SuperAdmin] getTenantUsers failed");
                 return [];
             }
         }),
@@ -1143,7 +1144,8 @@ export const superadminRouter = router({
                     SELECT internalNotes FROM tenants WHERE id = ${input.tenantId}
                 `) as any;
                 return { notes: rows?.[0]?.internalNotes ?? "" };
-            } catch {
+            } catch (e) {
+                logger.error({ err: (e as any)?.message, tenantId: input.tenantId }, "[SuperAdmin] getTenantNotes failed");
                 return { notes: "" };
             }
         }),
@@ -1390,7 +1392,7 @@ export const superadminRouter = router({
                     LIMIT ${input.limit} OFFSET ${input.offset}
                 `) as any;
                 return { rows: rows ?? [], total };
-            } catch { return { rows: [], total: 0 }; }
+            } catch (e) { logger.error({ err: (e as any)?.message }, "[SuperAdmin] query failed"); return { rows: [], total: 0 }; }
         }),
 
     // ══════════════════════════════════════════════════════════════
@@ -1753,7 +1755,7 @@ export const superadminRouter = router({
                 `) as any;
 
                 return { rows: rows ?? [], total };
-            } catch { return { rows: [], total: 0 }; }
+            } catch (e) { logger.error({ err: (e as any)?.message }, "[SuperAdmin] query failed"); return { rows: [], total: 0 }; }
         }),
 
     /** Change a user's role */
@@ -2056,7 +2058,7 @@ export const superadminRouter = router({
                 `) as any;
 
                 return { rows: rows ?? [], total, unreadCount };
-            } catch { return { rows: [], total: 0, unreadCount: 0 }; }
+            } catch (e) { logger.error({ err: (e as any)?.message }, "[SuperAdmin] getInternalMessages query failed"); return { rows: [], total: 0, unreadCount: 0 }; }
         }),
 
     /** Mark alert(s) as read */
@@ -2184,7 +2186,7 @@ export const superadminRouter = router({
                     SELECT COUNT(*) as total FROM activity_logs WHERE action = 'superadmin.impersonate'
                 `) as any;
                 return { rows: rows ?? [], total: Number(cntRows?.[0]?.total ?? 0) };
-            } catch { return { rows: [], total: 0 }; }
+            } catch (e) { logger.error({ err: (e as any)?.message }, "[SuperAdmin] query failed"); return { rows: [], total: 0 }; }
         }),
 
     getImpersonationStats: superadminGuard
@@ -2212,7 +2214,7 @@ export const superadminRouter = router({
                     SELECT COUNT(*) as total FROM activity_logs WHERE action = 'superadmin.impersonate'
                 `) as any;
                 return { byAdmin: byAdmin ?? [], byTenant: byTenant ?? [], total: Number(cntRows?.[0]?.total ?? 0) };
-            } catch { return { byAdmin: [], byTenant: [], total: 0 }; }
+            } catch (e) { logger.error({ err: (e as any)?.message }, "[SuperAdmin] getImpersonationStats query failed"); return { byAdmin: [], byTenant: [], total: 0 }; }
         }),
 
     /* ══════════════════════════════════════════════════════════════════════
@@ -2252,7 +2254,7 @@ export const superadminRouter = router({
                 `) as any;
 
                 return { rows: rows ?? [], total: Number(cntRows?.[0]?.total ?? 0) };
-            } catch { return { rows: [], total: 0 }; }
+            } catch (e) { logger.error({ err: (e as any)?.message }, "[SuperAdmin] query failed"); return { rows: [], total: 0 }; }
         }),
 
     /* ══════════════════════════════════════════════════════════════════════
@@ -2277,7 +2279,7 @@ export const superadminRouter = router({
                 `) as any;
                 const [cntRows] = await db.execute(sql`SELECT COUNT(*) as total FROM workflows`) as any;
                 return { rows: rows ?? [], total: Number(cntRows?.[0]?.total ?? 0) };
-            } catch { return { rows: [], total: 0 }; }
+            } catch (e) { logger.error({ err: (e as any)?.message }, "[SuperAdmin] query failed"); return { rows: [], total: 0 }; }
         }),
 
     getWorkflowErrors: superadminGuard
@@ -2348,7 +2350,7 @@ export const superadminRouter = router({
                 `) as any;
                 const [cnt] = await db.execute(sql`SELECT COUNT(*) as total FROM webhooks`) as any;
                 return { rows: rows ?? [], total: Number(cnt?.[0]?.total ?? 0) };
-            } catch { return { rows: [], total: 0 }; }
+            } catch (e) { logger.error({ err: (e as any)?.message }, "[SuperAdmin] query failed"); return { rows: [], total: 0 }; }
         }),
 
     getWebhookDeliveries: superadminGuard
@@ -2406,7 +2408,7 @@ export const superadminRouter = router({
                     SELECT COUNT(*) as total FROM campaigns c WHERE 1=1 ${statusCondition}
                 `) as any;
                 return { rows: rows ?? [], total: Number(cnt?.[0]?.total ?? 0) };
-            } catch { return { rows: [], total: 0 }; }
+            } catch (e) { logger.error({ err: (e as any)?.message }, "[SuperAdmin] query failed"); return { rows: [], total: 0 }; }
         }),
 
     getCampaignStats: superadminGuard
@@ -2455,7 +2457,7 @@ export const superadminRouter = router({
                     SELECT COUNT(*) as total FROM templates tpl WHERE 1=1 ${typeCondition}
                 `) as any;
                 return { rows: rows ?? [], total: Number(cnt?.[0]?.total ?? 0) };
-            } catch { return { rows: [], total: 0 }; }
+            } catch (e) { logger.error({ err: (e as any)?.message }, "[SuperAdmin] query failed"); return { rows: [], total: 0 }; }
         }),
 
     getTemplateStats: superadminGuard
@@ -2513,7 +2515,7 @@ export const superadminRouter = router({
                 `) as any;
                 const [cnt] = await db.execute(sql`SELECT COUNT(*) as total FROM license`) as any;
                 return { rows: rows ?? [], total: Number(cnt?.[0]?.total ?? 0) };
-            } catch { return { rows: [], total: 0 }; }
+            } catch (e) { logger.error({ err: (e as any)?.message }, "[SuperAdmin] query failed"); return { rows: [], total: 0 }; }
         }),
 
     rotateLicenseKey: superadminGuard
@@ -2647,7 +2649,7 @@ export const superadminRouter = router({
                     .from(appSettings).where(eq(appSettings.tenantId, 1)).limit(1);
                 const val = row?.maintenanceMode;
                 return { platformMaintenance: val?.enabled ?? false, message: val?.message ?? "" };
-            } catch { return { platformMaintenance: false, message: "" }; }
+            } catch (e) { logger.error({ err: (e as any)?.message }, "[SuperAdmin] getMaintenanceStatus query failed"); return { platformMaintenance: false, message: "" }; }
         }),
 
     setMaintenanceMode: superadminGuard
@@ -2762,7 +2764,7 @@ export const superadminRouter = router({
                     WHERE createdAt < DATE_SUB(NOW(), INTERVAL ${input.retentionDays} DAY)
                 `) as any;
                 return { count: Number(rows?.[0]?.cnt ?? 0) };
-            } catch { return { count: 0 }; }
+            } catch (e) { logger.error({ err: (e as any)?.message }, "[SuperAdmin] count query failed"); return { count: 0 }; }
         }),
 
     /* ══════════════════════════════════════════════════════════════════════

@@ -246,8 +246,8 @@ class SDKServer {
         }
       }
     } catch (e) {
-      logger.error({ err: safeError(e) }, "Failed to store session in DB");
-      // No fallamos el login si falla la DB, pero es riesgoso para revocación
+      logger.error({ err: safeError(e) }, "Failed to store session in DB — rejecting login");
+      throw new Error("No se pudo crear la sesión. Intente nuevamente.");
     }
 
     return token;
@@ -368,10 +368,6 @@ class SDKServer {
     if (!user) {
       logger.warn({ sessionUserId }, "[Auth] User not provisioned in tenant database");
       throw ForbiddenError("User not provisioned");
-    }
-
-    if (!user) {
-      throw ForbiddenError("User not found");
     }
 
     if ((user as any).isActive === false) {

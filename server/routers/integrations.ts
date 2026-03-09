@@ -24,12 +24,12 @@ export const integrationsRouter = router({
             const db = await getDb();
             if (!db) return null;
 
-            const result = await db.select()
+            const [row] = await db.select()
                 .from(integrations)
-                .where(eq(integrations.tenantId, ctx.tenantId));
+                .where(and(eq(integrations.id, input.id), eq(integrations.tenantId, ctx.tenantId)))
+                .limit(1);
 
-            const row = result.find((r: any) => r.id === input.id && r.tenantId === ctx.tenantId) ?? null;
-            return row;
+            return row ?? null;
         }),
 
     create: permissionProcedure("integrations.manage")
