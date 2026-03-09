@@ -2,48 +2,57 @@ import { getDb } from "../db";
 import { appSettings } from "../../drizzle/schema";
 import { eq, and } from "drizzle-orm";
 import type { MySql2Database } from "drizzle-orm/mysql2";
+import { logger, safeError } from "../_core/logger";
+
+const APP_SETTINGS_DEFAULTS = {
+    id: 0,
+    singleton: 1,
+    companyName: "Imagine CRM",
+    logoUrl: null,
+    timezone: "America/Asuncion",
+    language: "es",
+    currency: "PYG",
+    scheduling: { slotMinutes: 15, maxPerSlot: 6, allowCustomTime: true },
+    permissionsMatrix: { owner: ["*"], admin: ["settings.*"], supervisor: ["dashboard.view"], agent: ["dashboard.view"], viewer: ["dashboard.view"] },
+    slaConfig: null,
+    chatDistributionConfig: null,
+    salesConfig: null,
+    metaConfig: null,
+    smtpConfig: null,
+    storageConfig: null,
+    aiConfig: null,
+    mapsConfig: null,
+    dashboardConfig: null,
+    securityConfig: null,
+    billingConfig: null,
+    completedAt: null,
+} as any;
 
 // Allow passing db instance to use within transactions
 export async function getOrCreateAppSettings(dbOrNull: MySql2Database<any> | null | undefined, tenantId: number) {
-    const db = dbOrNull || await getDb();
-    if (!db) throw new Error("Database not available");
-
-    const rows = await db.select().from(appSettings).where(and(eq(appSettings.tenantId, tenantId), eq(appSettings.singleton, 1))).limit(1);
-    if (rows[0]) return rows[0];
-
     try {
-        await db.insert(appSettings).values({ tenantId, singleton: 1 });
-    } catch (e) {
-        // MockDB may fail on insert — fall through to re-select or default
-    }
-    const again = await db.select().from(appSettings).where(and(eq(appSettings.tenantId, tenantId), eq(appSettings.singleton, 1))).limit(1);
-    if (again[0]) return again[0];
+        const db = dbOrNull || await getDb();
+        if (!db) {
+            logger.warn({ tenantId }, "[AppSettings] DB not available — returning defaults");
+            return { ...APP_SETTINGS_DEFAULTS, tenantId };
+        }
 
-    // If MockDB can't persist, return a sensible default object
-    return {
-        id: 0,
-        tenantId,
-        singleton: 1,
-        companyName: "Imagine CRM",
-        logoUrl: null,
-        timezone: "America/Asuncion",
-        language: "es",
-        currency: "PYG",
-        scheduling: { slotMinutes: 15, maxPerSlot: 6, allowCustomTime: true },
-        permissionsMatrix: { owner: ["*"], admin: ["settings.*"], supervisor: ["dashboard.view"], agent: ["dashboard.view"], viewer: ["dashboard.view"] },
-        slaConfig: null,
-        chatDistributionConfig: null,
-        salesConfig: null,
-        metaConfig: null,
-        smtpConfig: null,
-        storageConfig: null,
-        aiConfig: null,
-        mapsConfig: null,
-        dashboardConfig: null,
-        securityConfig: null,
-        billingConfig: null,
-        completedAt: null,
-    } as any;
+        const rows = await db.select().from(appSettings).where(and(eq(appSettings.tenantId, tenantId), eq(appSettings.singleton, 1))).limit(1);
+        if (rows[0]) return rows[0];
+
+        try {
+            await db.insert(appSettings).values({ tenantId, singleton: 1 });
+        } catch (e) {
+            // MockDB or duplicate — fall through to re-select or default
+        }
+        const again = await db.select().from(appSettings).where(and(eq(appSettings.tenantId, tenantId), eq(appSettings.singleton, 1))).limit(1);
+        if (again[0]) return again[0];
+
+        return { ...APP_SETTINGS_DEFAULTS, tenantId };
+    } catch (err) {
+        logger.error({ err: safeError(err), tenantId }, "[AppSettings] getOrCreateAppSettings failed — returning defaults");
+        return { ...APP_SETTINGS_DEFAULTS, tenantId };
+    }
 }
 
 export async function updateAppSettings(db: MySql2Database<any>, tenantId: number, values: Partial<typeof appSettings.$inferInsert>) {

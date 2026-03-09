@@ -11,18 +11,28 @@ import { logger, safeError } from "../_core/logger";
 
 export const settingsRouter = router({
     get: permissionProcedure("settings.view").query(async ({ ctx }) => {
-        const db = await getDb();
-        if (!db) return null;
-        const row = await getOrCreateAppSettings(db, ctx.tenantId);
-        return sanitizeAppSettings(row);
+        try {
+            const db = await getDb();
+            if (!db) return null;
+            const row = await getOrCreateAppSettings(db, ctx.tenantId);
+            return sanitizeAppSettings(row);
+        } catch (err) {
+            logger.error({ err: safeError(err), tenantId: ctx.tenantId }, "[settings.get] failed");
+            return null;
+        }
     }),
 
     getScheduling: permissionProcedure("scheduling.view")
         .query(async ({ ctx }) => {
-            const db = await getDb();
-            if (!db) return null;
-            const row = await getOrCreateAppSettings(db, ctx.tenantId);
-            return row.scheduling || null;
+            try {
+                const db = await getDb();
+                if (!db) return null;
+                const row = await getOrCreateAppSettings(db, ctx.tenantId);
+                return row.scheduling || null;
+            } catch (err) {
+                logger.error({ err: safeError(err), tenantId: ctx.tenantId }, "[settings.getScheduling] failed");
+                return null;
+            }
         }),
 
     updateGeneral: permissionProcedure("settings.manage")
