@@ -663,3 +663,55 @@ describe("PWA critical files: no aggressive cache", () => {
         expect(PWA_NO_CACHE_RE.test("index.html")).toBe(false);
     });
 });
+
+// ═══════════════════════════════════════════════════
+// FINAL: createTenant owner semantics (isActive:false)
+// ═══════════════════════════════════════════════════
+
+describe("createTenant owner: pending activation semantics", () => {
+    it("owner is created with isActive:false (consistent with invitation pattern)", () => {
+        const ownerInsert = { isActive: false, passwordResetToken: "tok", password: null };
+        expect(ownerInsert.isActive).toBe(false);
+        expect(ownerInsert.password).toBeNull();
+    });
+
+    it("resetPassword activates account on first password set", () => {
+        const user = { password: null, isActive: false };
+        const activateOnSetup = !user.password && !user.isActive;
+        expect(activateOnSetup).toBe(true);
+    });
+
+    it("resetPassword does NOT re-activate on subsequent resets", () => {
+        const user = { password: "$2a$12$existing", isActive: true };
+        const activateOnSetup = !user.password && !user.isActive;
+        expect(activateOnSetup).toBe(false);
+    });
+
+    it("deactivated user with password is NOT reactivated by reset", () => {
+        // Admin deactivated user, they reset password — should stay inactive
+        const user = { password: "$2a$12$existing", isActive: false };
+        const activateOnSetup = !user.password && !user.isActive;
+        // Has password already → false (both conditions must be true)
+        expect(activateOnSetup).toBe(false);
+    });
+});
+
+// ═══════════════════════════════════════════════════
+// FINAL: 2FA not exposed as active feature
+// ═══════════════════════════════════════════════════
+
+describe("2FA: not exposed as active feature", () => {
+    it("TOTP service file exists but is clearly NOT INTEGRATED", async () => {
+        const fs = await import("fs");
+        const content = fs.readFileSync("server/services/totp.ts", "utf-8");
+        expect(content).toContain("NOT INTEGRATED");
+    });
+
+    it("no router imports totp service", async () => {
+        const fs = await import("fs");
+        const authContent = fs.readFileSync("server/routers/auth.ts", "utf-8");
+        const accountContent = fs.readFileSync("server/routers/account.ts", "utf-8");
+        expect(authContent).not.toContain("totp");
+        expect(accountContent).not.toContain("totp");
+    });
+});

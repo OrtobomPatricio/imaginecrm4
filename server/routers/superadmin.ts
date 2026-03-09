@@ -1436,7 +1436,7 @@ export const superadminRouter = router({
                         email: input.ownerEmail.trim().toLowerCase(),
                         role: "owner",
                         loginMethod: "credentials",
-                        isActive: true,
+                        isActive: false, // Pending setup — activated when owner sets password via resetToken
                         hasSeenTour: false,
                         passwordResetToken: resetToken,
                         passwordResetExpires: resetExpires,

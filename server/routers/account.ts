@@ -302,15 +302,19 @@ export const accountRouter = router({
             // Hash new password and clear token — scope to user's own tenant
             const hashedPassword = await bcrypt.hash(input.newPassword, 12);
 
+            // Activate account on first password set (owner created by superadmin has isActive:false)
+            const activateOnSetup = !user.password && !user.isActive;
+
             await db.update(users)
                 .set({
                     password: hashedPassword,
                     passwordResetToken: null,
                     passwordResetExpires: null,
+                    ...(activateOnSetup ? { isActive: true } : {}),
                 })
                 .where(and(eq(users.id, user.id), eq(users.tenantId, user.tenantId)));
 
-            logger.info({ userId: user.id, tenantId: user.tenantId }, "[Account] Password reset completed");
+            logger.info({ userId: user.id, tenantId: user.tenantId, activated: activateOnSetup }, "[Account] Password reset completed");
 
             return {
                 success: true,
