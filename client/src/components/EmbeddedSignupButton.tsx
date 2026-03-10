@@ -246,7 +246,10 @@ export function EmbeddedSignupButton({ onSuccess, onError, className, compact }:
             .then((completeRes) => completeRes.json().then((result) => ({ ok: completeRes.ok, result })))
             .then(({ ok, result }) => {
               if (!ok || !result.success) {
-                throw new Error(result.error || result.detail || "Error al completar el registro");
+                const msg = result.detail
+                  ? `${result.error}: ${result.detail}`
+                  : (result.error || "Error al completar el registro");
+                throw new Error(msg);
               }
 
               setStatus("success");

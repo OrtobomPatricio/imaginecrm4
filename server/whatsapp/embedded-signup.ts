@@ -498,11 +498,11 @@ export function registerEmbeddedSignupRoutes(app: Express) {
     } catch (err: any) {
       logger.error({ err: safeError(err) }, "[EmbeddedSignup] Complete failed");
 
-      // Provide user-readable error
-      const metaMsg = err?.message || "";
+      // Provide user-readable error — always include detail for debugging
+      const metaMsg = err?.message || "Error desconocido";
       return res.status(500).json({
         error: "Error al completar la conexión de WhatsApp",
-        detail: metaMsg.includes("Graph API") ? metaMsg : undefined,
+        detail: metaMsg,
       });
     }
   });
