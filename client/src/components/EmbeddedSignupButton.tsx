@@ -213,9 +213,14 @@ export function EmbeddedSignupButton({ onSuccess, onError, className, compact }:
 
       FB.login(
         (response: any) => {
-          if (response.status !== "connected" || !response.authResponse?.accessToken) {
+          // Embedded Signup can return either a code or accessToken
+          const authResponse = response.authResponse;
+          const hasCode = authResponse?.code;
+          const hasToken = authResponse?.accessToken;
+
+          if (response.status !== "connected" || (!hasCode && !hasToken)) {
             // User cancelled or error
-            if (response.status === "not_authorized" || !response.authResponse) {
+            if (response.status === "not_authorized" || !authResponse) {
               setStatus("idle");
               toast.info("Conexión cancelada");
               return;
@@ -225,23 +230,25 @@ export function EmbeddedSignupButton({ onSuccess, onError, className, compact }:
             return;
           }
 
-          const accessToken = response.authResponse.accessToken;
-
           // 5. Try to extract waba_id and phone_number_id from the Embedded Signup extras
           // These are only available when using a config_id; otherwise the backend auto-discovers them
-          const extras = response.authResponse;
-          const waba_id = extras?.waba_id || extras?.wabaId || "";
-          const phone_number_id = extras?.phone_number_id || extras?.phoneNumberId || "";
+          const waba_id = authResponse?.waba_id || authResponse?.wabaId || "";
+          const phone_number_id = authResponse?.phone_number_id || authResponse?.phoneNumberId || "";
 
           // 6. Send to backend to complete the flow
-          // Backend will auto-discover WABA/phone if not provided
+          // Send both code and access_token — backend uses whichever is available
           setStatus("completing");
 
           fetch("/api/whatsapp/embedded-signup/complete", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
-            body: JSON.stringify({ access_token: accessToken, waba_id, phone_number_id }),
+            body: JSON.stringify({
+              code: hasCode || undefined,
+              access_token: hasToken || undefined,
+              waba_id,
+              phone_number_id,
+            }),
           })
             .then((completeRes) => completeRes.json().then((result) => ({ ok: completeRes.ok, result })))
             .then(({ ok, result }) => {
@@ -268,8 +275,9 @@ export function EmbeddedSignupButton({ onSuccess, onError, className, compact }:
         },
         {
           // Meta Embedded Signup specific options
-          // Use default token response (NOT code) to avoid redirect_uri mismatch issues
           config_id: configId || undefined,
+          response_type: "code",
+          override_default_response_type: true,
           scope: "whatsapp_business_management,whatsapp_business_messaging,business_management",
           extras: {
             setup: {},

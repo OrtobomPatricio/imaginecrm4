@@ -135,6 +135,24 @@ async function graphPost<T = any>(path: string, token: string, body?: Record<str
   return data as T;
 }
 
+/**
+ * POST to OAuth endpoints. Uses query-string params (NOT JSON body, NO Auth header).
+ * Meta’s /oauth/access_token for code exchange requires this format.
+ */
+async function oauthPost<T = any>(path: string, params: Record<string, string>): Promise<T> {
+  const url = new URL(`${GRAPH_BASE}/${GRAPH_VERSION}/${path}`);
+  for (const [k, v] of Object.entries(params)) {
+    url.searchParams.set(k, v);
+  }
+  const res = await fetch(url.toString(), { method: "POST" });
+  const data = await res.json() as any;
+  if (!res.ok) {
+    const msg = data?.error?.message || `Graph API error ${res.status}`;
+    throw new Error(msg);
+  }
+  return data as T;
+}
+
 // ── Routes ──
 
 export function registerEmbeddedSignupRoutes(app: Express) {
@@ -242,9 +260,9 @@ export function registerEmbeddedSignupRoutes(app: Express) {
         logger.info({ tenantId, wabaId: waba_id }, "[EmbeddedSignup] Using direct token from JS SDK");
         shortToken = directToken;
       } else if (code) {
-        // Code flow (legacy): exchange code → token
-        logger.info({ tenantId, wabaId: waba_id }, "[EmbeddedSignup] Exchanging code for token");
-        const tokenRes = await graphGet<{ access_token: string }>("oauth/access_token", "", {
+        // Code flow: exchange code → token via POST (Meta Embedded Signup docs require POST)
+        logger.info({ tenantId, wabaId: waba_id }, "[EmbeddedSignup] Exchanging code for token via POST");
+        const tokenRes = await oauthPost<{ access_token: string }>("oauth/access_token", {
           client_id: appId,
           client_secret: appSecret,
           code,
@@ -262,7 +280,7 @@ export function registerEmbeddedSignupRoutes(app: Express) {
       let longToken: string;
       let tokenExpiresAt: Date | null = null;
       try {
-        const longRes = await graphGet<{ access_token: string; expires_in?: number }>("oauth/access_token", "", {
+        const longRes = await oauthPost<{ access_token: string; expires_in?: number }>("oauth/access_token", {
           grant_type: "fb_exchange_token",
           client_id: appId,
           client_secret: appSecret,
