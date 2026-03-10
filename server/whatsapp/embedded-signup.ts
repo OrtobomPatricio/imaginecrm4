@@ -233,9 +233,12 @@ export function registerEmbeddedSignupRoutes(app: Express) {
       // ── Step 1: Exchange code → short-lived user token ──
       logger.info({ tenantId, wabaId: waba_id }, "[EmbeddedSignup] Exchanging code for token");
 
+      // For FB.login() JS SDK with response_type:"code", Meta requires an empty
+      // redirect_uri (no redirect was used — the popup handled the auth).
       const tokenRes = await graphGet<{ access_token: string }>("oauth/access_token", "", {
         client_id: appId,
         client_secret: appSecret,
+        redirect_uri: "",
         code,
       });
 
