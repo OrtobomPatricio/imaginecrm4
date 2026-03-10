@@ -81,8 +81,8 @@ const GRAPH_ID_RE = /^\d{1,30}$/;
 
 const completeSignupSchema = z.object({
   code: z.string().min(1, "Se requiere el código de autorización").max(512),
-  waba_id: z.string().min(1, "Se requiere el WABA ID").regex(GRAPH_ID_RE, "WABA ID debe contener solo dígitos"),
-  phone_number_id: z.string().min(1, "Se requiere el Phone Number ID").regex(GRAPH_ID_RE, "Phone Number ID debe contener solo dígitos"),
+  waba_id: z.string().max(30).optional().default(""),
+  phone_number_id: z.string().max(30).optional().default(""),
 });
 
 const disconnectSchema = z.object({
@@ -204,7 +204,7 @@ export function registerEmbeddedSignupRoutes(app: Express) {
         });
       }
 
-      const { code, waba_id, phone_number_id } = parseResult.data;
+      let { code, waba_id, phone_number_id } = parseResult.data;
       const tenantId = auth.tenantId;
       const userId = auth.userId;
 
@@ -265,6 +265,88 @@ export function registerEmbeddedSignupRoutes(app: Express) {
       } catch (err) {
         logger.warn({ err: safeError(err) }, "[EmbeddedSignup] Long-lived token exchange failed, using short token");
         longToken = shortToken;
+      }
+
+      // ── Step 2.5: Auto-discover WABA and phone number if not provided ──
+      if (!waba_id || !GRAPH_ID_RE.test(waba_id) || !phone_number_id || !GRAPH_ID_RE.test(phone_number_id)) {
+        logger.info({ tenantId }, "[EmbeddedSignup] WABA/phone not in response, auto-discovering via Graph API");
+        try {
+          // Get shared WABAs the user granted access to
+          const sharedWabas = await graphGet<{ data: Array<{ id: string; name?: string }> }>(
+            "me/businesses", longToken, { fields: "id,name" }
+          );
+
+          let discoveredWabaId = "";
+          let discoveredPhoneId = "";
+
+          // Try the direct approach: get WABAs from the user's token
+          const wabaResponse = await graphGet<{ data: Array<{ id: string; name?: string }> }>(
+            "debug_token", "", {
+              input_token: longToken,
+              access_token: `${appId}|${appSecret}`,
+            }
+          ).catch(() => null);
+
+          // Approach: iterate businesses to find WABAs
+          if (sharedWabas.data?.length) {
+            for (const biz of sharedWabas.data) {
+              try {
+                const ownedWabas = await graphGet<{ data: Array<{ id: string }> }>(
+                  `${biz.id}/owned_whatsapp_business_accounts`, longToken
+                );
+                if (ownedWabas.data?.[0]?.id) {
+                  discoveredWabaId = ownedWabas.data[0].id;
+                  break;
+                }
+              } catch { /* try next business */ }
+            }
+          }
+
+          // If no WABA found via businesses, try direct WABA listing
+          if (!discoveredWabaId) {
+            try {
+              const directWabas = await graphGet<{ data: Array<{ id: string }> }>(
+                "me/whatsapp_business_accounts", longToken
+              );
+              if (directWabas.data?.[0]?.id) {
+                discoveredWabaId = directWabas.data[0].id;
+              }
+            } catch { /* fallback below */ }
+          }
+
+          if (!discoveredWabaId) {
+            return res.status(400).json({
+              error: "No se encontró ninguna cuenta de WhatsApp Business asociada. Asegúrate de tener una WABA y haber dado permisos.",
+            });
+          }
+
+          // Get phone numbers from the WABA
+          try {
+            const phones = await graphGet<{ data: Array<{ id: string; display_phone_number?: string; verified_name?: string }> }>(
+              `${discoveredWabaId}/phone_numbers`, longToken, { fields: "id,display_phone_number,verified_name" }
+            );
+            if (phones.data?.[0]?.id) {
+              discoveredPhoneId = phones.data[0].id;
+            }
+          } catch (err) {
+            logger.warn({ err: safeError(err) }, "[EmbeddedSignup] Failed to list phone numbers from WABA");
+          }
+
+          if (!discoveredPhoneId) {
+            return res.status(400).json({
+              error: "Se encontró la WABA pero no tiene números de teléfono registrados. Registra un número en el WhatsApp Manager de Meta.",
+            });
+          }
+
+          waba_id = discoveredWabaId;
+          phone_number_id = discoveredPhoneId;
+          logger.info({ tenantId, wabaId: waba_id, phoneNumberId: phone_number_id }, "[EmbeddedSignup] Auto-discovered WABA and phone");
+        } catch (err) {
+          logger.error({ err: safeError(err) }, "[EmbeddedSignup] Auto-discovery failed");
+          return res.status(400).json({
+            error: "No se pudieron descubrir los datos de WhatsApp Business automáticamente. Intenta de nuevo.",
+          });
+        }
       }
 
       // ── Step 3: Subscribe WABA to webhooks ──

@@ -227,29 +227,14 @@ export function EmbeddedSignupButton({ onSuccess, onError, className, compact }:
 
           const code = response.authResponse.code;
 
-          // 5. We need waba_id and phone_number_id from the Embedded Signup extras
-          // Meta embeds these in the response.authResponse when using config_id with extras
-          // If not available in authResponse, we'll get them from the backend
-          // The Embedded Signup JS SDK puts them as extras in the callback
+          // 5. Try to extract waba_id and phone_number_id from the Embedded Signup extras
+          // These are only available when using a config_id; otherwise the backend auto-discovers them
           const extras = response.authResponse;
-
-          // Try to extract from response
           const waba_id = extras?.waba_id || extras?.wabaId || "";
           const phone_number_id = extras?.phone_number_id || extras?.phoneNumberId || "";
 
-          // For Embedded Signup, these are passed via the response callback
-          // If missing, it may be a regular OAuth — handle gracefully
-          if (!waba_id || !phone_number_id) {
-            setStatus("error");
-            setErrorMsg(
-              "No se recibieron los datos de WhatsApp Business. " +
-              "Asegúrate de completar todos los pasos del flujo de Meta (seleccionar/crear WABA y registrar número)."
-            );
-            onError?.("Missing waba_id or phone_number_id from Embedded Signup response");
-            return;
-          }
-
-          // 6. Send to backend to complete the flow (non-async wrapper for FB.login)
+          // 6. Send to backend to complete the flow
+          // Backend will auto-discover WABA/phone if not provided
           setStatus("completing");
 
           fetch("/api/whatsapp/embedded-signup/complete", {
