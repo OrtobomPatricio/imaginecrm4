@@ -285,11 +285,8 @@ export function EmbeddedSignupButton({ onSuccess, onError, className, compact }:
           override_default_response_type: true,
           scope: "whatsapp_business_management,whatsapp_business_messaging,business_management",
           extras: {
-            setup: {
-              // Enable coexistence mode for users with existing WA Business App
-              // solutionID is optional — only needed if you want to pre-select a solution
-            },
-            featureType: "",
+            setup: {},
+            featureType: "phone_number_sharing",
             sessionInfoVersion: "3",
           },
         }
