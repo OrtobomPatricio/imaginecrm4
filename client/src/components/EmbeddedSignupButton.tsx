@@ -213,7 +213,7 @@ export function EmbeddedSignupButton({ onSuccess, onError, className, compact }:
 
       FB.login(
         (response: any) => {
-          if (response.status !== "connected" || !response.authResponse?.code) {
+          if (response.status !== "connected" || !response.authResponse?.accessToken) {
             // User cancelled or error
             if (response.status === "not_authorized" || !response.authResponse) {
               setStatus("idle");
@@ -225,7 +225,7 @@ export function EmbeddedSignupButton({ onSuccess, onError, className, compact }:
             return;
           }
 
-          const code = response.authResponse.code;
+          const accessToken = response.authResponse.accessToken;
 
           // 5. Try to extract waba_id and phone_number_id from the Embedded Signup extras
           // These are only available when using a config_id; otherwise the backend auto-discovers them
@@ -241,7 +241,7 @@ export function EmbeddedSignupButton({ onSuccess, onError, className, compact }:
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
-            body: JSON.stringify({ code, waba_id, phone_number_id }),
+            body: JSON.stringify({ access_token: accessToken, waba_id, phone_number_id }),
           })
             .then((completeRes) => completeRes.json().then((result) => ({ ok: completeRes.ok, result })))
             .then(({ ok, result }) => {
@@ -268,9 +268,8 @@ export function EmbeddedSignupButton({ onSuccess, onError, className, compact }:
         },
         {
           // Meta Embedded Signup specific options
+          // Use default token response (NOT code) to avoid redirect_uri mismatch issues
           config_id: configId || undefined,
-          response_type: "code",
-          override_default_response_type: true,
           scope: "whatsapp_business_management,whatsapp_business_messaging,business_management",
           extras: {
             setup: {},

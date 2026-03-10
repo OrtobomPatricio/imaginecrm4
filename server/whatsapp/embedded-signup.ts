@@ -80,9 +80,13 @@ async function requireAdminAuth(req: Request, res: Response): Promise<{ userId: 
 const GRAPH_ID_RE = /^\d{1,30}$/;
 
 const completeSignupSchema = z.object({
-  code: z.string().min(1, "Se requiere el código de autorización").max(512),
+  // Accept either access_token (token flow) or code (code flow, legacy)
+  access_token: z.string().min(1).max(1024).optional(),
+  code: z.string().min(1).max(512).optional(),
   waba_id: z.string().max(30).optional().default(""),
   phone_number_id: z.string().max(30).optional().default(""),
+}).refine((data) => data.access_token || data.code, {
+  message: "Se requiere access_token o code",
 });
 
 const disconnectSchema = z.object({
@@ -204,7 +208,7 @@ export function registerEmbeddedSignupRoutes(app: Express) {
         });
       }
 
-      let { code, waba_id, phone_number_id } = parseResult.data;
+      let { access_token: directToken, code, waba_id, phone_number_id } = parseResult.data;
       const tenantId = auth.tenantId;
       const userId = auth.userId;
 
@@ -230,19 +234,26 @@ export function registerEmbeddedSignupRoutes(app: Express) {
         });
       }
 
-      // ── Step 1: Exchange code → short-lived user token ──
-      logger.info({ tenantId, wabaId: waba_id }, "[EmbeddedSignup] Exchanging code for token");
+      // ── Step 1: Get short-lived user token ──
+      let shortToken: string;
 
-      // For WhatsApp Embedded Signup via FB.login() JS SDK with response_type:"code",
-      // Meta's docs specify NO redirect_uri in the token exchange request.
-      // See: https://developers.facebook.com/docs/whatsapp/embedded-signup
-      const tokenRes = await graphGet<{ access_token: string }>("oauth/access_token", "", {
-        client_id: appId,
-        client_secret: appSecret,
-        code,
-      });
+      if (directToken) {
+        // Token flow: frontend already has the access token from FB.login()
+        logger.info({ tenantId, wabaId: waba_id }, "[EmbeddedSignup] Using direct token from JS SDK");
+        shortToken = directToken;
+      } else if (code) {
+        // Code flow (legacy): exchange code → token
+        logger.info({ tenantId, wabaId: waba_id }, "[EmbeddedSignup] Exchanging code for token");
+        const tokenRes = await graphGet<{ access_token: string }>("oauth/access_token", "", {
+          client_id: appId,
+          client_secret: appSecret,
+          code,
+        });
+        shortToken = tokenRes.access_token;
+      } else {
+        return res.status(400).json({ error: "Se requiere access_token o code." });
+      }
 
-      const shortToken = tokenRes.access_token;
       if (!shortToken) {
         return res.status(400).json({ error: "No se pudo obtener el token de Meta. Reintenta el flujo." });
       }
