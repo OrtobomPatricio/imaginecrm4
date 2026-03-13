@@ -30,21 +30,21 @@ async function ensureCampaignSchema(): Promise<boolean> {
     if (!db) return false;
 
     try {
-        const [campaignsExists] = await db.execute(sql`
+        const [campRows] = await db.execute(sql`
             SELECT 1 AS ok
             FROM information_schema.tables
             WHERE table_schema = DATABASE() AND table_name = 'campaigns'
             LIMIT 1
         `) as any;
 
-        const [recipientsExists] = await db.execute(sql`
+        const [recipRows] = await db.execute(sql`
             SELECT 1 AS ok
             FROM information_schema.tables
             WHERE table_schema = DATABASE() AND table_name = 'campaign_recipients'
             LIMIT 1
         `) as any;
 
-        schemaReady = Boolean(campaignsExists?.ok || campaignsExists?.["ok"]) && Boolean(recipientsExists?.ok || recipientsExists?.["ok"]);
+        schemaReady = (Array.isArray(campRows) ? campRows.length > 0 : Boolean(campRows)) && (Array.isArray(recipRows) ? recipRows.length > 0 : Boolean(recipRows));
 
         if (!schemaReady) {
             logger.warn("[CampaignWorker] Disabled: required tables (campaigns/campaign_recipients) are missing in this database.");

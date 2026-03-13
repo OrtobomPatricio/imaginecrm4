@@ -47,21 +47,21 @@ export async function startWhatsAppSessions() {
     }
 
     try {
-        const [connectionsExists] = await db.execute(sql`
+        const [connRows] = await db.execute(sql`
             SELECT 1 AS ok
             FROM information_schema.tables
             WHERE table_schema = DATABASE() AND table_name = 'whatsapp_connections'
             LIMIT 1
         `) as any;
 
-        const [numbersExists] = await db.execute(sql`
+        const [numRows] = await db.execute(sql`
             SELECT 1 AS ok
             FROM information_schema.tables
             WHERE table_schema = DATABASE() AND table_name = 'whatsapp_numbers'
             LIMIT 1
         `) as any;
 
-        const hasSchema = Boolean(connectionsExists?.ok || connectionsExists?.["ok"]) && Boolean(numbersExists?.ok || numbersExists?.["ok"]);
+        const hasSchema = (Array.isArray(connRows) ? connRows.length > 0 : Boolean(connRows)) && (Array.isArray(numRows) ? numRows.length > 0 : Boolean(numRows));
         if (!hasSchema) {
             logger.warn("[WhatsAppSession] Disabled: required tables (whatsapp_connections/whatsapp_numbers) are missing in this database.");
             return;

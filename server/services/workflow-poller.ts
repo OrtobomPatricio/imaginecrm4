@@ -29,21 +29,21 @@ async function ensureWorkflowSchema(): Promise<boolean> {
     if (!db) return false;
 
     try {
-        const [workflowJobsExists] = await db.execute(sql`
+        const [jobRows] = await db.execute(sql`
             SELECT 1 AS ok
             FROM information_schema.tables
             WHERE table_schema = DATABASE() AND table_name = 'workflow_jobs'
             LIMIT 1
         `) as any;
 
-        const [workflowsExists] = await db.execute(sql`
+        const [wfRows] = await db.execute(sql`
             SELECT 1 AS ok
             FROM information_schema.tables
             WHERE table_schema = DATABASE() AND table_name = 'workflows'
             LIMIT 1
         `) as any;
 
-        schemaReady = Boolean(workflowJobsExists?.ok || workflowJobsExists?.["ok"]) && Boolean(workflowsExists?.ok || workflowsExists?.["ok"]);
+        schemaReady = (Array.isArray(jobRows) ? jobRows.length > 0 : Boolean(jobRows)) && (Array.isArray(wfRows) ? wfRows.length > 0 : Boolean(wfRows));
 
         if (!schemaReady) {
             logger.warn("[WorkflowPoller] Disabled: required tables (workflow_jobs/workflows) are missing in this database.");
