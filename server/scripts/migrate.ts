@@ -935,6 +935,40 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
         logger.warn("[Migration] Created missing superadmin_alerts table");
     }
 
+    if (!(await hasTable("app_settings"))) {
+        await connection.query(`
+            CREATE TABLE app_settings (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              tenantId INT NOT NULL DEFAULT 1,
+              singleton INT NOT NULL DEFAULT 1,
+              companyName VARCHAR(120) NOT NULL DEFAULT 'Imagine Lab CRM',
+              logoUrl VARCHAR(500) NULL,
+              timezone VARCHAR(60) NOT NULL DEFAULT 'America/Asuncion',
+              language VARCHAR(10) NOT NULL DEFAULT 'es',
+              currency VARCHAR(10) NOT NULL DEFAULT 'PYG',
+              permissionsMatrix JSON NULL,
+              scheduling JSON NULL,
+              dashboardConfig JSON NULL,
+              salesConfig JSON NULL,
+              smtpConfig JSON NULL,
+              storageConfig JSON NULL,
+              aiConfig JSON NULL,
+              autoReplyConfig JSON NULL,
+              mapsConfig JSON NULL,
+              slaConfig JSON NULL,
+              securityConfig JSON NULL,
+              metaConfig JSON NULL,
+              chatDistributionConfig JSON NULL,
+              lastAssignedAgentId INT NULL,
+              maintenanceMode JSON NULL,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              UNIQUE KEY uniq_app_settings_singleton (tenantId, singleton)
+            )
+        `);
+        logger.warn("[Migration] Created missing app_settings table");
+    }
+
     await ensureColumn("app_settings", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "app_settings.tenantId column");
 
     // Unique constraint on (tenantId, email) for users — prevents duplicate emails within a tenant
