@@ -117,6 +117,8 @@ export function EmbeddedSignupButton({ onSuccess, onError, className, compact }:
   const [errorMsg, setErrorMsg] = useState("");
   const [resultData, setResultData] = useState<SignupResult | null>(null);
   const sessionTokenRef = useRef<string>("");
+  // Store waba_id and phone_number_id from the Meta message event (sessionInfoVersion 3)
+  const embeddedDataRef = useRef<{ waba_id: string; phone_number_id: string }>({ waba_id: "", phone_number_id: "" });
 
   // Listen for postMessage from Meta's Embedded Signup popup
   useEffect(() => {
@@ -146,9 +148,12 @@ export function EmbeddedSignupButton({ onSuccess, onError, className, compact }:
       // Handle different message formats from Meta SDK
       if (payload.type === "WA_EMBEDDED_SIGNUP") {
         if (payload.event === "FINISH" || payload.event === "FINISH_ONLY_WABA") {
-          // Success — data.phone_number_id and data.waba_id are available
-          // But we rely on the FB.login callback for the code
-          // This is mainly for UX feedback
+          // Save waba_id and phone_number_id from the message event.
+          // With sessionInfoVersion "3", these come here (NOT in FB.login authResponse).
+          const data = payload.data || {};
+          if (data.waba_id) embeddedDataRef.current.waba_id = String(data.waba_id);
+          if (data.phone_number_id) embeddedDataRef.current.phone_number_id = String(data.phone_number_id);
+          console.log("[EmbeddedSignup] message event data:", data);
           return;
         }
 
@@ -175,6 +180,7 @@ export function EmbeddedSignupButton({ onSuccess, onError, className, compact }:
     setStatus("loading-sdk");
     setErrorMsg("");
     setResultData(null);
+    embeddedDataRef.current = { waba_id: "", phone_number_id: "" };
 
     try {
       // 1. Fetch config from our backend
@@ -230,10 +236,12 @@ export function EmbeddedSignupButton({ onSuccess, onError, className, compact }:
             return;
           }
 
-          // 5. Try to extract waba_id and phone_number_id from the Embedded Signup extras
-          // These are only available when using a config_id; otherwise the backend auto-discovers them
-          const waba_id = authResponse?.waba_id || authResponse?.wabaId || "";
-          const phone_number_id = authResponse?.phone_number_id || authResponse?.phoneNumberId || "";
+          // 5. Get waba_id and phone_number_id.
+          // With sessionInfoVersion "3", these arrive via the message event (stored in embeddedDataRef),
+          // NOT in the FB.login authResponse. Fall back to authResponse for older flows.
+          const waba_id = embeddedDataRef.current.waba_id || authResponse?.waba_id || authResponse?.wabaId || "";
+          const phone_number_id = embeddedDataRef.current.phone_number_id || authResponse?.phone_number_id || authResponse?.phoneNumberId || "";
+          console.log("[EmbeddedSignup] FB.login callback - waba_id:", waba_id, "phone_number_id:", phone_number_id);
 
           // 6. Send to backend to complete the flow
           // Send both code and access_token — backend uses whichever is available

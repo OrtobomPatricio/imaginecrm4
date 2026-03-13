@@ -301,40 +301,63 @@ export function registerEmbeddedSignupRoutes(app: Express) {
 
       // ── Step 2.5: Auto-discover WABA and phone number if not provided ──
       if (!waba_id || !GRAPH_ID_RE.test(waba_id) || !phone_number_id || !GRAPH_ID_RE.test(phone_number_id)) {
-        logger.info({ tenantId }, "[EmbeddedSignup] WABA/phone not in response, auto-discovering via Graph API");
+        logger.info({ tenantId, waba_id, phone_number_id }, "[EmbeddedSignup] WABA/phone not in response, auto-discovering via Graph API");
         try {
-          // Get shared WABAs the user granted access to
-          const sharedWabas = await graphGet<{ data: Array<{ id: string; name?: string }> }>(
-            "me/businesses", longToken, { fields: "id,name" }
-          );
-
           let discoveredWabaId = "";
           let discoveredPhoneId = "";
 
-          // Try the direct approach: get WABAs from the user's token
-          const wabaResponse = await graphGet<{ data: Array<{ id: string; name?: string }> }>(
-            "debug_token", "", {
+          // Primary: use debug_token to find WABA IDs from the granted scopes
+          // Meta Embedded Signup tokens include granular_scopes with the target WABA IDs
+          try {
+            const debugRes = await graphGet<{
+              data: {
+                granular_scopes?: Array<{ scope: string; target_ids?: string[] }>;
+              };
+            }>("debug_token", "", {
               input_token: longToken,
               access_token: `${appId}|${appSecret}`,
-            }
-          ).catch(() => null);
+            });
 
-          // Approach: iterate businesses to find WABAs
-          if (sharedWabas.data?.length) {
-            for (const biz of sharedWabas.data) {
-              try {
-                const ownedWabas = await graphGet<{ data: Array<{ id: string }> }>(
-                  `${biz.id}/owned_whatsapp_business_accounts`, longToken
-                );
-                if (ownedWabas.data?.[0]?.id) {
-                  discoveredWabaId = ownedWabas.data[0].id;
-                  break;
-                }
-              } catch { /* try next business */ }
+            const scopes = debugRes.data?.granular_scopes || [];
+            for (const scope of scopes) {
+              if (
+                (scope.scope === "whatsapp_business_management" || scope.scope === "whatsapp_business_messaging") &&
+                scope.target_ids?.length
+              ) {
+                discoveredWabaId = scope.target_ids[0];
+                break;
+              }
             }
+            if (discoveredWabaId) {
+              logger.info({ discoveredWabaId }, "[EmbeddedSignup] Found WABA via debug_token granular_scopes");
+            }
+          } catch (err) {
+            logger.warn({ err: safeError(err) }, "[EmbeddedSignup] debug_token lookup failed");
           }
 
-          // If no WABA found via businesses, try direct WABA listing
+          // Fallback: iterate businesses → owned_whatsapp_business_accounts
+          if (!discoveredWabaId) {
+            try {
+              const sharedWabas = await graphGet<{ data: Array<{ id: string; name?: string }> }>(
+                "me/businesses", longToken, { fields: "id,name" }
+              );
+              if (sharedWabas.data?.length) {
+                for (const biz of sharedWabas.data) {
+                  try {
+                    const ownedWabas = await graphGet<{ data: Array<{ id: string }> }>(
+                      `${biz.id}/owned_whatsapp_business_accounts`, longToken
+                    );
+                    if (ownedWabas.data?.[0]?.id) {
+                      discoveredWabaId = ownedWabas.data[0].id;
+                      break;
+                    }
+                  } catch { /* try next business */ }
+                }
+              }
+            } catch { /* try next fallback */ }
+          }
+
+          // Fallback: direct WABA listing
           if (!discoveredWabaId) {
             try {
               const directWabas = await graphGet<{ data: Array<{ id: string }> }>(
@@ -348,25 +371,27 @@ export function registerEmbeddedSignupRoutes(app: Express) {
 
           if (!discoveredWabaId) {
             return res.status(400).json({
-              error: "No se encontró ninguna cuenta de WhatsApp Business asociada. Asegúrate de tener una WABA y haber dado permisos.",
+              error: "No se encontró ninguna cuenta de WhatsApp Business asociada. Asegúrate de haber dado permisos en el flujo de Meta.",
             });
           }
 
           // Get phone numbers from the WABA
-          try {
-            const phones = await graphGet<{ data: Array<{ id: string; display_phone_number?: string; verified_name?: string }> }>(
-              `${discoveredWabaId}/phone_numbers`, longToken, { fields: "id,display_phone_number,verified_name" }
-            );
-            if (phones.data?.[0]?.id) {
-              discoveredPhoneId = phones.data[0].id;
+          if (!discoveredPhoneId) {
+            try {
+              const phones = await graphGet<{ data: Array<{ id: string; display_phone_number?: string; verified_name?: string }> }>(
+                `${discoveredWabaId}/phone_numbers`, longToken, { fields: "id,display_phone_number,verified_name" }
+              );
+              if (phones.data?.[0]?.id) {
+                discoveredPhoneId = phones.data[0].id;
+              }
+            } catch (err) {
+              logger.warn({ err: safeError(err) }, "[EmbeddedSignup] Failed to list phone numbers from WABA");
             }
-          } catch (err) {
-            logger.warn({ err: safeError(err) }, "[EmbeddedSignup] Failed to list phone numbers from WABA");
           }
 
           if (!discoveredPhoneId) {
             return res.status(400).json({
-              error: "Se encontró la WABA pero no tiene números de teléfono registrados. Registra un número en el WhatsApp Manager de Meta.",
+              error: "Se encontró la WABA pero no tiene números de teléfono registrados. Completa el registro del número en el flujo de Meta.",
             });
           }
 
