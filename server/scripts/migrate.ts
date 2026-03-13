@@ -154,8 +154,17 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
         }
 
         if (!(await hasColumn(table, column))) {
-            await connection.query(`ALTER TABLE \`${table}\` ADD COLUMN ${columnDefinition}`);
-            logger.warn(`[Migration] Patched ${logLabel}`);
+            try {
+                await connection.query(`ALTER TABLE \`${table}\` ADD COLUMN ${columnDefinition}`);
+                logger.warn(`[Migration] Patched ${logLabel}`);
+            } catch (err: any) {
+                // ER_DUP_FIELDNAME (1060) — another migration instance already added the column (race condition)
+                if (err?.errno === 1060) {
+                    logger.info(`[Migration] Column ${table}.${column} already exists (concurrent migration)`);
+                } else {
+                    throw err;
+                }
+            }
         }
     };
 
@@ -249,6 +258,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
     await ensureColumn("whatsapp_connections", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "whatsapp_connections.tenantId column");
     await ensureColumn("whatsapp_connections", "wabaId", "`wabaId` VARCHAR(50) NULL", "whatsapp_connections.wabaId column");
     await ensureColumn("whatsapp_connections", "setupSource", "`setupSource` VARCHAR(30) NULL DEFAULT 'manual'", "whatsapp_connections.setupSource column");
+    await ensureColumn("whatsapp_connections", "tokenExpiresAt", "`tokenExpiresAt` TIMESTAMP NULL", "whatsapp_connections.tokenExpiresAt column");
     await ensureColumn("facebook_pages", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "facebook_pages.tenantId column");
     await ensureColumn("access_logs", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "access_logs.tenantId column");
     await ensureColumn("smtp_connections", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "smtp_connections.tenantId column");
@@ -429,6 +439,9 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
               accessToken TEXT NULL,
               phoneNumberId VARCHAR(50) NULL,
               businessAccountId VARCHAR(50) NULL,
+              wabaId VARCHAR(50) NULL,
+              setupSource VARCHAR(30) NULL DEFAULT 'manual',
+              tokenExpiresAt TIMESTAMP NULL,
               qrCode TEXT NULL,
               qrExpiresAt TIMESTAMP NULL,
               sessionData TEXT NULL,
