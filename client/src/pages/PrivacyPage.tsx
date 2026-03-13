@@ -138,7 +138,7 @@ export default function PrivacyPage() {
                     <section>
                         <h2>1. Introducción y Controlador</h2>
                         <p>
-                            En <strong>CRM PRO V4</strong> (operado por Imagine Lab), nos tomamos muy en serio la privacidad de sus datos.
+                            En <strong>Imagine CRM</strong> (operado por Imaginelab, Paraguay), nos tomamos muy en serio la privacidad de sus datos.
                             Actuamos como "Controlador de Datos" para su información de cuenta y como "Encargado del Tratamiento"
                             para los datos de sus clientes.
                         </p>
@@ -150,7 +150,7 @@ export default function PrivacyPage() {
                             <thead>
                                 <tr className="border-b border-slate-200 dark:border-slate-800">
                                     <th className="text-left py-2">Categoría</th>
-                                    <th className="text-left py-2">Ejempos</th>
+                                    <th className="text-left py-2">Ejemplos</th>
                                     <th className="text-left py-2">Base Legal</th>
                                 </tr>
                             </thead>
@@ -177,8 +177,8 @@ export default function PrivacyPage() {
                     <section>
                         <h2>3. Transferencias Internacionales</h2>
                         <p>
-                            Sus datos se almacenan principalmente en servidores dentro de la Unión Europea.
-                            Sin embargo, al utilizar integraciones como Meta (WhatsApp) o PayPal, algunos datos
+                            Sus datos se almacenan en servidores seguros gestionados por nuestro proveedor de hosting.
+                            Al utilizar integraciones como Meta (WhatsApp) o PayPal, algunos datos
                             pueden procesarse en los EE.UU. bajo Cláusulas Contractuales Estándar (SCC).
                         </p>
                     </section>
@@ -198,7 +198,7 @@ export default function PrivacyPage() {
                                     <RefreshCw className="w-4 h-4 text-green-500" />
                                     Rectificación
                                 </h4>
-                                <p className="text-xs text-slate-500">Corrija cualquier dacto inexacto o incompleto a través de su panel de configuración.</p>
+                                <p className="text-xs text-slate-500">Corrija cualquier dato inexacto o incompleto a través de su panel de configuración.</p>
                             </div>
                             <div className="p-4 border border-slate-200 dark:border-slate-800 rounded-lg">
                                 <h4 className="font-bold mb-2 flex items-center gap-2">
@@ -222,11 +222,11 @@ export default function PrivacyPage() {
                         <div className="bg-slate-900 text-white p-6 rounded-xl my-8">
                             <h4 className="text-blue-400 mt-0 flex items-center gap-2">
                                 <Lock className="w-5 h-5" />
-                                Estándar Bancario de Seguridad
+                                Medidas de Seguridad
                             </h4>
                             <p className="text-sm mb-0">
-                                Utilizamos encriptación de extremo a extremo, hash de contraseñas con Argon2/Bcrypt,
-                                aislamiento de tenants a nivel de base de datos y auditorías de seguridad semanales
+                                Utilizamos conexiones HTTPS cifradas, hash de contraseñas con Argon2/Bcrypt,
+                                aislamiento de tenants a nivel de base de datos y revisiones de seguridad periódicas
                                 para garantizar que su información esté a salvo.
                             </p>
                         </div>
@@ -243,8 +243,8 @@ export default function PrivacyPage() {
                     <section className="mt-12 pt-8 border-t border-slate-200 dark:border-slate-800">
                         <h3>Contacto y Delegado de Protección (DPO)</h3>
                         <p>
-                            Para cualquier solicitud relacionada con la privacidad, puede contactar a nuestro DPO en
-                            <strong> privacy@crmpro.com</strong>.
+                            Para cualquier solicitud relacionada con la privacidad, puede contactarnos en
+                            <strong> automatiza@imaginelab.agency</strong>.
                         </p>
                     </section>
                 </main>
@@ -258,7 +258,7 @@ export default function PrivacyPage() {
                     <DialogHeader>
                         <DialogTitle className="text-red-600 flex items-center gap-2">
                             <Trash2 className="w-5 h-5" />
-                            ¿Solicitar Eliminacion de Cuenta?
+                            ¿Solicitar Eliminación de Cuenta?
                         </DialogTitle>
                         <DialogDescription>
                             Esta acción marcará su cuenta para eliminación permanente en 30 días.

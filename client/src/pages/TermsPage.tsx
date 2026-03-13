@@ -104,7 +104,7 @@ export default function TermsPage({ onAccept }: { onAccept?: () => void }) {
                     <section id="aceptacion">
                         <h2>1. Aceptación de Términos</h2>
                         <p>
-                            Al acceder o utilizar CRM PRO V4 ("el Servicio"), usted acepta estar sujeto a estos
+                            Al acceder o utilizar Imagine CRM ("el Servicio"), usted acepta estar sujeto a estos
                             Términos de Servicio ("Términos"). Si no está de acuerdo con alguna parte de estos
                             términos, no podrá acceder al Servicio.
                         </p>
@@ -117,7 +117,7 @@ export default function TermsPage({ onAccept }: { onAccept?: () => void }) {
                     <section id="descripcion">
                         <h2>2. Descripción del Servicio</h2>
                         <p>
-                            CRM PRO V4 es una plataforma SaaS (Software como Servicio) de gestión de relaciones
+                            Imagine CRM es una plataforma SaaS (Software como Servicio) de gestión de relaciones
                             con clientes que incluye:
                         </p>
                         <ul>
@@ -172,7 +172,7 @@ export default function TermsPage({ onAccept }: { onAccept?: () => void }) {
                     <section id="propiedad">
                         <h2>6. Propiedad Intelectual</h2>
                         <ul>
-                            <li>CRM PRO V4, su código fuente, diseño, marcas y documentación son propiedad exclusiva del proveedor.</li>
+                            <li>Imagine CRM, su código fuente, diseño, marcas y documentación son propiedad exclusiva del proveedor.</li>
                             <li>Usted retiene todos los derechos sobre los datos y contenidos que ingrese al Servicio.</li>
                             <li>Nos otorga una licencia limitada, no exclusiva y revocable para procesar sus datos únicamente con el fin de proveer el Servicio.</li>
                             <li>No adquiere ningún derecho de propiedad sobre el software por el uso del Servicio.</li>
@@ -204,8 +204,8 @@ export default function TermsPage({ onAccept }: { onAccept?: () => void }) {
                         <h2>9. Ley Aplicable</h2>
                         <p>
                             Estos Términos se regirán e interpretarán de acuerdo con las leyes vigentes en la
-                            jurisdicción donde opera el proveedor del Servicio. Cualquier disputa será sometida
-                            a la jurisdicción exclusiva de los tribunales competentes de dicha jurisdicción.
+                            República del Paraguay. Cualquier disputa será sometida
+                            a la jurisdicción exclusiva de los tribunales competentes de Asunción, Paraguay.
                         </p>
                     </section>
 
@@ -225,8 +225,8 @@ export default function TermsPage({ onAccept }: { onAccept?: () => void }) {
                             Para consultas sobre estos Términos de Servicio, puede contactarnos en:
                         </p>
                         <ul>
-                            <li><strong>Email:</strong> legal@crmpro.com</li>
-                            <li><strong>Soporte:</strong> soporte@crmpro.com</li>
+                            <li><strong>Email:</strong> automatiza@imaginelab.agency</li>
+                            <li><strong>Soporte:</strong> automatiza@imaginelab.agency</li>
                         </ul>
                     </section>
 
