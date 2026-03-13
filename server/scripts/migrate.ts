@@ -172,7 +172,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("tenants"))) {
         await connection.query(`
-            CREATE TABLE tenants (
+            CREATE TABLE IF NOT EXISTS tenants (
               id INT AUTO_INCREMENT PRIMARY KEY,
               name VARCHAR(200) NOT NULL,
               slug VARCHAR(100) NOT NULL,
@@ -240,7 +240,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
     await ensureColumn("support_user_queues", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "support_user_queues.tenantId column");
     if (!(await hasTable("quick_answers"))) {
         await connection.query(`
-            CREATE TABLE quick_answers (
+            CREATE TABLE IF NOT EXISTS quick_answers (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL DEFAULT 1,
               shortcut TEXT NOT NULL,
@@ -268,7 +268,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("lead_reminders"))) {
         await connection.query(`
-            CREATE TABLE lead_reminders (
+            CREATE TABLE IF NOT EXISTS lead_reminders (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               leadId INT NOT NULL,
@@ -300,7 +300,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("terms_acceptance"))) {
         await connection.query(`
-            CREATE TABLE terms_acceptance (
+            CREATE TABLE IF NOT EXISTS terms_acceptance (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               userId INT NOT NULL,
@@ -316,7 +316,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("sessions"))) {
         await connection.query(`
-            CREATE TABLE sessions (
+            CREATE TABLE IF NOT EXISTS sessions (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               userId INT NOT NULL,
@@ -334,7 +334,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("onboarding_progress"))) {
         await connection.query(`
-            CREATE TABLE onboarding_progress (
+            CREATE TABLE IF NOT EXISTS onboarding_progress (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               companyCompleted BOOLEAN NOT NULL DEFAULT FALSE,
@@ -406,7 +406,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("whatsapp_numbers"))) {
         await connection.query(`
-            CREATE TABLE whatsapp_numbers (
+            CREATE TABLE IF NOT EXISTS whatsapp_numbers (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               phoneNumber VARCHAR(20) NOT NULL,
@@ -431,7 +431,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("whatsapp_connections"))) {
         await connection.query(`
-            CREATE TABLE whatsapp_connections (
+            CREATE TABLE IF NOT EXISTS whatsapp_connections (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               whatsappNumberId INT NOT NULL,
@@ -457,7 +457,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("templates"))) {
         await connection.query(`
-            CREATE TABLE templates (
+            CREATE TABLE IF NOT EXISTS templates (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               name VARCHAR(150) NOT NULL,
@@ -474,7 +474,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("campaigns"))) {
         await connection.query(`
-            CREATE TABLE campaigns (
+            CREATE TABLE IF NOT EXISTS campaigns (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               name VARCHAR(200) NOT NULL,
@@ -502,7 +502,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("campaign_recipients"))) {
         await connection.query(`
-            CREATE TABLE campaign_recipients (
+            CREATE TABLE IF NOT EXISTS campaign_recipients (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               campaignId INT NOT NULL,
@@ -524,7 +524,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("workflows"))) {
         await connection.query(`
-            CREATE TABLE workflows (
+            CREATE TABLE IF NOT EXISTS workflows (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               name VARCHAR(200) NOT NULL,
@@ -543,7 +543,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("workflow_jobs"))) {
         await connection.query(`
-            CREATE TABLE workflow_jobs (
+            CREATE TABLE IF NOT EXISTS workflow_jobs (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               workflowId INT NOT NULL,
@@ -566,7 +566,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("support_queues"))) {
         await connection.query(`
-            CREATE TABLE support_queues (
+            CREATE TABLE IF NOT EXISTS support_queues (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               name VARCHAR(100) NOT NULL,
@@ -582,7 +582,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("support_user_queues"))) {
         await connection.query(`
-            CREATE TABLE support_user_queues (
+            CREATE TABLE IF NOT EXISTS support_user_queues (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               userId INT NOT NULL,
@@ -596,7 +596,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("goals"))) {
         await connection.query(`
-            CREATE TABLE goals (
+            CREATE TABLE IF NOT EXISTS goals (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               userId INT NOT NULL,
@@ -615,7 +615,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("achievements"))) {
         await connection.query(`
-            CREATE TABLE achievements (
+            CREATE TABLE IF NOT EXISTS achievements (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               userId INT NOT NULL,
@@ -629,7 +629,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("internal_messages"))) {
         await connection.query(`
-            CREATE TABLE internal_messages (
+            CREATE TABLE IF NOT EXISTS internal_messages (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               senderId INT NOT NULL,
@@ -645,7 +645,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("tags"))) {
         await connection.query(`
-            CREATE TABLE tags (
+            CREATE TABLE IF NOT EXISTS tags (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               name VARCHAR(50) NOT NULL,
@@ -660,7 +660,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("lead_tags"))) {
         await connection.query(`
-            CREATE TABLE lead_tags (
+            CREATE TABLE IF NOT EXISTS lead_tags (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               leadId INT NOT NULL,
@@ -674,7 +674,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("conversation_tags"))) {
         await connection.query(`
-            CREATE TABLE conversation_tags (
+            CREATE TABLE IF NOT EXISTS conversation_tags (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               conversationId INT NOT NULL,
@@ -688,7 +688,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("lead_notes"))) {
         await connection.query(`
-            CREATE TABLE lead_notes (
+            CREATE TABLE IF NOT EXISTS lead_notes (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               leadId INT NOT NULL,
@@ -703,7 +703,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("lead_tasks"))) {
         await connection.query(`
-            CREATE TABLE lead_tasks (
+            CREATE TABLE IF NOT EXISTS lead_tasks (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               leadId INT NOT NULL,
@@ -724,7 +724,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("ai_suggestions"))) {
         await connection.query(`
-            CREATE TABLE ai_suggestions (
+            CREATE TABLE IF NOT EXISTS ai_suggestions (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               conversationId INT NOT NULL,
@@ -739,7 +739,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("chatbot_flows"))) {
         await connection.query(`
-            CREATE TABLE chatbot_flows (
+            CREATE TABLE IF NOT EXISTS chatbot_flows (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               name VARCHAR(100) NOT NULL,
@@ -757,7 +757,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("quotations"))) {
         await connection.query(`
-            CREATE TABLE quotations (
+            CREATE TABLE IF NOT EXISTS quotations (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               leadId INT NOT NULL,
@@ -787,7 +787,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("forms"))) {
         await connection.query(`
-            CREATE TABLE forms (
+            CREATE TABLE IF NOT EXISTS forms (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               name VARCHAR(100) NOT NULL,
@@ -808,7 +808,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("license"))) {
         await connection.query(`
-            CREATE TABLE license (
+            CREATE TABLE IF NOT EXISTS license (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               \`key\` VARCHAR(255) NOT NULL,
@@ -830,7 +830,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("usage_tracking"))) {
         await connection.query(`
-            CREATE TABLE usage_tracking (
+            CREATE TABLE IF NOT EXISTS usage_tracking (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               year INT NOT NULL,
@@ -849,7 +849,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("webhooks"))) {
         await connection.query(`
-            CREATE TABLE webhooks (
+            CREATE TABLE IF NOT EXISTS webhooks (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               name VARCHAR(100) NOT NULL,
@@ -866,7 +866,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("webhook_deliveries"))) {
         await connection.query(`
-            CREATE TABLE webhook_deliveries (
+            CREATE TABLE IF NOT EXISTS webhook_deliveries (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               webhookId INT NOT NULL,
@@ -883,7 +883,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("file_uploads"))) {
         await connection.query(`
-            CREATE TABLE file_uploads (
+            CREATE TABLE IF NOT EXISTS file_uploads (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               userId INT NULL,
@@ -902,7 +902,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("platform_announcements"))) {
         await connection.query(`
-            CREATE TABLE platform_announcements (
+            CREATE TABLE IF NOT EXISTS platform_announcements (
               id INT AUTO_INCREMENT PRIMARY KEY,
               title VARCHAR(255) NOT NULL,
               message TEXT NOT NULL,
@@ -918,7 +918,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("feature_flags"))) {
         await connection.query(`
-            CREATE TABLE feature_flags (
+            CREATE TABLE IF NOT EXISTS feature_flags (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL,
               flag VARCHAR(100) NOT NULL,
@@ -933,7 +933,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("superadmin_alerts"))) {
         await connection.query(`
-            CREATE TABLE superadmin_alerts (
+            CREATE TABLE IF NOT EXISTS superadmin_alerts (
               id INT AUTO_INCREMENT PRIMARY KEY,
               type ENUM('trial_expiring','quota_exceeded','new_tenant','error','churn_risk','security') NOT NULL,
               severity ENUM('info','warning','critical') NOT NULL DEFAULT 'warning',
@@ -950,7 +950,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
 
     if (!(await hasTable("app_settings"))) {
         await connection.query(`
-            CREATE TABLE app_settings (
+            CREATE TABLE IF NOT EXISTS app_settings (
               id INT AUTO_INCREMENT PRIMARY KEY,
               tenantId INT NOT NULL DEFAULT 1,
               singleton INT NOT NULL DEFAULT 1,
