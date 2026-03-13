@@ -97,7 +97,7 @@ function IntegrationsContent() {
                   <CardTitle>Conexiones de WhatsApp</CardTitle>
                   <CardDescription>Administra tus cuentas de WhatsApp Business conectadas.</CardDescription>
                 </div>
-                {isSuperAdmin && <AddWhatsAppDialog />}
+                {/* AddWhatsAppDialog hidden — Baileys/QR disabled */}
               </div>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -118,7 +118,7 @@ function IntegrationsContent() {
                   onError={(msg) => console.warn("[EmbeddedSignup] Error:", msg)}
                 />
               </div>
-              {isSuperAdmin && <WhatsAppConnectionsList />}
+              {/* WhatsAppConnectionsList hidden — Baileys/QR disabled */}
             </CardContent>
           </Card>
 
