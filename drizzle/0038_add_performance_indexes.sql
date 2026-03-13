@@ -1,7 +1,7 @@
 -- P2-1: Add missing performance indexes
 -- messageQueue: queue worker polling index
 CREATE INDEX IF NOT EXISTS `idx_mq_status_next_priority` ON `message_queue` (`status`, `nextAttemptAt`, `priority`);
-CREATE INDEX IF NOT EXISTS `idx_mq_tenant` ON `message_queue` (`tenantId`);
+-- NOTE: idx_mq_tenant removed — tenantId column is added by ensureCompatibilitySchema at runtime, not by SQL migrations
 
 -- campaignRecipients: campaign worker batch fetching
 CREATE INDEX IF NOT EXISTS `idx_cr_campaign_status` ON `campaign_recipients` (`campaignId`, `status`);

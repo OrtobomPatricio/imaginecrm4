@@ -34,40 +34,35 @@ export async function runMigrations() {
         logger.info("[Migration] Connecting to database...");
     }
 
-    const connection = await mysql.createConnection({
-        uri: connectionString,
-        multipleStatements: true,
-    });
-
-    const db = drizzle(connection);
-
-    logger.info("[Migration] Running migrations from ./drizzle folder...");
-
-    try {
-        // Phase 1: Drizzle SQL migrations (journal-based, may skip already-applied)
+    // Phase 1: Drizzle SQL migrations (journal-based)
+    {
+        const conn = await mysql.createConnection({ uri: connectionString, multipleStatements: true });
         try {
-            await migrate(db, {
-                migrationsFolder: path.resolve(process.cwd(), "drizzle")
-            });
+            const db = drizzle(conn);
+            logger.info("[Migration] Running Drizzle migrations from ./drizzle folder...");
+            await migrate(db, { migrationsFolder: path.resolve(process.cwd(), "drizzle") });
         } catch (drizzleErr) {
-            // Log but do NOT rethrow — ensureCompatibilitySchema below will
-            // create any tables that Drizzle failed to create.
             logger.error({ err: safeError(drizzleErr) }, "[Migration] Drizzle migration failed — ensureCompatibilitySchema will fill gaps");
+        } finally {
+            await conn.end();
         }
+    }
 
-        // Phase 2: Compatibility layer — creates every table/column that may be missing.
-        // Runs ALWAYS, even if Drizzle failed, so the server can boot.
+    // Phase 2: Compatibility layer — FRESH connection (Drizzle may leave connection in bad state).
+    // Creates every table/column that may be missing so the server can boot.
+    {
+        const conn = await mysql.createConnection({ uri: connectionString, multipleStatements: true });
         try {
             logger.warn("[Migration] Running ensureCompatibilitySchema...");
-            await ensureCompatibilitySchema(connection);
+            await ensureCompatibilitySchema(conn);
         } catch (compatErr) {
             logger.error({ err: safeError(compatErr) }, "[Migration] ensureCompatibilitySchema failed (non-fatal)");
+        } finally {
+            await conn.end();
         }
-
-        logger.info("[Migration] Success! Database is up to date.");
-    } finally {
-        await connection.end();
     }
+
+    logger.info("[Migration] Success! Database is up to date.");
 }
 
 async function ensureCompatibilitySchema(connection: mysql.Connection) {
@@ -173,26 +168,35 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
         }
     };
 
+    /** Idempotent, non-fatal table creation helper.
+     *  Wraps each CREATE TABLE in its own try-catch so one failure doesn't block others. */
+    const ensureTable = async (tableName: string, ddl: string) => {
+        try {
+            if (await hasTable(tableName)) return;
+            await connection.query(ddl);
+            logger.warn(`[Migration] Created missing ${tableName} table`);
+        } catch (err) {
+            logger.error({ err, table: tableName }, `[Migration] Failed to create table ${tableName} (non-fatal)`);
+        }
+    };
+
     logger.info("[Migration] Running schema compatibility checks...");
 
-    if (!(await hasTable("tenants"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS tenants (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              name VARCHAR(200) NOT NULL,
-              slug VARCHAR(100) NOT NULL,
-              plan ENUM('free','starter','pro','enterprise') NOT NULL DEFAULT 'free',
-              paypalSubscriptionId VARCHAR(255) NULL,
-              status ENUM('active','suspended','canceled') NOT NULL DEFAULT 'active',
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-              UNIQUE KEY idx_tenant_slug (slug)
-            )
-        `);
-        logger.warn("[Migration] Created missing tenants table");
-    }
+    await ensureTable("tenants", `
+        CREATE TABLE IF NOT EXISTS tenants (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          name VARCHAR(200) NOT NULL,
+          slug VARCHAR(100) NOT NULL,
+          plan ENUM('free','starter','pro','enterprise') NOT NULL DEFAULT 'free',
+          paypalSubscriptionId VARCHAR(255) NULL,
+          status ENUM('active','suspended','canceled') NOT NULL DEFAULT 'active',
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          UNIQUE KEY idx_tenant_slug (slug)
+        )
+    `);
 
-    {
+    try {
         const [rows] = await connection.query(
             `SELECT COUNT(*) AS cnt FROM tenants WHERE id = 1`
         );
@@ -203,6 +207,8 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
             );
             logger.warn("[Migration] Seeded platform tenant (id=1)");
         }
+    } catch (err) {
+        logger.error({ err }, "[Migration] Failed to seed platform tenant (non-fatal)");
     }
 
     await ensureColumn("tenants", "paypalSubscriptionId", "`paypalSubscriptionId` VARCHAR(255) NULL", "tenants.paypalSubscriptionId column");
@@ -251,20 +257,17 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
     await ensureColumn("appointments", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "appointments.tenantId column");
     await ensureColumn("support_queues", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "support_queues.tenantId column");
     await ensureColumn("support_user_queues", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "support_user_queues.tenantId column");
-    if (!(await hasTable("quick_answers"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS quick_answers (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL DEFAULT 1,
-              shortcut TEXT NOT NULL,
-              message TEXT NOT NULL,
-              attachments JSON NULL,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            )
-        `);
-        logger.warn("[Migration] Created missing quick_answers table");
-    }
+    await ensureTable("quick_answers", `
+        CREATE TABLE IF NOT EXISTS quick_answers (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL DEFAULT 1,
+          shortcut TEXT NOT NULL,
+          message TEXT NOT NULL,
+          attachments JSON NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+    `);
     await ensureColumn("quick_answers", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "quick_answers.tenantId column");
     await ensureColumn("quick_answers", "attachments", "`attachments` JSON NULL", "quick_answers.attachments column");
     await ensureColumn("message_queue", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "message_queue.tenantId column");
@@ -279,93 +282,81 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
     await ensureColumn("achievements", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "achievements.tenantId column");
     await ensureColumn("internal_messages", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "internal_messages.tenantId column");
 
-    if (!(await hasTable("lead_reminders"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS lead_reminders (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              leadId INT NOT NULL,
-              conversationId INT NULL,
-              createdById INT NOT NULL,
-              scheduledAt TIMESTAMP NOT NULL,
-              timezone VARCHAR(50) NULL,
-              message TEXT NOT NULL,
-              messageType ENUM('text','image','document','template') DEFAULT 'text',
-              mediaUrl VARCHAR(500) NULL,
-              mediaName VARCHAR(200) NULL,
-              buttons JSON NULL,
-              status ENUM('scheduled','sent','failed','cancelled') DEFAULT 'scheduled',
-              sentAt TIMESTAMP NULL,
-              errorMessage TEXT NULL,
-              response VARCHAR(200) NULL,
-              respondedAt TIMESTAMP NULL,
-              isRecurring BOOLEAN DEFAULT FALSE,
-              recurrencePattern ENUM('daily','weekly','monthly') NULL,
-              recurrenceEndDate TIMESTAMP NULL,
-              parentReminderId INT NULL,
-              createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-              updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL ON UPDATE CURRENT_TIMESTAMP,
-              INDEX idx_lead_reminders_tenant_status_scheduledAt (tenantId, status, scheduledAt)
-            )
-        `);
-        logger.warn("[Migration] Created missing lead_reminders table");
-    }
+    await ensureTable("lead_reminders", `
+        CREATE TABLE IF NOT EXISTS lead_reminders (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          leadId INT NOT NULL,
+          conversationId INT NULL,
+          createdById INT NOT NULL,
+          scheduledAt TIMESTAMP NOT NULL,
+          timezone VARCHAR(50) NULL,
+          message TEXT NOT NULL,
+          messageType ENUM('text','image','document','template') DEFAULT 'text',
+          mediaUrl VARCHAR(500) NULL,
+          mediaName VARCHAR(200) NULL,
+          buttons JSON NULL,
+          status ENUM('scheduled','sent','failed','cancelled') DEFAULT 'scheduled',
+          sentAt TIMESTAMP NULL,
+          errorMessage TEXT NULL,
+          response VARCHAR(200) NULL,
+          respondedAt TIMESTAMP NULL,
+          isRecurring BOOLEAN DEFAULT FALSE,
+          recurrencePattern ENUM('daily','weekly','monthly') NULL,
+          recurrenceEndDate TIMESTAMP NULL,
+          parentReminderId INT NULL,
+          createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+          updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_lead_reminders_tenant_status_scheduledAt (tenantId, status, scheduledAt)
+        )
+    `);
 
-    if (!(await hasTable("terms_acceptance"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS terms_acceptance (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              userId INT NOT NULL,
-              termsVersion VARCHAR(20) NOT NULL,
-              acceptedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              ipAddress VARCHAR(45) NULL,
-              userAgent TEXT NULL,
-              UNIQUE KEY idx_terms_user_version (tenantId, userId, termsVersion)
-            )
-        `);
-        logger.warn("[Migration] Created missing terms_acceptance table");
-    }
+    await ensureTable("terms_acceptance", `
+        CREATE TABLE IF NOT EXISTS terms_acceptance (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          userId INT NOT NULL,
+          termsVersion VARCHAR(20) NOT NULL,
+          acceptedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          ipAddress VARCHAR(45) NULL,
+          userAgent TEXT NULL,
+          UNIQUE KEY idx_terms_user_version (tenantId, userId, termsVersion)
+        )
+    `);
 
-    if (!(await hasTable("sessions"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS sessions (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              userId INT NOT NULL,
-              sessionToken VARCHAR(255) NOT NULL,
-              ipAddress VARCHAR(45) NULL,
-              userAgent TEXT NULL,
-              lastActivityAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              expiresAt TIMESTAMP NOT NULL,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              UNIQUE KEY uniq_sessions_token (sessionToken)
-            )
-        `);
-        logger.warn("[Migration] Created missing sessions table");
-    }
+    await ensureTable("sessions", `
+        CREATE TABLE IF NOT EXISTS sessions (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          userId INT NOT NULL,
+          sessionToken VARCHAR(255) NOT NULL,
+          ipAddress VARCHAR(45) NULL,
+          userAgent TEXT NULL,
+          lastActivityAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          expiresAt TIMESTAMP NOT NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uniq_sessions_token (sessionToken)
+        )
+    `);
 
-    if (!(await hasTable("onboarding_progress"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS onboarding_progress (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              companyCompleted BOOLEAN NOT NULL DEFAULT FALSE,
-              teamCompleted BOOLEAN NOT NULL DEFAULT FALSE,
-              whatsappCompleted BOOLEAN NOT NULL DEFAULT FALSE,
-              importCompleted BOOLEAN NOT NULL DEFAULT FALSE,
-              firstMessageCompleted BOOLEAN NOT NULL DEFAULT FALSE,
-              startedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              completedAt TIMESTAMP NULL,
-              lastStep VARCHAR(50) NOT NULL DEFAULT 'company',
-              companyData JSON NULL,
-              teamInvites JSON NULL,
-              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-              UNIQUE KEY uniq_onboarding_progress_tenantId (tenantId)
-            )
-        `);
-        logger.warn("[Migration] Created missing onboarding_progress table");
-    }
+    await ensureTable("onboarding_progress", `
+        CREATE TABLE IF NOT EXISTS onboarding_progress (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          companyCompleted BOOLEAN NOT NULL DEFAULT FALSE,
+          teamCompleted BOOLEAN NOT NULL DEFAULT FALSE,
+          whatsappCompleted BOOLEAN NOT NULL DEFAULT FALSE,
+          importCompleted BOOLEAN NOT NULL DEFAULT FALSE,
+          firstMessageCompleted BOOLEAN NOT NULL DEFAULT FALSE,
+          startedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          completedAt TIMESTAMP NULL,
+          lastStep VARCHAR(50) NOT NULL DEFAULT 'company',
+          companyData JSON NULL,
+          teamInvites JSON NULL,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          UNIQUE KEY uniq_onboarding_progress_tenantId (tenantId)
+        )
+    `);
 
     await ensureColumn("sessions", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "sessions.tenantId column");
     await ensureColumn("sessions", "userId", "`userId` INT NOT NULL", "sessions.userId column");
@@ -421,583 +412,493 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
         logger.error({ err }, "[Migration] Failed to ensure onboarding_progress index (non-fatal)");
     }
 
-    if (!(await hasTable("whatsapp_numbers"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS whatsapp_numbers (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              phoneNumber VARCHAR(20) NOT NULL,
-              displayName VARCHAR(100) NULL,
-              country VARCHAR(50) NOT NULL,
-              countryCode VARCHAR(5) NOT NULL,
-              status ENUM('active','warming_up','blocked','disconnected') NOT NULL DEFAULT 'warming_up',
-              warmupDay INT NOT NULL DEFAULT 0,
-              warmupStartDate TIMESTAMP NULL,
-              dailyMessageLimit INT NOT NULL DEFAULT 20,
-              messagesSentToday INT NOT NULL DEFAULT 0,
-              totalMessagesSent INT NOT NULL DEFAULT 0,
-              lastConnected TIMESTAMP NULL,
-              isConnected BOOLEAN NOT NULL DEFAULT FALSE,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-              UNIQUE KEY uniq_whatsapp_phone (tenantId, phoneNumber)
-            )
-        `);
-        logger.warn("[Migration] Created missing whatsapp_numbers table");
-    }
+    await ensureTable("whatsapp_numbers", `
+        CREATE TABLE IF NOT EXISTS whatsapp_numbers (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          phoneNumber VARCHAR(20) NOT NULL,
+          displayName VARCHAR(100) NULL,
+          country VARCHAR(50) NOT NULL,
+          countryCode VARCHAR(5) NOT NULL,
+          status ENUM('active','warming_up','blocked','disconnected') NOT NULL DEFAULT 'warming_up',
+          warmupDay INT NOT NULL DEFAULT 0,
+          warmupStartDate TIMESTAMP NULL,
+          dailyMessageLimit INT NOT NULL DEFAULT 20,
+          messagesSentToday INT NOT NULL DEFAULT 0,
+          totalMessagesSent INT NOT NULL DEFAULT 0,
+          lastConnected TIMESTAMP NULL,
+          isConnected BOOLEAN NOT NULL DEFAULT FALSE,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          UNIQUE KEY uniq_whatsapp_phone (tenantId, phoneNumber)
+        )
+    `);
 
-    if (!(await hasTable("whatsapp_connections"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS whatsapp_connections (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              whatsappNumberId INT NOT NULL,
-              connectionType ENUM('api','qr') NOT NULL,
-              accessToken TEXT NULL,
-              phoneNumberId VARCHAR(50) NULL,
-              businessAccountId VARCHAR(50) NULL,
-              wabaId VARCHAR(50) NULL,
-              setupSource VARCHAR(30) NULL DEFAULT 'manual',
-              tokenExpiresAt TIMESTAMP NULL,
-              qrCode TEXT NULL,
-              qrExpiresAt TIMESTAMP NULL,
-              sessionData TEXT NULL,
-              isConnected BOOLEAN NOT NULL DEFAULT FALSE,
-              lastPingAt TIMESTAMP NULL,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-              UNIQUE KEY uniq_whatsapp_connections_number (whatsappNumberId)
-            )
-        `);
-        logger.warn("[Migration] Created missing whatsapp_connections table");
-    }
+    await ensureTable("whatsapp_connections", `
+        CREATE TABLE IF NOT EXISTS whatsapp_connections (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          whatsappNumberId INT NOT NULL,
+          connectionType ENUM('api','qr') NOT NULL,
+          accessToken TEXT NULL,
+          phoneNumberId VARCHAR(50) NULL,
+          businessAccountId VARCHAR(50) NULL,
+          wabaId VARCHAR(50) NULL,
+          setupSource VARCHAR(30) NULL DEFAULT 'manual',
+          tokenExpiresAt TIMESTAMP NULL,
+          qrCode TEXT NULL,
+          qrExpiresAt TIMESTAMP NULL,
+          sessionData TEXT NULL,
+          isConnected BOOLEAN NOT NULL DEFAULT FALSE,
+          lastPingAt TIMESTAMP NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          UNIQUE KEY uniq_whatsapp_connections_number (whatsappNumberId)
+        )
+    `);
 
-    if (!(await hasTable("templates"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS templates (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              name VARCHAR(150) NOT NULL,
-              content TEXT NOT NULL,
-              type ENUM('whatsapp','email') NOT NULL DEFAULT 'whatsapp',
-              attachments JSON NULL,
-              variables JSON NULL,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            )
-        `);
-        logger.warn("[Migration] Created missing templates table");
-    }
+    await ensureTable("templates", `
+        CREATE TABLE IF NOT EXISTS templates (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          name VARCHAR(150) NOT NULL,
+          content TEXT NOT NULL,
+          type ENUM('whatsapp','email') NOT NULL DEFAULT 'whatsapp',
+          attachments JSON NULL,
+          variables JSON NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+    `);
 
-    if (!(await hasTable("campaigns"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS campaigns (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              name VARCHAR(200) NOT NULL,
-              message TEXT NOT NULL,
-              type ENUM('whatsapp','email') NOT NULL DEFAULT 'whatsapp',
-              templateId INT NULL,
-              audienceConfig JSON NULL,
-              status ENUM('draft','scheduled','running','paused','completed','cancelled') NOT NULL DEFAULT 'draft',
-              scheduledAt TIMESTAMP NULL,
-              startedAt TIMESTAMP NULL,
-              completedAt TIMESTAMP NULL,
-              totalRecipients INT NOT NULL DEFAULT 0,
-              messagesSent INT NOT NULL DEFAULT 0,
-              messagesDelivered INT NOT NULL DEFAULT 0,
-              messagesRead INT NOT NULL DEFAULT 0,
-              messagesFailed INT NOT NULL DEFAULT 0,
-              createdById INT NULL,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-              INDEX idx_campaigns_tenant_status_schedule (tenantId, status, scheduledAt)
-            )
-        `);
-        logger.warn("[Migration] Created missing campaigns table");
-    }
+    await ensureTable("campaigns", `
+        CREATE TABLE IF NOT EXISTS campaigns (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          name VARCHAR(200) NOT NULL,
+          message TEXT NOT NULL,
+          type ENUM('whatsapp','email') NOT NULL DEFAULT 'whatsapp',
+          templateId INT NULL,
+          audienceConfig JSON NULL,
+          status ENUM('draft','scheduled','running','paused','completed','cancelled') NOT NULL DEFAULT 'draft',
+          scheduledAt TIMESTAMP NULL,
+          startedAt TIMESTAMP NULL,
+          completedAt TIMESTAMP NULL,
+          totalRecipients INT NOT NULL DEFAULT 0,
+          messagesSent INT NOT NULL DEFAULT 0,
+          messagesDelivered INT NOT NULL DEFAULT 0,
+          messagesRead INT NOT NULL DEFAULT 0,
+          messagesFailed INT NOT NULL DEFAULT 0,
+          createdById INT NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_campaigns_tenant_status_schedule (tenantId, status, scheduledAt)
+        )
+    `);
 
-    if (!(await hasTable("campaign_recipients"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS campaign_recipients (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              campaignId INT NOT NULL,
-              leadId INT NOT NULL,
-              whatsappNumberId INT NULL,
-              whatsappMessageId VARCHAR(128) NULL,
-              status ENUM('pending','sent','delivered','failed','read') NOT NULL DEFAULT 'pending',
-              sentAt TIMESTAMP NULL,
-              deliveredAt TIMESTAMP NULL,
-              readAt TIMESTAMP NULL,
-              errorMessage TEXT NULL,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              UNIQUE KEY unique_campaign_lead (tenantId, campaignId, leadId),
-              INDEX idx_campaign_recipients_campaign_status (campaignId, status)
-            )
-        `);
-        logger.warn("[Migration] Created missing campaign_recipients table");
-    }
+    await ensureTable("campaign_recipients", `
+        CREATE TABLE IF NOT EXISTS campaign_recipients (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          campaignId INT NOT NULL,
+          leadId INT NOT NULL,
+          whatsappNumberId INT NULL,
+          whatsappMessageId VARCHAR(128) NULL,
+          status ENUM('pending','sent','delivered','failed','read') NOT NULL DEFAULT 'pending',
+          sentAt TIMESTAMP NULL,
+          deliveredAt TIMESTAMP NULL,
+          readAt TIMESTAMP NULL,
+          errorMessage TEXT NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY unique_campaign_lead (tenantId, campaignId, leadId),
+          INDEX idx_campaign_recipients_campaign_status (campaignId, status)
+        )
+    `);
 
-    if (!(await hasTable("workflows"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS workflows (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              name VARCHAR(200) NOT NULL,
-              description TEXT NULL,
-              isActive BOOLEAN NOT NULL DEFAULT TRUE,
-              triggerType ENUM('lead_created','lead_updated','msg_received','campaign_link_clicked') NOT NULL,
-              triggerConfig JSON NULL,
-              actions JSON NULL,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-              INDEX idx_workflows_tenant_active (tenantId, isActive)
-            )
-        `);
-        logger.warn("[Migration] Created missing workflows table");
-    }
+    await ensureTable("workflows", `
+        CREATE TABLE IF NOT EXISTS workflows (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          name VARCHAR(200) NOT NULL,
+          description TEXT NULL,
+          isActive BOOLEAN NOT NULL DEFAULT TRUE,
+          triggerType ENUM('lead_created','lead_updated','msg_received','campaign_link_clicked') NOT NULL,
+          triggerConfig JSON NULL,
+          actions JSON NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_workflows_tenant_active (tenantId, isActive)
+        )
+    `);
 
-    if (!(await hasTable("workflow_jobs"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS workflow_jobs (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              workflowId INT NOT NULL,
-              entityId INT NOT NULL,
-              actionIndex INT NOT NULL DEFAULT 0,
-              payload JSON NOT NULL,
-              status ENUM('pending','completed','failed') NOT NULL DEFAULT 'pending',
-              resumeAt TIMESTAMP NOT NULL,
-              errorMessage TEXT NULL,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-              INDEX idx_workflow_jobs_resume_pending (status, resumeAt),
-              INDEX idx_workflow_jobs_tenant_pending (tenantId, status)
-            )
-        `);
-        logger.warn("[Migration] Created missing workflow_jobs table");
-    }
+    await ensureTable("workflow_jobs", `
+        CREATE TABLE IF NOT EXISTS workflow_jobs (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          workflowId INT NOT NULL,
+          entityId INT NOT NULL,
+          actionIndex INT NOT NULL DEFAULT 0,
+          payload JSON NOT NULL,
+          status ENUM('pending','completed','failed') NOT NULL DEFAULT 'pending',
+          resumeAt TIMESTAMP NOT NULL,
+          errorMessage TEXT NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_workflow_jobs_resume_pending (status, resumeAt),
+          INDEX idx_workflow_jobs_tenant_pending (tenantId, status)
+        )
+    `);
 
     // ---- Additional feature tables (auto-created if missing) ----
 
-    if (!(await hasTable("support_queues"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS support_queues (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              name VARCHAR(100) NOT NULL,
-              color VARCHAR(32) NOT NULL,
-              greetingMessage TEXT NULL,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-              UNIQUE KEY uniq_support_queues_name (tenantId, name)
-            )
-        `);
-        logger.warn("[Migration] Created missing support_queues table");
-    }
+    await ensureTable("support_queues", `
+        CREATE TABLE IF NOT EXISTS support_queues (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          name VARCHAR(100) NOT NULL,
+          color VARCHAR(32) NOT NULL,
+          greetingMessage TEXT NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          UNIQUE KEY uniq_support_queues_name (tenantId, name)
+        )
+    `);
 
-    if (!(await hasTable("support_user_queues"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS support_user_queues (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              userId INT NOT NULL,
-              queueId INT NOT NULL,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              UNIQUE KEY uniq_user_queue (tenantId, userId, queueId)
-            )
-        `);
-        logger.warn("[Migration] Created missing support_user_queues table");
-    }
+    await ensureTable("support_user_queues", `
+        CREATE TABLE IF NOT EXISTS support_user_queues (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          userId INT NOT NULL,
+          queueId INT NOT NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uniq_user_queue (tenantId, userId, queueId)
+        )
+    `);
 
-    if (!(await hasTable("goals"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS goals (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              userId INT NOT NULL,
-              type ENUM('sales_amount','deals_closed','leads_created','messages_sent') NOT NULL,
-              targetAmount INT NOT NULL,
-              currentAmount INT NOT NULL DEFAULT 0,
-              period ENUM('daily','weekly','monthly') NOT NULL DEFAULT 'monthly',
-              startDate TIMESTAMP NOT NULL,
-              endDate TIMESTAMP NOT NULL,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            )
-        `);
-        logger.warn("[Migration] Created missing goals table");
-    }
+    await ensureTable("goals", `
+        CREATE TABLE IF NOT EXISTS goals (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          userId INT NOT NULL,
+          type ENUM('sales_amount','deals_closed','leads_created','messages_sent') NOT NULL,
+          targetAmount INT NOT NULL,
+          currentAmount INT NOT NULL DEFAULT 0,
+          period ENUM('daily','weekly','monthly') NOT NULL DEFAULT 'monthly',
+          startDate TIMESTAMP NOT NULL,
+          endDate TIMESTAMP NOT NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+    `);
 
-    if (!(await hasTable("achievements"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS achievements (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              userId INT NOT NULL,
-              type VARCHAR(50) NOT NULL,
-              unlockedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              metadata JSON NULL
-            )
-        `);
-        logger.warn("[Migration] Created missing achievements table");
-    }
+    await ensureTable("achievements", `
+        CREATE TABLE IF NOT EXISTS achievements (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          userId INT NOT NULL,
+          type VARCHAR(50) NOT NULL,
+          unlockedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          metadata JSON NULL
+        )
+    `);
 
-    if (!(await hasTable("internal_messages"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS internal_messages (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              senderId INT NOT NULL,
-              recipientId INT NULL,
-              content TEXT NOT NULL,
-              attachments JSON NULL,
-              isRead BOOLEAN NOT NULL DEFAULT FALSE,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-        `);
-        logger.warn("[Migration] Created missing internal_messages table");
-    }
+    await ensureTable("internal_messages", `
+        CREATE TABLE IF NOT EXISTS internal_messages (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          senderId INT NOT NULL,
+          recipientId INT NULL,
+          content TEXT NOT NULL,
+          attachments JSON NULL,
+          isRead BOOLEAN NOT NULL DEFAULT FALSE,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
 
-    if (!(await hasTable("tags"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS tags (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              name VARCHAR(50) NOT NULL,
-              color VARCHAR(7) NOT NULL DEFAULT '#3b82f6',
-              description TEXT NULL,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              UNIQUE KEY uniq_tag_name (tenantId, name)
-            )
-        `);
-        logger.warn("[Migration] Created missing tags table");
-    }
+    await ensureTable("tags", `
+        CREATE TABLE IF NOT EXISTS tags (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          name VARCHAR(50) NOT NULL,
+          color VARCHAR(7) NOT NULL DEFAULT '#3b82f6',
+          description TEXT NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uniq_tag_name (tenantId, name)
+        )
+    `);
 
-    if (!(await hasTable("lead_tags"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS lead_tags (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              leadId INT NOT NULL,
-              tagId INT NOT NULL,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              UNIQUE KEY uniq_lead_tag (tenantId, leadId, tagId)
-            )
-        `);
-        logger.warn("[Migration] Created missing lead_tags table");
-    }
+    await ensureTable("lead_tags", `
+        CREATE TABLE IF NOT EXISTS lead_tags (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          leadId INT NOT NULL,
+          tagId INT NOT NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uniq_lead_tag (tenantId, leadId, tagId)
+        )
+    `);
 
-    if (!(await hasTable("conversation_tags"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS conversation_tags (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              conversationId INT NOT NULL,
-              tagId INT NOT NULL,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              UNIQUE KEY uniq_conv_tag (tenantId, conversationId, tagId)
-            )
-        `);
-        logger.warn("[Migration] Created missing conversation_tags table");
-    }
+    await ensureTable("conversation_tags", `
+        CREATE TABLE IF NOT EXISTS conversation_tags (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          conversationId INT NOT NULL,
+          tagId INT NOT NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uniq_conv_tag (tenantId, conversationId, tagId)
+        )
+    `);
 
-    if (!(await hasTable("lead_notes"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS lead_notes (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              leadId INT NOT NULL,
-              content TEXT NOT NULL,
-              createdById INT NULL,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            )
-        `);
-        logger.warn("[Migration] Created missing lead_notes table");
-    }
+    await ensureTable("lead_notes", `
+        CREATE TABLE IF NOT EXISTS lead_notes (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          leadId INT NOT NULL,
+          content TEXT NOT NULL,
+          createdById INT NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+    `);
 
-    if (!(await hasTable("lead_tasks"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS lead_tasks (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              leadId INT NOT NULL,
-              title VARCHAR(200) NOT NULL,
-              description TEXT NULL,
-              dueDate TIMESTAMP NULL,
-              status ENUM('pending','completed','cancelled') NOT NULL DEFAULT 'pending',
-              priority ENUM('low','medium','high') NOT NULL DEFAULT 'medium',
-              assignedToId INT NULL,
-              createdById INT NULL,
-              completedAt TIMESTAMP NULL,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            )
-        `);
-        logger.warn("[Migration] Created missing lead_tasks table");
-    }
+    await ensureTable("lead_tasks", `
+        CREATE TABLE IF NOT EXISTS lead_tasks (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          leadId INT NOT NULL,
+          title VARCHAR(200) NOT NULL,
+          description TEXT NULL,
+          dueDate TIMESTAMP NULL,
+          status ENUM('pending','completed','cancelled') NOT NULL DEFAULT 'pending',
+          priority ENUM('low','medium','high') NOT NULL DEFAULT 'medium',
+          assignedToId INT NULL,
+          createdById INT NULL,
+          completedAt TIMESTAMP NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+    `);
 
-    if (!(await hasTable("ai_suggestions"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS ai_suggestions (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              conversationId INT NOT NULL,
-              suggestion TEXT NOT NULL,
-              context TEXT NULL,
-              used BOOLEAN NOT NULL DEFAULT FALSE,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-        `);
-        logger.warn("[Migration] Created missing ai_suggestions table");
-    }
+    await ensureTable("ai_suggestions", `
+        CREATE TABLE IF NOT EXISTS ai_suggestions (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          conversationId INT NOT NULL,
+          suggestion TEXT NOT NULL,
+          context TEXT NULL,
+          used BOOLEAN NOT NULL DEFAULT FALSE,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
 
-    if (!(await hasTable("chatbot_flows"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS chatbot_flows (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              name VARCHAR(100) NOT NULL,
-              \`trigger\` ENUM('keyword','new_conversation','no_match','hours') NOT NULL,
-              triggerValue VARCHAR(200) NULL,
-              responses JSON NOT NULL,
-              isActive BOOLEAN NOT NULL DEFAULT TRUE,
-              hoursOnly BOOLEAN NOT NULL DEFAULT FALSE,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            )
-        `);
-        logger.warn("[Migration] Created missing chatbot_flows table");
-    }
+    await ensureTable("chatbot_flows", `
+        CREATE TABLE IF NOT EXISTS chatbot_flows (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          name VARCHAR(100) NOT NULL,
+          \`trigger\` ENUM('keyword','new_conversation','no_match','hours') NOT NULL,
+          triggerValue VARCHAR(200) NULL,
+          responses JSON NOT NULL,
+          isActive BOOLEAN NOT NULL DEFAULT TRUE,
+          hoursOnly BOOLEAN NOT NULL DEFAULT FALSE,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+    `);
 
-    if (!(await hasTable("quotations"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS quotations (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              leadId INT NOT NULL,
-              conversationId INT NULL,
-              quoteNumber VARCHAR(50) NOT NULL,
-              title VARCHAR(200) NOT NULL,
-              description TEXT NULL,
-              items JSON NOT NULL,
-              subtotal DECIMAL(12,2) NOT NULL,
-              tax DECIMAL(12,2) DEFAULT '0.00',
-              total DECIMAL(12,2) NOT NULL,
-              currency VARCHAR(10) NOT NULL DEFAULT 'PYG',
-              status ENUM('draft','sent','approved','rejected','expired') NOT NULL DEFAULT 'draft',
-              validUntil TIMESTAMP NULL,
-              approvedAt TIMESTAMP NULL,
-              rejectedAt TIMESTAMP NULL,
-              rejectionReason TEXT NULL,
-              pdfUrl VARCHAR(500) NULL,
-              createdById INT NULL,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-              UNIQUE KEY uniq_quote_number (tenantId, quoteNumber)
-            )
-        `);
-        logger.warn("[Migration] Created missing quotations table");
-    }
+    await ensureTable("quotations", `
+        CREATE TABLE IF NOT EXISTS quotations (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          leadId INT NOT NULL,
+          conversationId INT NULL,
+          quoteNumber VARCHAR(50) NOT NULL,
+          title VARCHAR(200) NOT NULL,
+          description TEXT NULL,
+          items JSON NOT NULL,
+          subtotal DECIMAL(12,2) NOT NULL,
+          tax DECIMAL(12,2) DEFAULT '0.00',
+          total DECIMAL(12,2) NOT NULL,
+          currency VARCHAR(10) NOT NULL DEFAULT 'PYG',
+          status ENUM('draft','sent','approved','rejected','expired') NOT NULL DEFAULT 'draft',
+          validUntil TIMESTAMP NULL,
+          approvedAt TIMESTAMP NULL,
+          rejectedAt TIMESTAMP NULL,
+          rejectionReason TEXT NULL,
+          pdfUrl VARCHAR(500) NULL,
+          createdById INT NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          UNIQUE KEY uniq_quote_number (tenantId, quoteNumber)
+        )
+    `);
 
-    if (!(await hasTable("forms"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS forms (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              name VARCHAR(100) NOT NULL,
-              slug VARCHAR(100) NOT NULL,
-              title VARCHAR(200) NULL,
-              description TEXT NULL,
-              fields JSON NOT NULL,
-              whatsappNumberId INT NULL,
-              welcomeMessage TEXT NULL,
-              isActive BOOLEAN NOT NULL DEFAULT TRUE,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-              UNIQUE KEY uniq_form_slug (tenantId, slug)
-            )
-        `);
-        logger.warn("[Migration] Created missing forms table");
-    }
+    await ensureTable("forms", `
+        CREATE TABLE IF NOT EXISTS forms (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          name VARCHAR(100) NOT NULL,
+          slug VARCHAR(100) NOT NULL,
+          title VARCHAR(200) NULL,
+          description TEXT NULL,
+          fields JSON NOT NULL,
+          whatsappNumberId INT NULL,
+          welcomeMessage TEXT NULL,
+          isActive BOOLEAN NOT NULL DEFAULT TRUE,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          UNIQUE KEY uniq_form_slug (tenantId, slug)
+        )
+    `);
 
-    if (!(await hasTable("license"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS license (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              \`key\` VARCHAR(255) NOT NULL,
-              status ENUM('active','expired','canceled','trial') NOT NULL DEFAULT 'trial',
-              plan VARCHAR(50) NOT NULL DEFAULT 'starter',
-              expiresAt TIMESTAMP NULL,
-              maxUsers INT DEFAULT 5,
-              maxWhatsappNumbers INT DEFAULT 3,
-              maxMessagesPerMonth INT DEFAULT 10000,
-              features JSON NULL,
-              metadata JSON NULL,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-              UNIQUE KEY uniq_license_key (\`key\`)
-            )
-        `);
-        logger.warn("[Migration] Created missing license table");
-    }
+    await ensureTable("license", `
+        CREATE TABLE IF NOT EXISTS license (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          \`key\` VARCHAR(255) NOT NULL,
+          status ENUM('active','expired','canceled','trial') NOT NULL DEFAULT 'trial',
+          plan VARCHAR(50) NOT NULL DEFAULT 'starter',
+          expiresAt TIMESTAMP NULL,
+          maxUsers INT DEFAULT 5,
+          maxWhatsappNumbers INT DEFAULT 3,
+          maxMessagesPerMonth INT DEFAULT 10000,
+          features JSON NULL,
+          metadata JSON NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          UNIQUE KEY uniq_license_key (\`key\`)
+        )
+    `);
 
-    if (!(await hasTable("usage_tracking"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS usage_tracking (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              year INT NOT NULL,
-              month INT NOT NULL,
-              messagesSent INT DEFAULT 0,
-              messagesReceived INT DEFAULT 0,
-              activeUsers INT DEFAULT 0,
-              activeWhatsappNumbers INT DEFAULT 0,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-              UNIQUE KEY uniq_usage_year_month (tenantId, year, month)
-            )
-        `);
-        logger.warn("[Migration] Created missing usage_tracking table");
-    }
+    await ensureTable("usage_tracking", `
+        CREATE TABLE IF NOT EXISTS usage_tracking (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          year INT NOT NULL,
+          month INT NOT NULL,
+          messagesSent INT DEFAULT 0,
+          messagesReceived INT DEFAULT 0,
+          activeUsers INT DEFAULT 0,
+          activeWhatsappNumbers INT DEFAULT 0,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          UNIQUE KEY uniq_usage_year_month (tenantId, year, month)
+        )
+    `);
 
-    if (!(await hasTable("webhooks"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS webhooks (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              name VARCHAR(100) NOT NULL,
-              url VARCHAR(500) NOT NULL,
-              secret VARCHAR(255) NOT NULL,
-              events JSON NOT NULL,
-              active BOOLEAN NOT NULL DEFAULT TRUE,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            )
-        `);
-        logger.warn("[Migration] Created missing webhooks table");
-    }
+    await ensureTable("webhooks", `
+        CREATE TABLE IF NOT EXISTS webhooks (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          name VARCHAR(100) NOT NULL,
+          url VARCHAR(500) NOT NULL,
+          secret VARCHAR(255) NOT NULL,
+          events JSON NOT NULL,
+          active BOOLEAN NOT NULL DEFAULT TRUE,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+    `);
 
-    if (!(await hasTable("webhook_deliveries"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS webhook_deliveries (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              webhookId INT NOT NULL,
-              event VARCHAR(100) NOT NULL,
-              payload TEXT NOT NULL,
-              responseStatus INT NULL,
-              responseBody TEXT NULL,
-              success BOOLEAN NOT NULL DEFAULT FALSE,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-        `);
-        logger.warn("[Migration] Created missing webhook_deliveries table");
-    }
+    await ensureTable("webhook_deliveries", `
+        CREATE TABLE IF NOT EXISTS webhook_deliveries (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          webhookId INT NOT NULL,
+          event VARCHAR(100) NOT NULL,
+          payload TEXT NOT NULL,
+          responseStatus INT NULL,
+          responseBody TEXT NULL,
+          success BOOLEAN NOT NULL DEFAULT FALSE,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
 
-    if (!(await hasTable("file_uploads"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS file_uploads (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              userId INT NULL,
-              filename VARCHAR(255) NOT NULL,
-              originalName VARCHAR(255) NOT NULL,
-              mimeType VARCHAR(100) NOT NULL,
-              size INT NOT NULL,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              UNIQUE KEY uniq_file_uploads_filename (filename)
-            )
-        `);
-        logger.warn("[Migration] Created missing file_uploads table");
-    }
+    await ensureTable("file_uploads", `
+        CREATE TABLE IF NOT EXISTS file_uploads (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          userId INT NULL,
+          filename VARCHAR(255) NOT NULL,
+          originalName VARCHAR(255) NOT NULL,
+          mimeType VARCHAR(100) NOT NULL,
+          size INT NOT NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uniq_file_uploads_filename (filename)
+        )
+    `);
 
     // --- SuperAdmin module tables (added in schema but never had SQL migrations) ---
 
-    if (!(await hasTable("platform_announcements"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS platform_announcements (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              title VARCHAR(255) NOT NULL,
-              message TEXT NOT NULL,
-              type ENUM('info','warning','critical','maintenance') NOT NULL DEFAULT 'info',
-              active BOOLEAN NOT NULL DEFAULT TRUE,
-              createdBy INT NULL,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            )
-        `);
-        logger.warn("[Migration] Created missing platform_announcements table");
-    }
+    await ensureTable("platform_announcements", `
+        CREATE TABLE IF NOT EXISTS platform_announcements (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          title VARCHAR(255) NOT NULL,
+          message TEXT NOT NULL,
+          type ENUM('info','warning','critical','maintenance') NOT NULL DEFAULT 'info',
+          active BOOLEAN NOT NULL DEFAULT TRUE,
+          createdBy INT NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+    `);
 
-    if (!(await hasTable("feature_flags"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS feature_flags (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL,
-              flag VARCHAR(100) NOT NULL,
-              enabled BOOLEAN NOT NULL DEFAULT FALSE,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-              UNIQUE KEY idx_ff_tenant_flag (tenantId, flag)
-            )
-        `);
-        logger.warn("[Migration] Created missing feature_flags table");
-    }
+    await ensureTable("feature_flags", `
+        CREATE TABLE IF NOT EXISTS feature_flags (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL,
+          flag VARCHAR(100) NOT NULL,
+          enabled BOOLEAN NOT NULL DEFAULT FALSE,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          UNIQUE KEY idx_ff_tenant_flag (tenantId, flag)
+        )
+    `);
 
-    if (!(await hasTable("superadmin_alerts"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS superadmin_alerts (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              type ENUM('trial_expiring','quota_exceeded','new_tenant','error','churn_risk','security') NOT NULL,
-              severity ENUM('info','warning','critical') NOT NULL DEFAULT 'warning',
-              title VARCHAR(255) NOT NULL,
-              message TEXT NOT NULL,
-              tenantId INT NULL,
-              metadata JSON NULL,
-              isRead BOOLEAN NOT NULL DEFAULT FALSE,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-        `);
-        logger.warn("[Migration] Created missing superadmin_alerts table");
-    }
+    await ensureTable("superadmin_alerts", `
+        CREATE TABLE IF NOT EXISTS superadmin_alerts (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          type ENUM('trial_expiring','quota_exceeded','new_tenant','error','churn_risk','security') NOT NULL,
+          severity ENUM('info','warning','critical') NOT NULL DEFAULT 'warning',
+          title VARCHAR(255) NOT NULL,
+          message TEXT NOT NULL,
+          tenantId INT NULL,
+          metadata JSON NULL,
+          isRead BOOLEAN NOT NULL DEFAULT FALSE,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
 
-    if (!(await hasTable("app_settings"))) {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS app_settings (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              tenantId INT NOT NULL DEFAULT 1,
-              singleton INT NOT NULL DEFAULT 1,
-              companyName VARCHAR(120) NOT NULL DEFAULT 'Imagine Lab CRM',
-              logoUrl VARCHAR(500) NULL,
-              timezone VARCHAR(60) NOT NULL DEFAULT 'America/Asuncion',
-              language VARCHAR(10) NOT NULL DEFAULT 'es',
-              currency VARCHAR(10) NOT NULL DEFAULT 'PYG',
-              permissionsMatrix JSON NULL,
-              scheduling JSON NULL,
-              dashboardConfig JSON NULL,
-              salesConfig JSON NULL,
-              smtpConfig JSON NULL,
-              storageConfig JSON NULL,
-              aiConfig JSON NULL,
-              autoReplyConfig JSON NULL,
-              mapsConfig JSON NULL,
-              slaConfig JSON NULL,
-              securityConfig JSON NULL,
-              metaConfig JSON NULL,
-              chatDistributionConfig JSON NULL,
-              lastAssignedAgentId INT NULL,
-              maintenanceMode JSON NULL,
-              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-              UNIQUE KEY uniq_app_settings_singleton (tenantId, singleton)
-            )
-        `);
-        logger.warn("[Migration] Created missing app_settings table");
-    }
+    await ensureTable("app_settings", `
+        CREATE TABLE IF NOT EXISTS app_settings (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenantId INT NOT NULL DEFAULT 1,
+          singleton INT NOT NULL DEFAULT 1,
+          companyName VARCHAR(120) NOT NULL DEFAULT 'Imagine Lab CRM',
+          logoUrl VARCHAR(500) NULL,
+          timezone VARCHAR(60) NOT NULL DEFAULT 'America/Asuncion',
+          language VARCHAR(10) NOT NULL DEFAULT 'es',
+          currency VARCHAR(10) NOT NULL DEFAULT 'PYG',
+          permissionsMatrix JSON NULL,
+          scheduling JSON NULL,
+          dashboardConfig JSON NULL,
+          salesConfig JSON NULL,
+          smtpConfig JSON NULL,
+          storageConfig JSON NULL,
+          aiConfig JSON NULL,
+          autoReplyConfig JSON NULL,
+          mapsConfig JSON NULL,
+          slaConfig JSON NULL,
+          securityConfig JSON NULL,
+          metaConfig JSON NULL,
+          chatDistributionConfig JSON NULL,
+          lastAssignedAgentId INT NULL,
+          maintenanceMode JSON NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          UNIQUE KEY uniq_app_settings_singleton (tenantId, singleton)
+        )
+    `);
 
     await ensureColumn("app_settings", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "app_settings.tenantId column");
 
