@@ -57,9 +57,9 @@ export async function optimizeDatabaseIndexes(): Promise<void> {
         `CREATE INDEX IF NOT EXISTS idx_leadtasks_tenant_status_due
          ON lead_tasks(tenantId, status, dueDate)`,
 
-        // Campaign contacts: campaign + status for progress tracking
-        `CREATE INDEX IF NOT EXISTS idx_campaigncontacts_campaign_status
-         ON campaign_contacts(campaignId, status)`,
+        // Campaign recipients: campaign + status for progress tracking
+        `CREATE INDEX IF NOT EXISTS idx_campaignrecipients_campaign_status
+         ON campaign_recipients(campaignId, status)`,
 
         // Access logs: tenant + createdAt for security audit
         `CREATE INDEX IF NOT EXISTS idx_accesslogs_tenant_created
