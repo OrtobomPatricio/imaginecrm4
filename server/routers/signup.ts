@@ -11,7 +11,7 @@ import { publicProcedure, router } from "../_core/trpc";
 import { sdk } from "../_core/sdk";
 import { getSessionCookieOptions } from "../_core/cookies";
 import { getClientIp } from "../services/security";
-import { authRateLimit, clearRateLimit } from "../_core/trpc-rate-limit";
+import { generalRateLimit, clearRateLimit } from "../_core/trpc-rate-limit";
 import { sendEmail } from "../_core/email";
 import { logger } from "../_core/logger";
 
@@ -119,7 +119,7 @@ export const signupRouter = router({
             const ip = getClientIp(ctx.req);
             const rateLimitKey = `signup:${ip}`;
             try {
-                await authRateLimit(rateLimitKey);
+                await generalRateLimit(rateLimitKey);
             } catch (e: any) {
                 throw e; // Re-throw TRPCError (TOO_MANY_REQUESTS) so HTTP 429 is returned
             }
@@ -227,7 +227,7 @@ export const signupRouter = router({
                 );
 
                 // Clear rate limit after successful registration
-                clearRateLimit(rateLimitKey, 'auth');
+                clearRateLimit(rateLimitKey, 'general');
 
                 // Auto-login: create session token
                 const sessionToken = await sdk.createSessionToken(openId, {

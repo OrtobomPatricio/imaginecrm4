@@ -69,9 +69,9 @@ export async function createDemoData(tenantId: number, userId: number) {
 
         // 3. Create Demo Leads
         const demoLeads = [
-            { name: "Juan Pérez", email: "juan@ejemplo.com", phone: "+541122334455" },
-            { name: "María García", email: "maria@ejemplo.com", phone: "+541166778899" },
-            { name: "Tech Solutions", email: "info@tech.com", phone: "+541199887766" },
+            { name: "Juan Pérez", email: "juan@ejemplo.com", phone: "+541122334455", country: "AR" },
+            { name: "María García", email: "maria@ejemplo.com", phone: "+541166778899", country: "AR" },
+            { name: "Tech Solutions", email: "info@tech.com", phone: "+541199887766", country: "AR" },
         ];
 
         for (const l of demoLeads) {
@@ -81,6 +81,7 @@ export async function createDemoData(tenantId: number, userId: number) {
                     name: l.name,
                     email: l.email,
                     phone: l.phone,
+                    country: l.country,
                     status: "new",
                     pipelineStageId: firstStageId,
                     assignedToId: userId

@@ -295,7 +295,7 @@ export const leads = mysqlTable("leads", {
   name: varchar("name", { length: 200 }).notNull(),
   phone: varchar("phone", { length: 20 }).notNull(), // Unique index added below
   email: varchar("email", { length: 320 }),
-  country: varchar("country", { length: 50 }).notNull(),
+  country: varchar("country", { length: 50 }).notNull().default(""),
   // Status is deprecated but kept for migration. Use pipelineStageId instead.
   status: mysqlEnum("status", ["new", "contacted", "qualified", "negotiation", "won", "lost"]).default("new").notNull(),
   pipelineStageId: int("pipelineStageId").references(() => pipelineStages.id, { onDelete: "set null" }),

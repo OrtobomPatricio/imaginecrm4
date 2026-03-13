@@ -218,6 +218,14 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
     await ensureColumn("leads", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "leads.tenantId column");
     await ensureColumn("leads", "deletedAt", "`deletedAt` TIMESTAMP NULL", "leads.deletedAt column");
     await ensureColumn("leads", "externalChatId", "`externalChatId` VARCHAR(255) NULL", "leads.externalChatId column");
+
+    // Patch leads.country to have a DEFAULT so inserts without explicit country don't fail
+    if (await hasTable("leads") && await hasColumn("leads", "country")) {
+        try {
+            await connection.query(`ALTER TABLE \`leads\` ALTER COLUMN \`country\` SET DEFAULT ''`);
+        } catch { /* harmless if already set */ }
+    }
+
     await ensureColumn("chat_messages", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "chat_messages.tenantId column");
     await ensureColumn("conversations", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "conversations.tenantId column");
     await ensureColumn("pipelines", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "pipelines.tenantId column");
