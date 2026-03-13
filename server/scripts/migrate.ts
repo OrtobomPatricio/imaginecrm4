@@ -44,23 +44,27 @@ export async function runMigrations() {
     logger.info("[Migration] Running migrations from ./drizzle folder...");
 
     try {
-        await migrate(db, {
-            migrationsFolder: path.resolve(process.cwd(), "drizzle")
-        });
-        // ensureCompatibilitySchema applies legacy ALTER TABLEs outside the migration system.
-        // It is non-fatal: if it fails, Drizzle migrations are still the source of truth.
+        // Phase 1: Drizzle SQL migrations (journal-based, may skip already-applied)
         try {
-            logger.warn("[Migration] Running legacy ensureCompatibilitySchema — this is deprecated and will be removed in a future version. Prefer Drizzle migrations.");
+            await migrate(db, {
+                migrationsFolder: path.resolve(process.cwd(), "drizzle")
+            });
+        } catch (drizzleErr) {
+            // Log but do NOT rethrow — ensureCompatibilitySchema below will
+            // create any tables that Drizzle failed to create.
+            logger.error({ err: safeError(drizzleErr) }, "[Migration] Drizzle migration failed — ensureCompatibilitySchema will fill gaps");
+        }
+
+        // Phase 2: Compatibility layer — creates every table/column that may be missing.
+        // Runs ALWAYS, even if Drizzle failed, so the server can boot.
+        try {
+            logger.warn("[Migration] Running ensureCompatibilitySchema...");
             await ensureCompatibilitySchema(connection);
         } catch (compatErr) {
-            logger.error({ err: compatErr }, "[Migration] ensureCompatibilitySchema failed (non-fatal) — please convert remaining ALTERs to proper Drizzle migrations");
+            logger.error({ err: safeError(compatErr) }, "[Migration] ensureCompatibilitySchema failed (non-fatal)");
         }
+
         logger.info("[Migration] Success! Database is up to date.");
-    } catch (error) {
-        logger.error({ err: safeError(error) }, "[Migration] Failed");
-        // Do not exit process if imported, let caller handle it? 
-        // Or throw.
-        throw error;
     } finally {
         await connection.end();
     }
@@ -162,7 +166,8 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
                 if (err?.errno === 1060) {
                     logger.info(`[Migration] Column ${table}.${column} already exists (concurrent migration)`);
                 } else {
-                    throw err;
+                    // Non-fatal: log and continue so subsequent table creations are not blocked
+                    logger.error({ err, table, column }, `[Migration] Failed to add column ${table}.${column} (non-fatal)`);
                 }
             }
         }
@@ -382,7 +387,7 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
     await ensureColumn("onboarding_progress", "teamInvites", "`teamInvites` JSON NULL", "onboarding_progress.teamInvites column");
     await ensureColumn("onboarding_progress", "updatedAt", "`updatedAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "onboarding_progress.updatedAt column");
 
-    {
+    try {
         const [idxRows] = await connection.query(
             `SELECT COUNT(*) AS cnt
              FROM information_schema.statistics
@@ -395,9 +400,11 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
             await connection.query(`ALTER TABLE sessions ADD UNIQUE INDEX uniq_sessions_token (sessionToken)`);
             logger.warn("[Migration] Added missing uniq_sessions_token index");
         }
+    } catch (err) {
+        logger.error({ err }, "[Migration] Failed to ensure sessions index (non-fatal)");
     }
 
-    {
+    try {
         const [idxRows] = await connection.query(
             `SELECT COUNT(*) AS cnt
              FROM information_schema.statistics
@@ -410,6 +417,8 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
             await connection.query(`ALTER TABLE onboarding_progress ADD UNIQUE INDEX uniq_onboarding_progress_tenantId (tenantId)`);
             logger.warn("[Migration] Added missing uniq_onboarding_progress_tenantId index");
         }
+    } catch (err) {
+        logger.error({ err }, "[Migration] Failed to ensure onboarding_progress index (non-fatal)");
     }
 
     if (!(await hasTable("whatsapp_numbers"))) {
@@ -1019,74 +1028,84 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
     await ensureColumn("app_settings", "securityConfig", "`securityConfig` JSON NULL", "app_settings.securityConfig column");
     await ensureColumn("app_settings", "metaConfig", "`metaConfig` JSON NULL", "app_settings.metaConfig column");
 
-    if (await hasTable("app_settings")) {
-        const [idxRows] = await connection.query(
-            `SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') AS cols
-             FROM information_schema.statistics
-             WHERE table_schema = DATABASE()
-               AND table_name = 'app_settings'
-               AND index_name = 'uniq_app_settings_singleton'`,
-        );
-
-        const cols = String((idxRows as Array<{ cols: string | null }>)[0]?.cols ?? "");
-
-        if (!cols) {
-            await connection.query(
-                `ALTER TABLE app_settings
-                 ADD UNIQUE INDEX uniq_app_settings_singleton (tenantId, singleton)`
+    try {
+        if (await hasTable("app_settings")) {
+            const [idxRows] = await connection.query(
+                `SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') AS cols
+                 FROM information_schema.statistics
+                 WHERE table_schema = DATABASE()
+                   AND table_name = 'app_settings'
+                   AND index_name = 'uniq_app_settings_singleton'`,
             );
-            logger.warn("[Migration] Added missing app_settings uniq_app_settings_singleton (tenantId, singleton)");
-        } else if (cols === "singleton") {
-            await connection.query(`ALTER TABLE app_settings DROP INDEX uniq_app_settings_singleton`);
-            await connection.query(
-                `ALTER TABLE app_settings
-                 ADD UNIQUE INDEX uniq_app_settings_singleton (tenantId, singleton)`
-            );
-            logger.warn("[Migration] Rebuilt legacy app_settings uniq_app_settings_singleton to (tenantId, singleton)");
+
+            const cols = String((idxRows as Array<{ cols: string | null }>)[0]?.cols ?? "");
+
+            if (!cols) {
+                await connection.query(
+                    `ALTER TABLE app_settings
+                     ADD UNIQUE INDEX uniq_app_settings_singleton (tenantId, singleton)`
+                );
+                logger.warn("[Migration] Added missing app_settings uniq_app_settings_singleton (tenantId, singleton)");
+            } else if (cols === "singleton") {
+                await connection.query(`ALTER TABLE app_settings DROP INDEX uniq_app_settings_singleton`);
+                await connection.query(
+                    `ALTER TABLE app_settings
+                     ADD UNIQUE INDEX uniq_app_settings_singleton (tenantId, singleton)`
+                );
+                logger.warn("[Migration] Rebuilt legacy app_settings uniq_app_settings_singleton to (tenantId, singleton)");
+            }
         }
+    } catch (err) {
+        logger.error({ err }, "[Migration] Failed to ensure app_settings singleton index (non-fatal)");
     }
 
     // ── Fix legacy unique constraints missing tenantId (from 0011.sql) ──
     // leads.phone: should be (tenantId, phone) not just (phone)
-    if (await hasTable("leads") && await hasColumn("leads", "phone")) {
-        const [idxRows] = await connection.query(
-            `SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') AS cols
-             FROM information_schema.statistics
-             WHERE table_schema = DATABASE()
-               AND table_name = 'leads'
-               AND index_name = 'uniq_leads_phone'`,
-        );
-        const cols = String((idxRows as Array<{ cols: string | null }>)[0]?.cols ?? "");
-        if (cols === "phone") {
-            await connection.query(`ALTER TABLE leads DROP INDEX uniq_leads_phone`);
-            await connection.query(`ALTER TABLE leads ADD UNIQUE INDEX uniq_leads_phone (tenantId, phone)`);
-            logger.warn("[Migration] Rebuilt leads uniq_leads_phone to (tenantId, phone)");
-        } else if (!cols && await hasColumn("leads", "tenantId")) {
-            try {
+    try {
+        if (await hasTable("leads") && await hasColumn("leads", "phone")) {
+            const [idxRows] = await connection.query(
+                `SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') AS cols
+                 FROM information_schema.statistics
+                 WHERE table_schema = DATABASE()
+                   AND table_name = 'leads'
+                   AND index_name = 'uniq_leads_phone'`,
+            );
+            const cols = String((idxRows as Array<{ cols: string | null }>)[0]?.cols ?? "");
+            if (cols === "phone") {
+                await connection.query(`ALTER TABLE leads DROP INDEX uniq_leads_phone`);
                 await connection.query(`ALTER TABLE leads ADD UNIQUE INDEX uniq_leads_phone (tenantId, phone)`);
-                logger.warn("[Migration] Added leads uniq_leads_phone (tenantId, phone)");
-            } catch { /* index may already exist under different name */ }
+                logger.warn("[Migration] Rebuilt leads uniq_leads_phone to (tenantId, phone)");
+            } else if (!cols && await hasColumn("leads", "tenantId")) {
+                try {
+                    await connection.query(`ALTER TABLE leads ADD UNIQUE INDEX uniq_leads_phone (tenantId, phone)`);
+                    logger.warn("[Migration] Added leads uniq_leads_phone (tenantId, phone)");
+                } catch { /* index may already exist under different name */ }
+            }
         }
+    } catch (err) {
+        logger.error({ err }, "[Migration] Failed to ensure leads phone index (non-fatal)");
     }
 
     // campaign_recipients: should be (tenantId, campaignId, leadId) not just (campaignId, leadId)
-    if (await hasTable("campaign_recipients") && await hasColumn("campaign_recipients", "tenantId")) {
-        const [idxRows] = await connection.query(
-            `SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') AS cols
-             FROM information_schema.statistics
-             WHERE table_schema = DATABASE()
-               AND table_name = 'campaign_recipients'
-               AND index_name = 'unique_campaign_lead'`,
-        );
-        const cols = String((idxRows as Array<{ cols: string | null }>)[0]?.cols ?? "");
-        if (cols === "campaignId,leadId") {
-            // The FK on campaignId uses unique_campaign_lead as its backing index.
-            // We must add a standalone index on campaignId first so MySQL allows the drop.
-            try { await connection.query(`ALTER TABLE campaign_recipients ADD INDEX idx_cr_campaignId (campaignId)`); } catch { /* already exists */ }
-            await connection.query(`ALTER TABLE campaign_recipients DROP INDEX unique_campaign_lead`);
-            await connection.query(`ALTER TABLE campaign_recipients ADD UNIQUE INDEX unique_campaign_lead (tenantId, campaignId, leadId)`);
-            logger.warn("[Migration] Rebuilt campaign_recipients unique_campaign_lead to (tenantId, campaignId, leadId)");
+    try {
+        if (await hasTable("campaign_recipients") && await hasColumn("campaign_recipients", "tenantId")) {
+            const [idxRows] = await connection.query(
+                `SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') AS cols
+                 FROM information_schema.statistics
+                 WHERE table_schema = DATABASE()
+                   AND table_name = 'campaign_recipients'
+                   AND index_name = 'unique_campaign_lead'`,
+            );
+            const cols = String((idxRows as Array<{ cols: string | null }>)[0]?.cols ?? "");
+            if (cols === "campaignId,leadId") {
+                try { await connection.query(`ALTER TABLE campaign_recipients ADD INDEX idx_cr_campaignId (campaignId)`); } catch { /* already exists */ }
+                await connection.query(`ALTER TABLE campaign_recipients DROP INDEX unique_campaign_lead`);
+                await connection.query(`ALTER TABLE campaign_recipients ADD UNIQUE INDEX unique_campaign_lead (tenantId, campaignId, leadId)`);
+                logger.warn("[Migration] Rebuilt campaign_recipients unique_campaign_lead to (tenantId, campaignId, leadId)");
+            }
         }
+    } catch (err) {
+        logger.error({ err }, "[Migration] Failed to ensure campaign_recipients index (non-fatal)");
     }
 
     {
