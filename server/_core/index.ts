@@ -31,6 +31,7 @@ import { startTicketStatusWorker } from "../services/ticket-status-worker";
 import { startRemindersWorker } from "../services/reminders-worker";
 import { startWarmupScheduler } from "../services/warmup-scheduler";
 import { runMigrations } from "../scripts/migrate";
+import { ensureAllTables } from "../services/ensure-schema";
 import { validateProductionSecrets } from "./validate-env";
 import { assertDbConstraints } from "../services/assert-db";
 import { assertEnv } from "./assert-env";
@@ -623,6 +624,13 @@ const run = async () => {
   } catch (e) {
     logger.fatal({ err: safeError(e) }, "startup: auto-migration failed");
     process.exit(1);
+  }
+
+  // Runtime safety-net: ensure ALL critical tables exist using getDb() pool
+  try {
+    await ensureAllTables();
+  } catch (e) {
+    logger.error({ err: safeError(e) }, "startup: ensureAllTables failed (non-fatal)");
   }
 
   // Always ensure bootstrap admin exists (idempotent)
