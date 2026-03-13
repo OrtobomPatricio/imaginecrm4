@@ -594,34 +594,19 @@ export async function ensureAllTables(): Promise<void> {
         return;
     }
 
-    let created = 0;
-    let existed = 0;
+    let ok = 0;
     let failed = 0;
 
     for (const { name, ddl } of TABLES) {
         try {
-            // Check if table exists first
-            const [rows] = await db.execute(sql`
-                SELECT COUNT(*) AS cnt
-                FROM information_schema.tables
-                WHERE table_schema = DATABASE()
-                  AND table_name = ${name}
-            `) as any;
-            const exists = Number(rows?.cnt ?? rows?.[0]?.cnt ?? 0) > 0;
-
-            if (exists) {
-                existed++;
-                continue;
-            }
-
+            // CREATE TABLE IF NOT EXISTS is idempotent — no need to check first
             await db.execute(sql.raw(ddl));
-            logger.warn(`[EnsureSchema] Created missing table: ${name}`);
-            created++;
+            ok++;
         } catch (err) {
             logger.error({ err: safeError(err), table: name }, `[EnsureSchema] Failed to create table ${name}`);
             failed++;
         }
     }
 
-    logger.info({ created, existed, failed, total: TABLES.length }, "[EnsureSchema] Table check complete");
+    logger.info({ ok, failed, total: TABLES.length }, "[EnsureSchema] Table check complete");
 }

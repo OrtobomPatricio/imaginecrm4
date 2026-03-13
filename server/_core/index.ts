@@ -418,16 +418,35 @@ async function startServer() {
   httpServer.listen(port, "0.0.0.0", () => {
     logger.info({ port }, "server listening");
 
-    // Background Services
-    initReminderScheduler();
-    startCampaignWorker();
-    startLogCleanup();
-    startAutoBackup();
-    startSessionCleanup();
-    startWorkflowPoller();
-    startTicketStatusWorker();
-    startRemindersWorker();
-    startWarmupScheduler();
+    // ── Runtime schema safety-net ──────────────────────────────
+    // Must complete BEFORE workers check for tables.
+    // Uses the same getDb() pool proven to work in superadmin-init.
+    import("../services/ensure-schema").then(({ ensureAllTables }) => {
+      return ensureAllTables();
+    }).then(() => {
+      // Background Services — start AFTER tables are guaranteed
+      initReminderScheduler();
+      startCampaignWorker();
+      startLogCleanup();
+      startAutoBackup();
+      startSessionCleanup();
+      startWorkflowPoller();
+      startTicketStatusWorker();
+      startRemindersWorker();
+      startWarmupScheduler();
+    }).catch(err => {
+      logger.error({ err: safeError(err) }, "[EnsureSchema] startup failed — starting workers anyway");
+      // Start workers even if schema check fails
+      initReminderScheduler();
+      startCampaignWorker();
+      startLogCleanup();
+      startAutoBackup();
+      startSessionCleanup();
+      startWorkflowPoller();
+      startTicketStatusWorker();
+      startRemindersWorker();
+      startWarmupScheduler();
+    });
 
     // Database optimization (FULLTEXT indexes)
     import("../services/fulltext-indexes").then(({ createFulltextIndexes }) => {
