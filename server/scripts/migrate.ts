@@ -1094,8 +1094,18 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
         }
     }
 
-    // AI auto-reply config column (added in 0037)
+    // Ensure ALL app_settings columns exist (Drizzle migrations may have been journaled but not applied)
+    await ensureColumn("app_settings", "dashboardConfig", "`dashboardConfig` JSON NULL", "app_settings.dashboardConfig column");
+    await ensureColumn("app_settings", "salesConfig", "`salesConfig` JSON NULL", "app_settings.salesConfig column");
+    await ensureColumn("app_settings", "smtpConfig", "`smtpConfig` JSON NULL", "app_settings.smtpConfig column");
+    await ensureColumn("app_settings", "storageConfig", "`storageConfig` JSON NULL", "app_settings.storageConfig column");
+    await ensureColumn("app_settings", "aiConfig", "`aiConfig` JSON NULL", "app_settings.aiConfig column");
+    await ensureColumn("app_settings", "mapsConfig", "`mapsConfig` JSON NULL", "app_settings.mapsConfig column");
+    await ensureColumn("app_settings", "slaConfig", "`slaConfig` JSON NULL", "app_settings.slaConfig column");
+    await ensureColumn("app_settings", "chatDistributionConfig", "`chatDistributionConfig` JSON NULL", "app_settings.chatDistributionConfig column");
+    await ensureColumn("app_settings", "lastAssignedAgentId", "`lastAssignedAgentId` INT NULL", "app_settings.lastAssignedAgentId column");
     await ensureColumn("app_settings", "autoReplyConfig", "`autoReplyConfig` JSON NULL", "app_settings.autoReplyConfig column");
+    await ensureColumn("app_settings", "maintenanceMode", "`maintenanceMode` JSON NULL", "app_settings.maintenanceMode column");
 
     logger.info("[Migration] Schema compatibility checks completed");
 
