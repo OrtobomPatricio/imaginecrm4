@@ -128,6 +128,7 @@ function Router() {
   return (
     <ProtectedRoute>
       <Switch>
+        <Route path="/reset-password" component={ResetPassword} />
         <Route path="/onboarding" component={OnboardingPage} />
         <Route>
           <DashboardLayout>

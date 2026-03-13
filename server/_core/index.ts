@@ -615,15 +615,14 @@ const run = async () => {
     }
   });
 
-  if (process.env.RUN_MIGRATIONS === "1") {
-    try {
-      logger.info("startup: starting database migration");
-      await runMigrations();
-      logger.info("startup: database migration completed");
-    } catch (e) {
-      logger.fatal({ err: safeError(e) }, "startup: auto-migration failed");
-      process.exit(1);
-    }
+  // Always run migrations — Drizzle + ensureCompatibilitySchema are idempotent
+  try {
+    logger.info("startup: starting database migration");
+    await runMigrations();
+    logger.info("startup: database migration completed");
+  } catch (e) {
+    logger.fatal({ err: safeError(e) }, "startup: auto-migration failed");
+    process.exit(1);
   }
 
   // Always ensure bootstrap admin exists (idempotent)
