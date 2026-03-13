@@ -52,6 +52,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { PermissionGuard } from "@/components/PermissionGuard";
 import { AddWhatsAppDialog } from "@/components/AddWhatsAppDialog";
 import { WhatsAppConnectionsList } from "@/components/WhatsAppConnectionsList";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { EmbeddedSignupButton } from "@/components/EmbeddedSignupButton";
 import { AddEmailDialog } from "@/components/AddEmailDialog";
 import { EmailConnectionsList } from "@/components/EmailConnectionsList";
@@ -68,6 +69,8 @@ export default function Integrations() {
 
 function IntegrationsContent() {
   const utils = trpc.useUtils();
+  const { user } = useAuth();
+  const isSuperAdmin = user?.tenantId === 1;
 
   return (
     <div className="space-y-4">
@@ -94,7 +97,7 @@ function IntegrationsContent() {
                   <CardTitle>Conexiones de WhatsApp</CardTitle>
                   <CardDescription>Administra tus cuentas de WhatsApp Business conectadas.</CardDescription>
                 </div>
-                <AddWhatsAppDialog />
+                {isSuperAdmin && <AddWhatsAppDialog />}
               </div>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -115,7 +118,7 @@ function IntegrationsContent() {
                   onError={(msg) => console.warn("[EmbeddedSignup] Error:", msg)}
                 />
               </div>
-              <WhatsAppConnectionsList />
+              {isSuperAdmin && <WhatsAppConnectionsList />}
             </CardContent>
           </Card>
 
