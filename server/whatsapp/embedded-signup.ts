@@ -409,6 +409,26 @@ export function registerEmbeddedSignupRoutes(app: Express) {
               logger.info({ discoveredWabaId }, "[EmbeddedSignup] Found WABA via debug_token granular_scopes");
             } else {
               logger.warn({ scopeCount: scopes.length, scopeNames: scopes.map(s => s.scope) }, "[EmbeddedSignup] debug_token has no WA scopes with target_ids");
+
+              // If the token only has public_profile and no WA scopes at all, the Embedded Signup
+              // flow didn't complete — Meta fell back to basic Facebook Login.
+              const tokenScopes = debugRes.data?.scopes || [];
+              const hasWaScope = tokenScopes.some((s: string) =>
+                s.includes("whatsapp") || s === "business_management"
+              );
+              if (!hasWaScope && tokenScopes.length <= 1) {
+                logger.error({
+                  tenantId,
+                  tokenScopes,
+                  tokenType: debugRes.data?.type,
+                }, "[EmbeddedSignup] Token has NO WhatsApp scopes — Embedded Signup did not run");
+                return res.status(400).json({
+                  error: "El flujo de Embedded Signup no se completó. El token de Meta solo tiene permiso 'public_profile' sin acceso a WhatsApp.",
+                  detail: "Causas posibles: (1) El config_id de Embedded Signup no es válido o no coincide con la app. (2) La app de Meta está en modo Development y el usuario no es tester/admin de la app. (3) Los permisos de WhatsApp no están aprobados en App Review. Verifica en Meta Dashboard > App Review > Permissions que whatsapp_business_management y whatsapp_business_messaging están aprobados o que la app está en modo Live.",
+                  code: "NO_WA_SCOPES",
+                  tokenScopes,
+                });
+              }
             }
           } catch (err) {
             logger.warn({ err: safeError(err) }, "[EmbeddedSignup] debug_token lookup failed");

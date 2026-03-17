@@ -145,15 +145,19 @@ export function EmbeddedSignupButton({ onSuccess, onError, className, compact }:
       const payload = event.data;
       if (!payload || typeof payload !== "object") return;
 
+      // Log ALL messages from Meta for debugging
+      console.log("[EmbeddedSignup] postMessage from Meta:", JSON.stringify(payload).slice(0, 500));
+
       // Handle different message formats from Meta SDK
       if (payload.type === "WA_EMBEDDED_SIGNUP") {
+        console.log("[EmbeddedSignup] WA_EMBEDDED_SIGNUP event:", payload.event, "data:", JSON.stringify(payload.data || {}).slice(0, 500));
         if (payload.event === "FINISH" || payload.event === "FINISH_ONLY_WABA") {
           // Save waba_id and phone_number_id from the message event.
           // With sessionInfoVersion "3", these come here (NOT in FB.login authResponse).
           const data = payload.data || {};
           if (data.waba_id) embeddedDataRef.current.waba_id = String(data.waba_id);
           if (data.phone_number_id) embeddedDataRef.current.phone_number_id = String(data.phone_number_id);
-          console.log("[EmbeddedSignup] message event data:", data);
+          console.log("[EmbeddedSignup] FINISH data - waba_id:", data.waba_id, "phone_number_id:", data.phone_number_id);
           return;
         }
 
@@ -219,6 +223,18 @@ export function EmbeddedSignupButton({ onSuccess, onError, className, compact }:
 
       FB.login(
         (response: any) => {
+          // Debug: log full FB.login response
+          console.log("[EmbeddedSignup] FB.login full response:", JSON.stringify({
+            status: response.status,
+            hasAuthResponse: !!response.authResponse,
+            hasCode: !!response.authResponse?.code,
+            hasAccessToken: !!response.authResponse?.accessToken,
+            grantedScopes: response.authResponse?.grantedScopes,
+            wabaId: response.authResponse?.waba_id || response.authResponse?.wabaId,
+            phoneId: response.authResponse?.phone_number_id || response.authResponse?.phoneNumberId,
+            embeddedData: embeddedDataRef.current,
+          }));
+
           // Embedded Signup can return either a code or accessToken
           const authResponse = response.authResponse;
           const hasCode = authResponse?.code;
