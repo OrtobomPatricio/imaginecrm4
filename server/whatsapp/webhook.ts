@@ -138,26 +138,35 @@ export async function processMetaWebhookPayload(payload: any, _opts: { skipSigna
             }
             const whereClause = and(eq(chatMessages.whatsappMessageId, messageId), eq(chatMessages.tenantId, statusTenantId));
 
+            let updateFields: Record<string, any> = {};
             if (statusValue === "sent") {
-              await db
-                .update(chatMessages)
-                .set({ status: "sent", sentAt: new Date() } as any)
-                .where(whereClause);
+              updateFields = { status: "sent", sentAt: new Date() };
             } else if (statusValue === "delivered") {
-              await db
-                .update(chatMessages)
-                .set({ status: "delivered", deliveredAt: new Date() } as any)
-                .where(whereClause);
+              updateFields = { status: "delivered", deliveredAt: new Date() };
             } else if (statusValue === "read") {
-              await db
-                .update(chatMessages)
-                .set({ status: "read", readAt: new Date() } as any)
-                .where(whereClause);
+              updateFields = { status: "read", readAt: new Date() };
             } else if (statusValue === "failed") {
-              await db
-                .update(chatMessages)
-                .set({ status: "failed", failedAt: new Date(), errorMessage: status?.errors?.[0]?.title ?? "Failed" } as any)
-                .where(whereClause);
+              updateFields = { status: "failed", failedAt: new Date(), errorMessage: status?.errors?.[0]?.title ?? "Failed" };
+            }
+
+            if (Object.keys(updateFields).length > 0) {
+              await db.update(chatMessages).set(updateFields as any).where(whereClause);
+
+              // Emit real-time status update via WebSocket
+              const [msgRow] = await db.select({ id: chatMessages.id, conversationId: chatMessages.conversationId })
+                .from(chatMessages)
+                .where(whereClause)
+                .limit(1);
+              if (msgRow) {
+                emitToConversation(msgRow.conversationId, "message:status", {
+                  id: msgRow.id,
+                  status: updateFields.status,
+                  ...(updateFields.sentAt ? { sentAt: updateFields.sentAt } : {}),
+                  ...(updateFields.deliveredAt ? { deliveredAt: updateFields.deliveredAt } : {}),
+                  ...(updateFields.readAt ? { readAt: updateFields.readAt } : {}),
+                  ...(updateFields.failedAt ? { failedAt: updateFields.failedAt } : {}),
+                }, statusTenantId);
+              }
             }
           } catch (e) {
             logger.error({ err: safeError(e), messageId, status: statusValue }, "failed to update message status");

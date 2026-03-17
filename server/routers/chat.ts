@@ -801,39 +801,75 @@ export const chatRouter = router({
                         }
 
                         let result: { messageId: string };
+                        const cleanPhone = conv.contactPhone.replace(/[^0-9]/g, '');
 
                         if (input.messageType === 'template' && input.templateName) {
                             // Send as official Meta template message
                             result = await sendCloudTemplate({
                                 accessToken,
                                 phoneNumberId: conn.phoneNumberId,
-                                to: conv.contactPhone.replace(/[^0-9]/g, ''),
+                                to: cleanPhone,
                                 templateName: input.templateName,
                                 languageCode: input.templateLanguage || 'en_US',
                                 components: input.templateComponents || [],
                             });
-                        } else if (input.messageType !== 'text') {
-                            // Media message — require mediaUrl
+                        } else if (input.messageType === 'location') {
+                            if (!input.latitude || !input.longitude) {
+                                throw new TRPCError({ code: "BAD_REQUEST", message: "Se requiere latitud y longitud para enviar ubicación" });
+                            }
+                            result = await sendCloudMessage({
+                                accessToken,
+                                phoneNumberId: conn.phoneNumberId,
+                                to: cleanPhone,
+                                payload: {
+                                    type: 'location',
+                                    latitude: input.latitude,
+                                    longitude: input.longitude,
+                                    ...(input.locationName ? { name: input.locationName } : {}),
+                                },
+                            });
+                        } else if (input.messageType === 'contact') {
+                            result = await sendCloudMessage({
+                                accessToken,
+                                phoneNumberId: conn.phoneNumberId,
+                                to: cleanPhone,
+                                payload: {
+                                    type: 'contact',
+                                    contactName: input.contactName || 'Contact',
+                                    contactPhone: input.contactPhone || '',
+                                },
+                            });
+                        } else if (input.messageType === 'text') {
+                            result = await sendCloudMessage({
+                                accessToken,
+                                phoneNumberId: conn.phoneNumberId,
+                                to: cleanPhone,
+                                payload: { type: 'text', body: input.content || '' },
+                            });
+                        } else if (input.messageType === 'poll') {
+                            // Cloud API does not support interactive polls — send as formatted text
+                            const pollText = `📊 *${input.pollName || 'Poll'}*\n${(input.pollOptions || []).map((o, i) => `${i + 1}. ${o}`).join('\n')}`;
+                            result = await sendCloudMessage({
+                                accessToken,
+                                phoneNumberId: conn.phoneNumberId,
+                                to: cleanPhone,
+                                payload: { type: 'text', body: pollText },
+                            });
+                        } else {
+                            // Media messages: image, video, audio, document, sticker
                             if (!input.mediaUrl) {
                                 throw new TRPCError({ code: "BAD_REQUEST", message: "Se requiere URL de media para este tipo de mensaje" });
                             }
                             result = await sendCloudMessage({
                                 accessToken,
                                 phoneNumberId: conn.phoneNumberId,
-                                to: conv.contactPhone.replace(/[^0-9]/g, ''),
+                                to: cleanPhone,
                                 payload: {
                                     type: input.messageType as any,
                                     link: input.mediaUrl,
                                     ...(input.messageType === 'document' && input.mediaName ? { filename: input.mediaName } : {}),
                                     ...(input.messageType !== 'audio' && input.content ? { caption: input.content } : {}),
                                 },
-                            });
-                        } else {
-                            result = await sendCloudMessage({
-                                accessToken,
-                                phoneNumberId: conn.phoneNumberId,
-                                to: conv.contactPhone.replace(/[^0-9]/g, ''),
-                                payload: { type: 'text', body: input.content || '' },
                             });
                         }
 

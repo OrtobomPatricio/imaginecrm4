@@ -8,7 +8,7 @@ export type CloudSendPayload =
   | { type: "image" | "video" | "audio" | "document"; link: string; caption?: string; filename?: string }
   | { type: "location"; latitude: number; longitude: number; name?: string; address?: string }
   | { type: "sticker"; link: string }
-  | { type: "contact"; vcard: string };
+  | { type: "contact"; contactName: string; contactPhone: string };
 
 export async function sendCloudMessage(opts: {
   accessToken: string;
@@ -61,9 +61,11 @@ export async function sendCloudMessage(opts: {
       body.sticker = { link: opts.payload.link };
       break;
     case "contact":
-      // WhatsApp Cloud API expects contacts array; we use vcard-only contact
       body.type = "contacts";
-      body.contacts = [{ vcard: opts.payload.vcard }];
+      body.contacts = [{
+        name: { formatted_name: opts.payload.contactName },
+        phones: [{ phone: opts.payload.contactPhone }],
+      }];
       break;
   }
 
