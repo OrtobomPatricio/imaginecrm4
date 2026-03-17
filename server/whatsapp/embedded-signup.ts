@@ -245,6 +245,24 @@ export function registerEmbeddedSignupRoutes(app: Express) {
         logger.error({ tenantId }, "[EmbeddedSignup] Failed to decrypt appSecret — check DATA_ENCRYPTION_KEY");
       }
 
+      // Debug log (masked) — remove after diagnosing issue
+      if (appSecret) {
+        logger.info({
+          tenantId,
+          appId,
+          secretLen: appSecret.length,
+          secretPreview: `${appSecret.slice(0, 4)}...${appSecret.slice(-4)}`,
+          isEncrypted: appSecretStored?.startsWith("enc:v1:"),
+        }, "[EmbeddedSignup] Debug: appSecret decrypted successfully");
+      } else {
+        logger.error({
+          tenantId,
+          hasStored: !!appSecretStored,
+          storedLen: appSecretStored?.length,
+          storedPrefix: appSecretStored?.slice(0, 10),
+        }, "[EmbeddedSignup] Debug: appSecret decryption failed or empty");
+      }
+
       if (!appId || !appSecret) {
         return res.status(400).json({
           error: "La plataforma aún no tiene configuradas las credenciales de Meta. Contacta al administrador.",
@@ -262,12 +280,25 @@ export function registerEmbeddedSignupRoutes(app: Express) {
       } else if (code) {
         // Code flow: exchange code → token via POST (Meta Embedded Signup docs require POST)
         logger.info({ tenantId, wabaId: waba_id }, "[EmbeddedSignup] Exchanging code for token via POST");
-        const tokenRes = await oauthPost<{ access_token: string }>("oauth/access_token", {
-          client_id: appId,
-          client_secret: appSecret,
-          code,
-        });
-        shortToken = tokenRes.access_token;
+        try {
+          const tokenRes = await oauthPost<{ access_token: string }>("oauth/access_token", {
+            client_id: appId,
+            client_secret: appSecret,
+            code,
+          });
+          shortToken = tokenRes.access_token;
+        } catch (codeErr: any) {
+          const errMsg = codeErr?.message || "";
+          if (errMsg.toLowerCase().includes("client secret") || errMsg.toLowerCase().includes("client_secret")) {
+            logger.error({ tenantId, appId, secretLen: appSecret.length }, "[EmbeddedSignup] Code exchange failed — App Secret mismatch. Go to Super Admin and update Meta App Secret.");
+            return res.status(400).json({
+              error: "Error validating client secret. El App Secret de Meta guardado en el CRM no coincide con el de tu app. Ve a Super Admin y actualiza el Meta App Secret.",
+              detail: errMsg,
+              code: "META_SECRET_MISMATCH",
+            });
+          }
+          throw codeErr;
+        }
       } else {
         return res.status(400).json({ error: "Se requiere access_token o code." });
       }
