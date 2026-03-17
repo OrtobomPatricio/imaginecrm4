@@ -377,11 +377,23 @@ export function registerEmbeddedSignupRoutes(app: Express) {
             const debugRes = await graphGet<{
               data: {
                 granular_scopes?: Array<{ scope: string; target_ids?: string[] }>;
+                scopes?: string[];
+                app_id?: string;
+                type?: string;
+                is_valid?: boolean;
               };
             }>("debug_token", "", {
               input_token: longToken,
               access_token: `${appId}|${appSecret}`,
             });
+
+            logger.info({
+              isValid: debugRes.data?.is_valid,
+              type: debugRes.data?.type,
+              tokenAppId: debugRes.data?.app_id,
+              scopes: debugRes.data?.scopes,
+              granularScopes: debugRes.data?.granular_scopes,
+            }, "[EmbeddedSignup] debug_token response");
 
             const scopes = debugRes.data?.granular_scopes || [];
             for (const scope of scopes) {
@@ -395,6 +407,8 @@ export function registerEmbeddedSignupRoutes(app: Express) {
             }
             if (discoveredWabaId) {
               logger.info({ discoveredWabaId }, "[EmbeddedSignup] Found WABA via debug_token granular_scopes");
+            } else {
+              logger.warn({ scopeCount: scopes.length, scopeNames: scopes.map(s => s.scope) }, "[EmbeddedSignup] debug_token has no WA scopes with target_ids");
             }
           } catch (err) {
             logger.warn({ err: safeError(err) }, "[EmbeddedSignup] debug_token lookup failed");
@@ -406,20 +420,26 @@ export function registerEmbeddedSignupRoutes(app: Express) {
               const sharedWabas = await graphGet<{ data: Array<{ id: string; name?: string }> }>(
                 "me/businesses", longToken, { fields: "id,name" }
               );
+              logger.info({ businesses: sharedWabas.data?.map((b: any) => ({ id: b.id, name: b.name })) }, "[EmbeddedSignup] me/businesses response");
               if (sharedWabas.data?.length) {
                 for (const biz of sharedWabas.data) {
                   try {
                     const ownedWabas = await graphGet<{ data: Array<{ id: string }> }>(
                       `${biz.id}/owned_whatsapp_business_accounts`, longToken
                     );
+                    logger.info({ bizId: biz.id, wabas: ownedWabas.data }, "[EmbeddedSignup] owned_whatsapp_business_accounts");
                     if (ownedWabas.data?.[0]?.id) {
                       discoveredWabaId = ownedWabas.data[0].id;
                       break;
                     }
-                  } catch { /* try next business */ }
+                  } catch (bizErr) {
+                    logger.warn({ bizId: biz.id, err: safeError(bizErr) }, "[EmbeddedSignup] Failed to get WABAs for business");
+                  }
                 }
               }
-            } catch { /* try next fallback */ }
+            } catch (err) {
+              logger.warn({ err: safeError(err) }, "[EmbeddedSignup] me/businesses lookup failed");
+            }
           }
 
           // Fallback: direct WABA listing
@@ -428,15 +448,20 @@ export function registerEmbeddedSignupRoutes(app: Express) {
               const directWabas = await graphGet<{ data: Array<{ id: string }> }>(
                 "me/whatsapp_business_accounts", longToken
               );
+              logger.info({ wabas: directWabas.data }, "[EmbeddedSignup] me/whatsapp_business_accounts response");
               if (directWabas.data?.[0]?.id) {
                 discoveredWabaId = directWabas.data[0].id;
               }
-            } catch { /* fallback below */ }
+            } catch (err) {
+              logger.warn({ err: safeError(err) }, "[EmbeddedSignup] me/whatsapp_business_accounts lookup failed");
+            }
           }
 
           if (!discoveredWabaId) {
+            logger.error({ tenantId }, "[EmbeddedSignup] All WABA discovery methods failed — returning 400");
             return res.status(400).json({
               error: "No se encontró ninguna cuenta de WhatsApp Business asociada. Asegúrate de haber dado permisos en el flujo de Meta.",
+              code: "WABA_NOT_FOUND",
             });
           }
 
@@ -446,17 +471,20 @@ export function registerEmbeddedSignupRoutes(app: Express) {
               const phones = await graphGet<{ data: Array<{ id: string; display_phone_number?: string; verified_name?: string }> }>(
                 `${discoveredWabaId}/phone_numbers`, longToken, { fields: "id,display_phone_number,verified_name" }
               );
+              logger.info({ wabaId: discoveredWabaId, phones: phones.data }, "[EmbeddedSignup] phone_numbers response");
               if (phones.data?.[0]?.id) {
                 discoveredPhoneId = phones.data[0].id;
               }
             } catch (err) {
-              logger.warn({ err: safeError(err) }, "[EmbeddedSignup] Failed to list phone numbers from WABA");
+              logger.warn({ err: safeError(err), wabaId: discoveredWabaId }, "[EmbeddedSignup] Failed to list phone numbers from WABA");
             }
           }
 
           if (!discoveredPhoneId) {
+            logger.error({ tenantId, discoveredWabaId }, "[EmbeddedSignup] Found WABA but no phone numbers — returning 400");
             return res.status(400).json({
               error: "Se encontró la WABA pero no tiene números de teléfono registrados. Completa el registro del número en el flujo de Meta.",
+              code: "PHONE_NOT_FOUND",
             });
           }
 
