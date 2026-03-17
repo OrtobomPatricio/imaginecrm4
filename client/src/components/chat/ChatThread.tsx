@@ -3,7 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { FileText, Paperclip, Send, MapPin, X, ArrowDown, RefreshCw, Loader2, Check, CheckCheck, Clock, Smile, Sparkles, BookOpen, Plus, Image, Video, Mic, FileUp, UserRound, BarChart3, Camera, Zap } from "lucide-react";
+import { FileText, Paperclip, Send, MapPin, X, ArrowDown, RefreshCw, Loader2, Check, CheckCheck, Clock, Smile, Sparkles, BookOpen, Plus, Image, Video, Mic, FileUp, UserRound, BarChart3, Camera, Zap, LayoutTemplate } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -127,6 +127,9 @@ export function ChatThread({ conversationId, showHelpdeskControls = false }: Pro
   const audioInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
 
+  // Meta template picker
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+
   // AI features
   const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
   const [aiSummary, setAiSummary] = useState<string | null>(null);
@@ -139,6 +142,39 @@ export function ChatThread({ conversationId, showHelpdeskControls = false }: Pro
     onSuccess: (data) => { setAiSummary(data.summary); setShowSummary(true); },
     onError: (e) => toast.error(e.message),
   });
+
+  // Meta templates for template picker
+  const { data: metaTemplates } = trpc.whatsapp.listTemplates.useQuery(undefined, {
+    enabled: showTemplatePicker,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+  const approvedTemplates = useMemo(
+    () => (metaTemplates || []).filter((t: any) => t.status === "APPROVED"),
+    [metaTemplates],
+  );
+
+  const handleSendTemplate = (tpl: any) => {
+    const bodyComp = tpl.components?.find((c: any) => c.type === "BODY");
+    const items: SendQueueItem[] = [{
+      id: uid(),
+      kind: "text",
+      label: `Template: ${tpl.name}`,
+      status: "queued",
+      attempts: 0,
+      payload: {
+        conversationId,
+        content: bodyComp?.text || tpl.name,
+        messageType: "template",
+        templateName: tpl.name,
+        templateLanguage: tpl.language || "en_US",
+        templateComponents: [],
+      },
+    }];
+    enqueueMessages(items);
+    setShowTemplatePicker(false);
+    toast.success(`Sending template "${tpl.name}"`);
+  };
 
   // WebSocket integration
   const { on: onWsEvent, sendTyping: sendTypingIndicator, markAsRead: markAsReadWS, isConnected: isWsConnected } = useConversationWebSocket(conversationId);
@@ -1365,6 +1401,10 @@ export function ChatThread({ conversationId, showHelpdeskControls = false }: Pro
                   <div className="w-8 h-8 rounded-full bg-amber-500/15 flex items-center justify-center"><BarChart3 className="h-4 w-4 text-amber-500" /></div>
                   <span>Encuesta</span>
                 </button>
+                <button className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted transition-colors text-sm w-full text-left" onClick={() => { setShowTemplatePicker(true); setShowPlusMenu(false); }}>
+                  <div className="w-8 h-8 rounded-full bg-emerald-500/15 flex items-center justify-center"><LayoutTemplate className="h-4 w-4 text-emerald-500" /></div>
+                  <span>Send Template</span>
+                </button>
 
                 <div className="border-t my-1" />
 
@@ -1543,6 +1583,47 @@ export function ChatThread({ conversationId, showHelpdeskControls = false }: Pro
               <Button variant="ghost" onClick={() => setShowPollModal(false)}>Cancelar</Button>
               <Button onClick={handleSendPoll}>Enviar encuesta</Button>
             </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Camera Modal */}
+        <Dialog open={showCameraModal} onOpenChange={(open) => { if (!open) closeCameraModal(); }}>
+
+        {/* Meta Template Picker Modal */}
+        <Dialog open={showTemplatePicker} onOpenChange={setShowTemplatePicker}>
+          <DialogContent className="sm:max-w-lg max-h-[80vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <LayoutTemplate className="h-5 w-5 text-emerald-500" /> Send Meta Template
+              </DialogTitle>
+              <DialogDescription>Select an approved template to send via WhatsApp Cloud API.</DialogDescription>
+            </DialogHeader>
+            <div className="flex-1 overflow-y-auto space-y-2 py-2 min-h-0">
+              {approvedTemplates.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground text-sm">
+                  No approved Meta templates found. Create templates in the Templates page.
+                </div>
+              ) : (
+                approvedTemplates.map((tpl: any) => {
+                  const body = tpl.components?.find((c: any) => c.type === "BODY")?.text;
+                  return (
+                    <div
+                      key={tpl.id}
+                      className="p-3 border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors"
+                      onClick={() => handleSendTemplate(tpl)}
+                    >
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="font-medium text-sm">{tpl.name}</span>
+                        <span className="text-[10px] text-muted-foreground">{tpl.language} · {tpl.category}</span>
+                      </div>
+                      {body && (
+                        <p className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-3">{body}</p>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </DialogContent>
         </Dialog>
 

@@ -332,7 +332,7 @@ export async function processMetaWebhookPayload(payload: any, _opts: { skipSigna
 
 
           // Media pipeline (Cloud API): convert mediaId -> binary -> /api/uploads/<file>
-          let storedMediaUrl: string | null = mediaId;
+          let storedMediaUrl: string | null = null;
           let storedMimeType: string | null = mimeType;
           let storedFilename: string | null = filename;
 

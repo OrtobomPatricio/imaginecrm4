@@ -408,7 +408,9 @@ export function registerEmbeddedSignupRoutes(app: Express) {
 
       // ── Step 3: Subscribe WABA to webhooks ──
       try {
-        await graphPost(`${waba_id}/subscribed_apps`, longToken);
+        await graphPost(`${waba_id}/subscribed_apps`, longToken, {
+          subscribed_fields: ["messages", "message_template_status_update"].join(","),
+        });
         logger.info({ tenantId, wabaId: waba_id }, "[EmbeddedSignup] Subscribed WABA to webhooks");
       } catch (err) {
         logger.warn({ err: safeError(err), wabaId: waba_id }, "[EmbeddedSignup] Webhook subscription failed (non-fatal)");

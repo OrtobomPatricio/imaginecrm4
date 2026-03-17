@@ -807,19 +807,33 @@ export const chatRouter = router({
                             result = await sendCloudTemplate({
                                 accessToken,
                                 phoneNumberId: conn.phoneNumberId,
-                                to: conv.contactPhone,
+                                to: conv.contactPhone.replace(/[^0-9]/g, ''),
                                 templateName: input.templateName,
                                 languageCode: input.templateLanguage || 'en_US',
                                 components: input.templateComponents || [],
+                            });
+                        } else if (input.messageType !== 'text') {
+                            // Media message — require mediaUrl
+                            if (!input.mediaUrl) {
+                                throw new TRPCError({ code: "BAD_REQUEST", message: "Se requiere URL de media para este tipo de mensaje" });
+                            }
+                            result = await sendCloudMessage({
+                                accessToken,
+                                phoneNumberId: conn.phoneNumberId,
+                                to: conv.contactPhone.replace(/[^0-9]/g, ''),
+                                payload: {
+                                    type: input.messageType as any,
+                                    link: input.mediaUrl,
+                                    ...(input.messageType === 'document' && input.mediaName ? { filename: input.mediaName } : {}),
+                                    ...(input.messageType !== 'audio' && input.content ? { caption: input.content } : {}),
+                                },
                             });
                         } else {
                             result = await sendCloudMessage({
                                 accessToken,
                                 phoneNumberId: conn.phoneNumberId,
-                                to: conv.contactPhone,
-                                payload: (input.messageType === 'text'
-                                    ? { type: 'text', body: input.content || '' }
-                                    : { type: input.messageType, link: input.mediaUrl }) as any
+                                to: conv.contactPhone.replace(/[^0-9]/g, ''),
+                                payload: { type: 'text', body: input.content || '' },
                             });
                         }
 
