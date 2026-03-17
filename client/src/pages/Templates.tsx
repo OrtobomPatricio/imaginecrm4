@@ -35,6 +35,13 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 
 export default function Templates() {
     const [isOpen, setIsOpen] = useState(false);
@@ -44,6 +51,15 @@ export default function Templates() {
         type: "whatsapp",
     });
     const [editingTemplate, setEditingTemplate] = useState<{ id: number; name: string; content: string } | null>(null);
+
+    // Meta template creation state
+    const [metaCreateOpen, setMetaCreateOpen] = useState(false);
+    const [metaForm, setMetaForm] = useState({
+        name: "",
+        language: "en_US",
+        category: "MARKETING" as "MARKETING" | "UTILITY" | "AUTHENTICATION",
+        bodyText: "",
+    });
 
     const utils = trpc.useUtils();
 
@@ -88,6 +104,35 @@ export default function Templates() {
         },
     });
 
+    // Meta template mutations
+    const createMetaTemplate = trpc.whatsapp.createTemplate.useMutation({
+        onSuccess: () => {
+            utils.whatsapp.listTemplates.invalidate();
+            setMetaCreateOpen(false);
+            setMetaForm({ name: "", language: "en_US", category: "MARKETING", bodyText: "" });
+            toast.success("Template submitted to Meta for review");
+        },
+        onError: (err) => toast.error(err.message),
+    });
+
+    const deleteMetaTemplate = trpc.whatsapp.deleteTemplate.useMutation({
+        onSuccess: () => {
+            utils.whatsapp.listTemplates.invalidate();
+            toast.success("Template deleted from Meta");
+        },
+        onError: (err) => toast.error(err.message),
+    });
+
+    const handleCreateMeta = () => {
+        if (!metaForm.name || !metaForm.bodyText) return;
+        createMetaTemplate.mutate({
+            name: metaForm.name,
+            language: metaForm.language,
+            category: metaForm.category,
+            components: [{ type: "BODY", text: metaForm.bodyText }],
+        });
+    };
+
     const handleCreate = () => {
         if (!formData.name || !formData.content) return;
         createTemplate.mutate({
@@ -108,11 +153,11 @@ export default function Templates() {
     const getStatusBadge = (status: string) => {
         switch (status) {
             case "APPROVED":
-                return <Badge variant="default" className="bg-green-500 hover:bg-green-600"><CheckCircle className="w-3 h-3 mr-1" /> Aprobada</Badge>;
+                return <Badge variant="default" className="bg-green-500 hover:bg-green-600"><CheckCircle className="w-3 h-3 mr-1" /> Approved</Badge>;
             case "REJECTED":
-                return <Badge variant="destructive"><XCircle className="w-3 h-3 mr-1" /> Rechazada</Badge>;
+                return <Badge variant="destructive"><XCircle className="w-3 h-3 mr-1" /> Rejected</Badge>;
             case "PENDING":
-                return <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 hover:bg-yellow-200"><Clock className="w-3 h-3 mr-1" /> Pendiente</Badge>;
+                return <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 hover:bg-yellow-200"><Clock className="w-3 h-3 mr-1" /> Pending</Badge>;
             default:
                 return <Badge variant="outline">{status}</Badge>;
         }
@@ -122,9 +167,9 @@ export default function Templates() {
         <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold tracking-tight">Plantillas de Mensaje</h1>
+                    <h1 className="text-2xl font-bold tracking-tight">Message Templates</h1>
                     <p className="text-muted-foreground">
-                        Gestiona tus plantillas locales y oficiales de WhatsApp
+                        Manage your local and official WhatsApp templates
                     </p>
                 </div>
                 <div className="flex gap-2">
@@ -135,27 +180,27 @@ export default function Templates() {
             <Tabs defaultValue="local" className="w-full">
                 <div className="flex justify-between items-center mb-4">
                     <TabsList>
-                        <TabsTrigger value="local">Mis Plantillas (Local)</TabsTrigger>
-                        <TabsTrigger value="meta">Oficiales (Meta)</TabsTrigger>
+                        <TabsTrigger value="local">My Templates (Local)</TabsTrigger>
+                        <TabsTrigger value="meta">Official (Meta)</TabsTrigger>
                     </TabsList>
 
                     <Dialog open={isOpen} onOpenChange={setIsOpen}>
                         <DialogTrigger asChild>
                             <Button>
                                 <Plus className="mr-2 h-4 w-4" />
-                                Nueva Plantilla Local
+                                New Local Template
                             </Button>
                         </DialogTrigger>
                         <DialogContent className="sm:max-w-[600px]">
                             <DialogHeader>
-                                <DialogTitle>Crear Plantilla Local</DialogTitle>
+                                <DialogTitle>Create Local Template</DialogTitle>
                                 <DialogDescription>
-                                    Define un mensaje reutilizable para uso interno.
+                                    Define a reusable message for internal use.
                                 </DialogDescription>
                             </DialogHeader>
                             <div className="grid gap-4 py-4">
                                 <div className="grid gap-2">
-                                    <Label htmlFor="name">Nombre</Label>
+                                    <Label htmlFor="name">Name</Label>
                                     <Input
                                         id="name"
                                         value={formData.name}
@@ -164,10 +209,10 @@ export default function Templates() {
                                     />
                                 </div>
                                 <div className="grid gap-2">
-                                    <Label htmlFor="content">Contenido</Label>
+                                    <Label htmlFor="content">Content</Label>
                                     <div className="flex gap-2 mb-2">
-                                        <Button variant="outline" size="sm" onClick={() => insertVariable("name")}>+ Nombre</Button>
-                                        <Button variant="outline" size="sm" onClick={() => insertVariable("company")}>+ Empresa</Button>
+                                        <Button variant="outline" size="sm" onClick={() => insertVariable("name")}>+ Name</Button>
+                                        <Button variant="outline" size="sm" onClick={() => insertVariable("company")}>+ Company</Button>
                                     </div>
                                     <Textarea
                                         id="content"
@@ -179,8 +224,8 @@ export default function Templates() {
                                 </div>
                             </div>
                             <DialogFooter>
-                                <Button variant="outline" onClick={() => setIsOpen(false)}>Cancelar</Button>
-                                <Button onClick={handleCreate}>Guardar Plantilla</Button>
+                                <Button variant="outline" onClick={() => setIsOpen(false)}>Cancel</Button>
+                                <Button onClick={handleCreate}>Save Template</Button>
                             </DialogFooter>
                         </DialogContent>
                     </Dialog>
@@ -192,7 +237,7 @@ export default function Templates() {
                             [1, 2, 3].map(i => <div key={i} className="h-40 bg-muted animate-pulse rounded-lg" />)
                         ) : localTemplates?.length === 0 ? (
                             <div className="col-span-full text-center py-12 text-muted-foreground border rounded-lg border-dashed">
-                                No hay plantillas locales creadas.
+                                No local templates created yet.
                             </div>
                         ) : (
                             localTemplates?.map((tpl) => (
@@ -233,7 +278,7 @@ export default function Templates() {
                 </TabsContent>
 
                 <TabsContent value="meta" className="space-y-4">
-                    <div className="flex justify-end mb-4">
+                    <div className="flex justify-end mb-4 gap-2">
                         <Button
                             variant="outline"
                             size="sm"
@@ -242,14 +287,18 @@ export default function Templates() {
                             className="gap-2"
                         >
                             <RefreshCw className={`w-4 h-4 ${isRefetchingMeta ? 'animate-spin' : ''}`} />
-                            Sincronizar con Meta
+                            Sync with Meta
+                        </Button>
+                        <Button size="sm" onClick={() => setMetaCreateOpen(true)} className="gap-2">
+                            <Plus className="w-4 h-4" />
+                            Create Meta Template
                         </Button>
                     </div>
 
                     {metaError && (
                         <div className="p-4 rounded-md bg-destructive/10 text-destructive mb-4 text-sm flex items-center gap-2">
                             <XCircle className="w-4 h-4" />
-                            No se pudieron cargar las plantillas de Meta. Verifica tu conexión a WhatsApp en Configuración.
+                            Could not load Meta templates. Check your WhatsApp connection in Settings.
                         </div>
                     )}
 
@@ -258,11 +307,11 @@ export default function Templates() {
                             [1, 2, 3].map(i => <div key={i} className="h-48 bg-muted animate-pulse rounded-lg" />)
                         ) : metaTemplates?.length === 0 ? (
                             <div className="col-span-full text-center py-12 text-muted-foreground border rounded-lg border-dashed">
-                                No se encontraron plantillas en Meta o no estás conectado.
+                                No Meta templates found, or WhatsApp is not connected.
                             </div>
                         ) : (
                             metaTemplates?.map((tpl: any) => (
-                                <Card key={tpl.id} className="overflow-hidden border-l-4 border-l-transparent hover:border-l-primary transition-all">
+                                <Card key={tpl.id} className="overflow-hidden border-l-4 border-l-transparent hover:border-l-primary transition-all group relative">
                                     <CardHeader className="pb-3 bg-muted/5">
                                         <div className="flex justify-between items-start gap-2">
                                             <div>
@@ -272,7 +321,22 @@ export default function Templates() {
                                                     {tpl.language}
                                                 </div>
                                             </div>
-                                            {getStatusBadge(tpl.status)}
+                                            <div className="flex items-center gap-2">
+                                                {getStatusBadge(tpl.status)}
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-7 w-7 text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    onClick={() => {
+                                                        if (confirm(`Delete template "${tpl.name}" from Meta?`)) {
+                                                            deleteMetaTemplate.mutate({ templateName: tpl.name });
+                                                        }
+                                                    }}
+                                                    disabled={deleteMetaTemplate.isPending}
+                                                >
+                                                    <Trash2 className="h-3.5 w-3.5" />
+                                                </Button>
+                                            </div>
                                         </div>
                                     </CardHeader>
                                     <CardContent className="pt-4 text-sm">
@@ -307,20 +371,20 @@ export default function Templates() {
             <Dialog open={!!editingTemplate} onOpenChange={(open) => { if (!open) setEditingTemplate(null); }}>
                 <DialogContent className="sm:max-w-[600px]">
                     <DialogHeader>
-                        <DialogTitle>Editar Plantilla</DialogTitle>
-                        <DialogDescription>Modifica el nombre o contenido de la plantilla.</DialogDescription>
+                        <DialogTitle>Edit Template</DialogTitle>
+                        <DialogDescription>Update the name or content of the template.</DialogDescription>
                     </DialogHeader>
                     {editingTemplate && (
                         <div className="grid gap-4 py-4">
                             <div className="grid gap-2">
-                                <Label>Nombre</Label>
+                                <Label>Name</Label>
                                 <Input
                                     value={editingTemplate.name}
                                     onChange={(e) => setEditingTemplate({ ...editingTemplate, name: e.target.value })}
                                 />
                             </div>
                             <div className="grid gap-2">
-                                <Label>Contenido</Label>
+                                <Label>Content</Label>
                                 <Textarea
                                     value={editingTemplate.content}
                                     onChange={(e) => setEditingTemplate({ ...editingTemplate, content: e.target.value })}
@@ -330,7 +394,7 @@ export default function Templates() {
                         </div>
                     )}
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setEditingTemplate(null)}>Cancelar</Button>
+                        <Button variant="outline" onClick={() => setEditingTemplate(null)}>Cancel</Button>
                         <Button
                             onClick={() => {
                                 if (!editingTemplate) return;
@@ -342,7 +406,76 @@ export default function Templates() {
                             }}
                             disabled={updateTemplate.isPending}
                         >
-                            {updateTemplate.isPending ? "Guardando..." : "Guardar"}
+                            {updateTemplate.isPending ? "Saving..." : "Save"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Create Meta Template Dialog */}
+            <Dialog open={metaCreateOpen} onOpenChange={setMetaCreateOpen}>
+                <DialogContent className="sm:max-w-[600px]">
+                    <DialogHeader>
+                        <DialogTitle>Create Meta Template</DialogTitle>
+                        <DialogDescription>
+                            Submit a new message template to Meta for review. Once approved, you can use it to send messages.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid gap-2">
+                            <Label htmlFor="meta-name">Template Name</Label>
+                            <Input
+                                id="meta-name"
+                                value={metaForm.name}
+                                onChange={(e) => setMetaForm({ ...metaForm, name: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_') })}
+                                placeholder="e.g. welcome_new_customer"
+                            />
+                            <p className="text-xs text-muted-foreground">Lowercase letters, numbers, and underscores only.</p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="grid gap-2">
+                                <Label>Language</Label>
+                                <Select value={metaForm.language} onValueChange={(v) => setMetaForm({ ...metaForm, language: v })}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="en_US">English (US)</SelectItem>
+                                        <SelectItem value="en">English</SelectItem>
+                                        <SelectItem value="es">Spanish</SelectItem>
+                                        <SelectItem value="pt_BR">Portuguese (BR)</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="grid gap-2">
+                                <Label>Category</Label>
+                                <Select value={metaForm.category} onValueChange={(v: any) => setMetaForm({ ...metaForm, category: v })}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="MARKETING">Marketing</SelectItem>
+                                        <SelectItem value="UTILITY">Utility</SelectItem>
+                                        <SelectItem value="AUTHENTICATION">Authentication</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="meta-body">Body Text</Label>
+                            <Textarea
+                                id="meta-body"
+                                value={metaForm.bodyText}
+                                onChange={(e) => setMetaForm({ ...metaForm, bodyText: e.target.value })}
+                                placeholder="Hello {{1}}, thank you for reaching out! We'll get back to you shortly."
+                                rows={5}
+                            />
+                            <p className="text-xs text-muted-foreground">Use {"{{1}}"}, {"{{2}}"}, etc. for variables.</p>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setMetaCreateOpen(false)}>Cancel</Button>
+                        <Button
+                            onClick={handleCreateMeta}
+                            disabled={createMetaTemplate.isPending || !metaForm.name || !metaForm.bodyText}
+                        >
+                            {createMetaTemplate.isPending ? "Submitting..." : "Submit to Meta"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

@@ -799,14 +799,29 @@ export const chatRouter = router({
                         if (!accessToken) {
                             throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Error desencriptando token de WhatsApp" });
                         }
-                        const result = await sendCloudMessage({
-                            accessToken,
-                            phoneNumberId: conn.phoneNumberId,
-                            to: conv.contactPhone,
-                            payload: (input.messageType === 'text'
-                                ? { type: 'text', body: input.content || '' }
-                                : { type: input.messageType, link: input.mediaUrl }) as any
-                        });
+
+                        let result: { messageId: string };
+
+                        if (input.messageType === 'template' && input.templateName) {
+                            // Send as official Meta template message
+                            result = await sendCloudTemplate({
+                                accessToken,
+                                phoneNumberId: conn.phoneNumberId,
+                                to: conv.contactPhone,
+                                templateName: input.templateName,
+                                languageCode: input.templateLanguage || 'en_US',
+                                components: input.templateComponents || [],
+                            });
+                        } else {
+                            result = await sendCloudMessage({
+                                accessToken,
+                                phoneNumberId: conn.phoneNumberId,
+                                to: conv.contactPhone,
+                                payload: (input.messageType === 'text'
+                                    ? { type: 'text', body: input.content || '' }
+                                    : { type: input.messageType, link: input.mediaUrl }) as any
+                            });
+                        }
 
                         await db.update(chatMessages)
                             .set({

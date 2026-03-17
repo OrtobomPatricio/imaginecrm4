@@ -4,7 +4,7 @@ import { whatsappConnections, whatsappNumbers } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { permissionProcedure, router } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
-import { fetchCloudTemplates } from "../whatsapp/cloud";
+import { fetchCloudTemplates, createCloudTemplate, deleteCloudTemplate } from "../whatsapp/cloud";
 import { BaileysService } from "../services/baileys";
 import { encryptSecret, decryptSecret } from "../_core/crypto";
 import { logger } from "../_core/logger";
@@ -219,4 +219,68 @@ export const whatsappRouter = router({
             throw new Error("Failed to sync with Meta");
         }
     }),
+
+    createTemplate: permissionProcedure("campaigns.manage")
+        .input(z.object({
+            name: z.string().min(1).max(512).regex(/^[a-z0-9_]+$/, "Template name must be lowercase alphanumeric with underscores only"),
+            language: z.string().min(2).max(10).default("en_US"),
+            category: z.enum(["MARKETING", "UTILITY", "AUTHENTICATION"]),
+            components: z.array(z.any()).min(1),
+        }))
+        .mutation(async ({ ctx, input }) => {
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
+
+            const connection = await db.select().from(whatsappConnections)
+                .where(and(eq(whatsappConnections.tenantId, ctx.tenantId), eq(whatsappConnections.isConnected, true)))
+                .limit(1);
+
+            if (!connection[0] || !connection[0].accessToken || !connection[0].businessAccountId) {
+                throw new TRPCError({ code: "PRECONDITION_FAILED", message: "No active WhatsApp Business connection found" });
+            }
+
+            const plainToken = decryptSecret(connection[0].accessToken);
+            if (!plainToken) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to decrypt WhatsApp credentials" });
+
+            const result = await createCloudTemplate({
+                accessToken: plainToken,
+                businessAccountId: connection[0].businessAccountId,
+                name: input.name,
+                language: input.language,
+                category: input.category,
+                components: input.components,
+            });
+
+            logger.info({ tenantId: ctx.tenantId, templateName: input.name, metaId: result.id }, "[WhatsApp] Template created in Meta");
+            return result;
+        }),
+
+    deleteTemplate: permissionProcedure("campaigns.manage")
+        .input(z.object({
+            templateName: z.string().min(1).max(512),
+        }))
+        .mutation(async ({ ctx, input }) => {
+            const db = await getDb();
+            if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
+
+            const connection = await db.select().from(whatsappConnections)
+                .where(and(eq(whatsappConnections.tenantId, ctx.tenantId), eq(whatsappConnections.isConnected, true)))
+                .limit(1);
+
+            if (!connection[0] || !connection[0].accessToken || !connection[0].businessAccountId) {
+                throw new TRPCError({ code: "PRECONDITION_FAILED", message: "No active WhatsApp Business connection found" });
+            }
+
+            const plainToken = decryptSecret(connection[0].accessToken);
+            if (!plainToken) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to decrypt WhatsApp credentials" });
+
+            await deleteCloudTemplate({
+                accessToken: plainToken,
+                businessAccountId: connection[0].businessAccountId,
+                templateName: input.templateName,
+            });
+
+            logger.info({ tenantId: ctx.tenantId, templateName: input.templateName }, "[WhatsApp] Template deleted from Meta");
+            return { success: true };
+        }),
 });

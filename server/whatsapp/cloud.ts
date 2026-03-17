@@ -199,3 +199,69 @@ export async function fetchCloudTemplates(opts: {
   const data = await res.json();
   return data.data || [];
 }
+
+/**
+ * Create a message template in the WhatsApp Business Account via Meta Graph API.
+ */
+export async function createCloudTemplate(opts: {
+  accessToken: string;
+  businessAccountId: string;
+  name: string;
+  language: string;
+  category: "MARKETING" | "UTILITY" | "AUTHENTICATION";
+  components: any[];
+}): Promise<{ id: string }> {
+  const version = ENV.whatsappGraphVersion || "v19.0";
+  const base = ENV.whatsappGraphBaseUrl || "https://graph.facebook.com";
+  const endpoint = `${base}/${version}/${opts.businessAccountId}/message_templates`;
+
+  const body = {
+    name: opts.name,
+    language: opts.language,
+    category: opts.category,
+    components: opts.components,
+  };
+
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${opts.accessToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = await res.json().catch(() => ({} as any));
+  if (!res.ok) {
+    const msg = (data as any)?.error?.message || `WhatsApp API error ${res.status}`;
+    throw new Error(msg);
+  }
+
+  return { id: data.id };
+}
+
+/**
+ * Delete a message template from the WhatsApp Business Account via Meta Graph API.
+ */
+export async function deleteCloudTemplate(opts: {
+  accessToken: string;
+  businessAccountId: string;
+  templateName: string;
+}): Promise<void> {
+  const version = ENV.whatsappGraphVersion || "v19.0";
+  const base = ENV.whatsappGraphBaseUrl || "https://graph.facebook.com";
+  const endpoint = `${base}/${version}/${opts.businessAccountId}/message_templates?name=${encodeURIComponent(opts.templateName)}`;
+
+  const res = await fetch(endpoint, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${opts.accessToken}`,
+    },
+  });
+
+  const data = await res.json().catch(() => ({} as any));
+  if (!res.ok) {
+    const msg = (data as any)?.error?.message || `WhatsApp API error ${res.status}`;
+    throw new Error(msg);
+  }
+}
