@@ -1586,9 +1586,6 @@ export function ChatThread({ conversationId, showHelpdeskControls = false }: Pro
           </DialogContent>
         </Dialog>
 
-        {/* Camera Modal */}
-        <Dialog open={showCameraModal} onOpenChange={(open) => { if (!open) closeCameraModal(); }}>
-
         {/* Meta Template Picker Modal */}
         <Dialog open={showTemplatePicker} onOpenChange={setShowTemplatePicker}>
           <DialogContent className="sm:max-w-lg max-h-[80vh] flex flex-col">

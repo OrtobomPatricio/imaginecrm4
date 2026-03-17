@@ -397,13 +397,17 @@ export class MessageQueueWorker {
 
                 case 'contact':
                     if (!chatMessage.content) {
-                        throw new Error("Contact vCard is required");
+                        throw new Error("Contact info is required");
                     }
                     result = await sendCloudMessage({
                         accessToken,
                         phoneNumberId: connection.phoneNumberId,
                         to,
-                        payload: { type: 'contact', vcard: chatMessage.content }
+                        payload: {
+                            type: 'contact',
+                            contactName: chatMessage.mediaName || chatMessage.content,
+                            contactPhone: chatMessage.content,
+                        }
                     });
                     break;
 
