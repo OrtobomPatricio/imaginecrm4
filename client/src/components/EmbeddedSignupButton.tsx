@@ -207,6 +207,12 @@ export function EmbeddedSignupButton({ onSuccess, onError, className, compact }:
         throw new Error("META_APP_ID no está configurado.");
       }
 
+      if (!configId) {
+        throw new Error("El Config ID de Embedded Signup no está configurado. Ve a Super Admin para configurarlo.");
+      }
+
+      console.log("[EmbeddedSignup] Config loaded:", { appId, configId, graphVersion });
+
       // 2. Load Meta JS SDK
       await loadMetaSDK(appId, graphVersion || "v21.0");
 
@@ -298,14 +304,15 @@ export function EmbeddedSignupButton({ onSuccess, onError, className, compact }:
             });
         },
         {
-          // Meta Embedded Signup specific options
-          config_id: configId || undefined,
+          // Meta Embedded Signup — must match official docs exactly.
+          // DO NOT pass 'scope' when using config_id — permissions are defined in the config.
+          // See: https://developers.facebook.com/docs/whatsapp/embedded-signup
+          config_id: configId,
           response_type: "code",
           override_default_response_type: true,
-          scope: "whatsapp_business_management,whatsapp_business_messaging,business_management",
           extras: {
             setup: {},
-            featureType: "phone_number_sharing",
+            featureType: "",
             sessionInfoVersion: "3",
           },
         }
