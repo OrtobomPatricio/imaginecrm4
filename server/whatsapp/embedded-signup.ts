@@ -261,11 +261,13 @@ export function registerEmbeddedSignupRoutes(app: Express) {
         shortToken = directToken;
       } else if (code) {
         // Code flow: exchange code → token via POST (Meta Embedded Signup docs require POST)
+        // redirect_uri must match what the JS SDK used implicitly: login_success.html
         logger.info({ tenantId, wabaId: waba_id }, "[EmbeddedSignup] Exchanging code for token via POST");
         try {
           const tokenRes = await oauthPost<{ access_token: string }>("oauth/access_token", {
             client_id: appId,
             client_secret: appSecret,
+            redirect_uri: "https://www.facebook.com/connect/login_success.html",
             code,
           });
           shortToken = tokenRes.access_token;
