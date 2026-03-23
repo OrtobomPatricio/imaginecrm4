@@ -275,6 +275,9 @@ async function ensureCompatibilitySchema(connection: mysql.Connection) {
     await ensureColumn("whatsapp_connections", "wabaId", "`wabaId` VARCHAR(50) NULL", "whatsapp_connections.wabaId column");
     await ensureColumn("whatsapp_connections", "setupSource", "`setupSource` VARCHAR(30) NULL DEFAULT 'manual'", "whatsapp_connections.setupSource column");
     await ensureColumn("whatsapp_connections", "tokenExpiresAt", "`tokenExpiresAt` TIMESTAMP NULL", "whatsapp_connections.tokenExpiresAt column");
+    await ensureColumn("templates", "metaTemplateName", "`metaTemplateName` VARCHAR(150) NULL", "templates.metaTemplateName column");
+    await ensureColumn("templates", "languageCode", "`languageCode` VARCHAR(10) NULL DEFAULT 'es'", "templates.languageCode column");
+    await ensureColumn("templates", "metaComponents", "`metaComponents` JSON NULL", "templates.metaComponents column");
     await ensureColumn("facebook_pages", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "facebook_pages.tenantId column");
     await ensureColumn("access_logs", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "access_logs.tenantId column");
     await ensureColumn("smtp_connections", "tenantId", "`tenantId` INT NOT NULL DEFAULT 1", "smtp_connections.tenantId column");
