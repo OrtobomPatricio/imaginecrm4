@@ -158,40 +158,6 @@ async function oauthPost<T = any>(path: string, params: Record<string, string>):
 export function registerEmbeddedSignupRoutes(app: Express) {
 
   /**
-   * GET /api/whatsapp/embedded-signup/debug
-   * Diagnostic endpoint — shows masked secret info to help debug config issues.
-   * TEMPORARY: Remove after fixing the issue.
-   */
-  app.get("/api/whatsapp/embedded-signup/debug", async (req: Request, res: Response) => {
-    try {
-      const auth = await requireAdminAuth(req, res);
-      if (!auth) return;
-
-      const database = await db.getDb();
-      const settings = await getOrCreateAppSettings(database, auth.tenantId);
-      const platformMeta = await getPlatformMetaConfig(database);
-
-      const appId = settings.metaConfig?.appId || platformMeta.appId;
-      const appSecretStored = settings.metaConfig?.appSecret || platformMeta.appSecret;
-      const configId = settings.metaConfig?.embeddedSignupConfigId || platformMeta.configId;
-      const appSecret = decryptSecret(appSecretStored);
-
-      return res.json({
-        appId: appId || "(not set)",
-        configId: configId || "(not set)",
-        secretSource: settings.metaConfig?.appSecret ? "db_tenant" : (platformMeta.appSecret ? "db_platform_or_env" : "none"),
-        secretStored: appSecretStored ? `${appSecretStored.slice(0, 10)}... (len=${appSecretStored.length})` : "(empty)",
-        secretIsEncrypted: appSecretStored?.startsWith("enc:v1:") || false,
-        secretDecrypted: appSecret ? `${appSecret.slice(0, 4)}...${appSecret.slice(-4)} (len=${appSecret.length})` : "(decrypt failed or empty)",
-        envMetaAppSecret: process.env.META_APP_SECRET ? "SET" : "NOT SET",
-        envDataEncKey: process.env.DATA_ENCRYPTION_KEY ? "SET" : "NOT SET",
-      });
-    } catch (err) {
-      return res.status(500).json({ error: (err as any)?.message });
-    }
-  });
-
-  /**
    * GET /api/whatsapp/embedded-signup/config
    * Returns the public configuration needed for the frontend JS SDK.
    * Does NOT leak appSecret or tokens.
@@ -277,24 +243,6 @@ export function registerEmbeddedSignupRoutes(app: Express) {
       const appSecret = decryptSecret(appSecretStored);
       if (!appSecret && appSecretStored) {
         logger.error({ tenantId }, "[EmbeddedSignup] Failed to decrypt appSecret — check DATA_ENCRYPTION_KEY");
-      }
-
-      // Debug log (masked) — remove after diagnosing issue
-      if (appSecret) {
-        logger.info({
-          tenantId,
-          appId,
-          secretLen: appSecret.length,
-          secretPreview: `${appSecret.slice(0, 4)}...${appSecret.slice(-4)}`,
-          isEncrypted: appSecretStored?.startsWith("enc:v1:"),
-        }, "[EmbeddedSignup] Debug: appSecret decrypted successfully");
-      } else {
-        logger.error({
-          tenantId,
-          hasStored: !!appSecretStored,
-          storedLen: appSecretStored?.length,
-          storedPrefix: appSecretStored?.slice(0, 10),
-        }, "[EmbeddedSignup] Debug: appSecret decryption failed or empty");
       }
 
       if (!appId || !appSecret) {
