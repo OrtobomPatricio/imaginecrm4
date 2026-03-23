@@ -465,7 +465,7 @@ export function registerWhatsAppWebhookRoutes(app: Express) {
         }
         const ok = verifySignature(raw, signature, appSecret);
         if (!ok) {
-          logger.warn({ hasSignature: Boolean(signature) }, "invalid webhook signature");
+          logger.warn({ hasSignature: Boolean(signature), secretLen: appSecret.length }, "invalid webhook signature");
           return res.sendStatus(403);
         }
       } else if (isProd) {

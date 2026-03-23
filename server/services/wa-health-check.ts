@@ -3,12 +3,16 @@ import { logger } from "../_core/logger";
 import { BaileysService } from "./baileys";
 import { getDb } from "../db";
 import { whatsappNumbers, whatsappConnections } from "../../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 /**
  * WhatsApp Connection Health Check Service
- * Periodically pings all active Baileys connections and marks
+ * Periodically pings all active Baileys (QR) connections and marks
  * stale/disconnected sessions for reconnection.
+ *
+ * NOTE: Cloud API ("api") connections do NOT use Baileys sockets — they are
+ * always "disconnected" in Baileys, so they must be excluded from this check
+ * to avoid incorrectly marking them as disconnected every 5 minutes.
  *
  * Runs every 5 minutes.
  */
@@ -18,11 +22,14 @@ export function startWAHealthCheck(): void {
             const db = await getDb();
             if (!db) return;
 
-            // Get all WA connections that should be active
+            // Only check Baileys (QR) connections — Cloud API connections don't use sockets
             const activeNumbers = await db
                 .select({ id: whatsappNumbers.id })
                 .from(whatsappNumbers)
-                .where(eq(whatsappNumbers.status, "active"));
+                .where(and(
+                    eq(whatsappNumbers.status, "active"),
+                    eq(whatsappNumbers.whatsappConnectionType, "qr")
+                ));
 
             let healthy = 0;
             let stale = 0;
