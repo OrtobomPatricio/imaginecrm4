@@ -267,7 +267,7 @@ export function registerEmbeddedSignupRoutes(app: Express) {
           const tokenRes = await oauthPost<{ access_token: string }>("oauth/access_token", {
             client_id: appId,
             client_secret: appSecret,
-            redirect_uri: "https://www.facebook.com/connect/login_success.html",
+            redirect_uri: `${process.env.APP_URL || "https://crm-imagine-crm.yk50nb.easypanel.host"}`,
             code,
           });
           shortToken = tokenRes.access_token;
