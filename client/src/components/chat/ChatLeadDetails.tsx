@@ -179,7 +179,7 @@ export function ChatLeadDetails({ leadId, className }: ChatLeadDetailsProps) {
                         <div className="space-y-1.5">
                             <Label className="text-[10px] text-muted-foreground uppercase font-bold tracking-wide">Etapa</Label>
                             <Select
-                                value={formData.pipelineStageId?.toString()}
+                                value={formData.pipelineStageId?.toString() ?? ""}
                                 onValueChange={(val) => setFormData({ ...formData, pipelineStageId: parseInt(val) })}
                             >
                                 <SelectTrigger className="w-full h-8 text-xs bg-secondary/20 border-secondary/20">
