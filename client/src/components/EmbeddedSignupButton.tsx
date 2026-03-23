@@ -288,7 +288,7 @@ export function EmbeddedSignupButton({ onSuccess, onError, className, compact }:
           // DO NOT pass 'scope' when using config_id — permissions are defined in the config.
           // See: https://developers.facebook.com/docs/whatsapp/embedded-signup
           config_id: configId,
-          response_type: "code",
+          response_type: "token",
           override_default_response_type: true,
           extras: {
             setup: {},
