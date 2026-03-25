@@ -489,12 +489,17 @@ async function startServer() {
       MessageQueueWorker.getInstance().start();
     }).catch(err => logger.error({ err: safeError(err) }, "[MessageQueue] startup failed"));
 
-    // Restore WhatsApp Sessions
-    import("../services/whatsapp-restorer").then(({ startWhatsAppSessions }) => {
-      startWhatsAppSessions().catch(err => logger.error({ err: safeError(err) }, "[WhatsAppSession] startup failed"));
-    });
+    // Restore WhatsApp Sessions (Baileys/QR only — skip if BAILEYS_ENABLED=0)
+    const baileysEnabled = process.env.BAILEYS_ENABLED !== "0";
+    if (baileysEnabled) {
+      import("../services/whatsapp-restorer").then(({ startWhatsAppSessions }) => {
+        startWhatsAppSessions().catch(err => logger.error({ err: safeError(err) }, "[WhatsAppSession] startup failed"));
+      });
+    } else {
+      logger.info("[WhatsAppSession] Baileys disabled (BAILEYS_ENABLED=0) — skipping QR session restore");
+    }
 
-    // WhatsApp connection health check (every 5 min)
+    // WhatsApp connection health check (every 5 min) — checks only QR connections, safe to run always
     import("../services/wa-health-check").then(({ startWAHealthCheck }) => {
       startWAHealthCheck();
     }).catch(err => logger.error({ err: safeError(err) }, "[WAHealthCheck] startup failed"));

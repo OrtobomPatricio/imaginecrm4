@@ -118,7 +118,7 @@ function IntegrationsContent() {
                   onError={(msg) => console.warn("[EmbeddedSignup] Error:", msg)}
                 />
               </div>
-              {/* WhatsAppConnectionsList hidden — Baileys/QR disabled */}
+              <WhatsAppConnectionsList />
             </CardContent>
           </Card>
 
