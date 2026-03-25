@@ -23,13 +23,18 @@ export function startWAHealthCheck(): void {
             if (!db) return;
 
             // Only check Baileys (QR) connections — Cloud API connections don't use sockets
+            // connectionType lives in whatsappConnections, not whatsappNumbers
             const activeNumbers = await db
                 .select({ id: whatsappNumbers.id })
                 .from(whatsappNumbers)
-                .where(and(
-                    eq(whatsappNumbers.status, "active"),
-                    eq(whatsappNumbers.whatsappConnectionType, "qr")
-                ));
+                .innerJoin(
+                    whatsappConnections,
+                    and(
+                        eq(whatsappConnections.whatsappNumberId, whatsappNumbers.id),
+                        eq(whatsappConnections.connectionType, "qr")
+                    )
+                )
+                .where(eq(whatsappNumbers.status, "active"));
 
             let healthy = 0;
             let stale = 0;
