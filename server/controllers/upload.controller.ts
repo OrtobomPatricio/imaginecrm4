@@ -125,6 +125,8 @@ export const serveUpload = async (req: Request, res: Response) => {
     // Security headers
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Content-Security-Policy", "default-src 'none'");
+    res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(meta.originalName || safeName)}"`);
+    res.setHeader("Cache-Control", "private, max-age=3600");
 
     if (fs.existsSync(filepath)) {
         res.sendFile(filepath);
@@ -203,6 +205,14 @@ export const handleUpload = async (req: Request, res: Response) => {
         res.json({ files: uploadedFiles });
     } catch (e) {
         logger.error({ err: safeError(e) }, "upload persistence failed");
+        // Clean up orphaned files on DB failure
+        for (const file of files) {
+            try {
+                if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+            } catch (cleanErr) {
+                logger.warn({ err: safeError(cleanErr), filename: file.filename }, "[Upload] Failed to clean orphaned file");
+            }
+        }
         res.status(500).json({ error: "Failed to persist upload metadata" });
     }
 };

@@ -86,12 +86,13 @@ export function validateEnvironment(): void {
         }
     }
 
-    // Validate Redis URL
+    // Validate Redis URL — required in production for rate limiting, sessions, WebSocket adapter
     if (!process.env.REDIS_URL && process.env.NODE_ENV === "production") {
-        if (process.env.REQUIRE_REDIS_IN_PROD === "1") {
-            errors.push("REDIS_URL is required in production when REQUIRE_REDIS_IN_PROD=1");
-        } else {
-            warnings.push("REDIS_URL is not set - some features may not work correctly");
+        errors.push("REDIS_URL is required in production (rate limiting, sessions, and WebSocket adapter depend on it). Set REDIS_URL or use SKIP_REDIS_CHECK=1 to override.");
+        if (process.env.SKIP_REDIS_CHECK === "1") {
+            // Downgrade to warning if explicitly opted out
+            errors.pop();
+            warnings.push("REDIS_URL is not set in production — rate limiting, sessions, and WebSocket scaling will be degraded");
         }
     }
 

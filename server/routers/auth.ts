@@ -211,6 +211,8 @@ export const authRouter = router({
 
             await db.update(users).set({ lastSignedIn: new Date() }).where(eq(users.id, user[0].id));
 
+            logger.info({ email: normalizedEmail, userId: user[0].id, tenantId: user[0].tenantId, ip }, "[Auth] Login successful");
+
             return { success: true };
         }),
 

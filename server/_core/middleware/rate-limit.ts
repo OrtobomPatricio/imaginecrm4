@@ -69,6 +69,31 @@ const SENSITIVE_LIMITS: Record<string, ReturnType<typeof rateLimit>> = {
         store: makeRedisStore(),
         message: { error: "rate_limit", message: "Excedido el límite de intentos." }
     }),
+    // Bulk operations protection
+    "leads.import": rateLimit({
+        windowMs: 60000,
+        max: 5,
+        standardHeaders: true,
+        legacyHeaders: false,
+        store: makeRedisStore(),
+        message: { error: "rate_limit", message: "Excedido el límite de importación." }
+    }),
+    "leads.bulkDelete": rateLimit({
+        windowMs: 60000,
+        max: 10,
+        standardHeaders: true,
+        legacyHeaders: false,
+        store: makeRedisStore(),
+        message: { error: "rate_limit", message: "Excedido el límite de eliminación masiva." }
+    }),
+    "campaigns.launch": rateLimit({
+        windowMs: 60000,
+        max: 5,
+        standardHeaders: true,
+        legacyHeaders: false,
+        store: makeRedisStore(),
+        message: { error: "rate_limit", message: "Excedido el límite de lanzamiento de campañas." }
+    }),
 };
 
 // Webhook-specific rate limiters (high threshold but not unlimited)

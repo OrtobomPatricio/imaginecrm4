@@ -101,6 +101,10 @@ export interface SocketData {
 // Socket.IO instance
 let io: SocketIOServer<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData> | null = null;
 
+// Redis clients for cleanup on shutdown
+let redisPubClient: Redis | null = null;
+let redisSubClient: Redis | null = null;
+
 // User socket mapping for direct messaging
 const userSockets = new Map<number, string[]>(); // userId -> socketIds[]
 
@@ -120,9 +124,9 @@ export async function initWebSocket(server: HttpServer): Promise<SocketIOServer>
 
     // Use Redis adapter for multi-instance scaling
     if (redis) {
-        const pubClient = redis.duplicate();
-        const subClient = redis.duplicate();
-        io.adapter(createAdapter(pubClient, subClient));
+        redisPubClient = redis.duplicate();
+        redisSubClient = redis.duplicate();
+        io.adapter(createAdapter(redisPubClient, redisSubClient));
         logger.info("websocket: redis adapter enabled");
     }
 
@@ -295,6 +299,31 @@ export async function initWebSocket(server: HttpServer): Promise<SocketIOServer>
         });
     });
 
+    // Periodic cleanup of stale entries in userSockets map (every 5 min)
+    const cleanupInterval = setInterval(async () => {
+        if (!io) return;
+        try {
+            const allSocketIds = new Set((await io.fetchSockets()).map(s => s.id));
+            let cleaned = 0;
+            for (const [uid, sids] of userSockets.entries()) {
+                const valid = sids.filter(sid => allSocketIds.has(sid));
+                if (valid.length === 0) {
+                    userSockets.delete(uid);
+                    cleaned++;
+                } else if (valid.length !== sids.length) {
+                    userSockets.set(uid, valid);
+                    cleaned++;
+                }
+            }
+            if (cleaned > 0) {
+                logger.debug({ cleaned, remaining: userSockets.size }, "websocket: stale socket cleanup");
+            }
+        } catch (e) {
+            logger.warn({ err: safeError(e) }, "websocket: cleanup failed");
+        }
+    }, 5 * 60 * 1000);
+    cleanupInterval.unref();
+
     logger.info("websocket: server initialized");
     return io;
 }
@@ -342,6 +371,35 @@ export function emitToConversation(conversationId: number, event: keyof ServerTo
 export function broadcast(event: keyof ServerToClientEvents, data: any, tenantId: number): void {
     if (!io) return;
     io.to(`tenant:${tenantId}`).emit(event, data);
+}
+
+/**
+ * Gracefully close WebSocket server: disconnect all clients, close Redis pub/sub.
+ */
+export async function shutdownWebSocket(): Promise<void> {
+    if (!io) return;
+    try {
+        // Disconnect all connected sockets
+        const sockets = await io.fetchSockets();
+        for (const s of sockets) {
+            s.disconnect(true);
+        }
+        userSockets.clear();
+
+        // Close Socket.IO server
+        await new Promise<void>((resolve) => {
+            io!.close(() => resolve());
+        });
+
+        // Close Redis adapter clients
+        if (redisPubClient) { redisPubClient.disconnect(); redisPubClient = null; }
+        if (redisSubClient) { redisSubClient.disconnect(); redisSubClient = null; }
+
+        io = null;
+        logger.info("websocket: server shut down gracefully");
+    } catch (err) {
+        logger.error({ err: safeError(err) }, "websocket: error during shutdown");
+    }
 }
 
 // Emit to users with specific role

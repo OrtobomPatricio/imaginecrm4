@@ -37,7 +37,7 @@ import { assertDbConstraints } from "../services/assert-db";
 import { assertEnv } from "./assert-env";
 import { logger, safeError } from "./logger";
 import { registerTestRoutes } from "./test-routes";
-import { initWebSocket } from "../services/websocket";
+import { initWebSocket, shutdownWebSocket } from "../services/websocket";
 import { validateEnvironment } from "./env-validation";
 import { validateCriticalEnv } from "./env";
 
@@ -217,16 +217,31 @@ export async function createApp() {
   app.get("/api/health", (_req, res) => res.json({ status: "ok", timestamp: new Date().toISOString() }));
   app.get("/healthz", (_req, res) => res.status(200).json({ ok: true }));
   app.get("/readyz", async (_req, res) => {
+    const checks: Record<string, boolean> = { db: false, redis: true };
     try {
       const db = await getDb();
       if (db) {
         await db.execute(sql`SELECT 1`);
-        return res.status(200).json({ ok: true, db: true });
+        checks.db = true;
       }
-      return res.status(503).json({ ok: false, db: false });
-    } catch (_err) {
-      return res.status(503).json({ ok: false, db: false });
+    } catch { /* db check failed */ }
+
+    // Check Redis if configured
+    if (process.env.REDIS_URL) {
+      try {
+        const Redis = (await import("ioredis")).default;
+        const client = new Redis(process.env.REDIS_URL, { lazyConnect: true, connectTimeout: 3000 });
+        await client.connect();
+        await client.ping();
+        client.disconnect();
+        checks.redis = true;
+      } catch {
+        checks.redis = false;
+      }
     }
+
+    const ok = checks.db && checks.redis;
+    return res.status(ok ? 200 : 503).json({ ok, ...checks });
   });
 
   // Prometheus metrics
@@ -391,8 +406,15 @@ async function startServer() {
     }, 10_000);
     forceShutdownTimer.unref();
 
+    // Close WebSocket server and Redis adapter
     try {
-      // Close DB pool
+      await shutdownWebSocket();
+    } catch (e) {
+      logger.error({ err: safeError(e) }, "Error closing WebSocket during shutdown");
+    }
+
+    // Close DB pool
+    try {
       const db = await getDb();
       if (db) {
         const pool = (db as any)?._.pool ?? (db as any)?.$pool;

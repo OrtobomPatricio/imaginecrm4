@@ -47,17 +47,20 @@ export async function getDb() {
 
   try {
     if (!_pool) {
-      logger.info("[Database] Initializing MySQL connection pool...");
+      const isProdPool = process.env.NODE_ENV === "production";
+      const poolSize = Number(process.env.DB_POOL_SIZE || (isProdPool ? "25" : "10"));
+      logger.info({ poolSize }, "[Database] Initializing MySQL connection pool...");
       _pool = mysql.createPool({
         uri: process.env.DATABASE_URL,
         multipleStatements: false,
         waitForConnections: true,
-        connectionLimit: 10,
-        maxIdle: 10,
+        connectionLimit: poolSize,
+        maxIdle: Math.min(poolSize, 10),
         idleTimeout: 60000,
-        queueLimit: 0,
+        queueLimit: isProdPool ? 200 : 0, // Prevent unbounded queue in production
+        connectTimeout: 10000, // 10s connection timeout
         enableKeepAlive: true,
-        keepAliveInitialDelay: 0,
+        keepAliveInitialDelay: 10000, // 10s delay before first keep-alive
         // Enable SSL/TLS only when explicitly requested (DB_SSL=1)
         // Internal Docker connections (e.g. EasyPanel) don't need SSL
         ...(process.env.DB_SSL === "1" ? { ssl: { rejectUnauthorized: true } } : {}),

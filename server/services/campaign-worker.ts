@@ -159,6 +159,9 @@ async function processRunningCampaigns() {
             } else {
                 await processEmailCampaignBatch(campaign);
             }
+        } catch (err) {
+            logger.error({ err: safeError(err), campaignId: campaign.id, tenantId: campaign.tenantId, type: campaign.type },
+                `[CampaignWorker] Batch processing failed for campaign ${campaign.id}`);
         } finally {
             try {
                 await db.execute(sql`SELECT RELEASE_LOCK(CONCAT('campaign_run_', ${campaign.id}))`);

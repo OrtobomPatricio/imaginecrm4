@@ -416,6 +416,7 @@ export const activityLogs = mysqlTable("activity_logs", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (t) => ({
   idxTenantCreated: index("idx_activity_logs_tenant_created").on(t.tenantId, t.createdAt),
+  idxTenantUser: index("idx_activity_logs_tenant_user").on(t.tenantId, t.userId),
 }));
 
 export type ActivityLog = typeof activityLogs.$inferSelect;
@@ -1011,7 +1012,10 @@ export const leadTasks = mysqlTable("lead_tasks", {
   completedAt: timestamp("completedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (t) => ({
+  idxTenantAssigned: index("idx_lead_tasks_tenant_assigned").on(t.tenantId, t.assignedToId, t.status),
+  idxTenantLead: index("idx_lead_tasks_tenant_lead").on(t.tenantId, t.leadId),
+}));
 
 export type LeadTask = typeof leadTasks.$inferSelect;
 export type InsertLeadTask = typeof leadTasks.$inferInsert;
